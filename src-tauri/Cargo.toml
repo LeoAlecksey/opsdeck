@@ -19,7 +19,7 @@ tauri = { version = "2", features = ["unstable"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 portable-pty = "0.9"
-base64 = "0.22"
+base64 = "0.23"
 tokio = { version = "1", features = ["process", "io-util", "sync", "macros", "time", "net"] }
 kube = { version = "4.2", default-features = false, features = ["client", "rustls-tls", "ring", "http-proxy", "runtime"] }
 k8s-openapi = { version = "0.28", features = ["latest"] }
