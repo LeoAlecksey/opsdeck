@@ -126,7 +126,7 @@ jobs:
       - run: npm ci
 
       - name: Build (tauri)
-        uses: tauri-apps/tauri-action@v0
+        uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # подпись обновлений (только релизы): Settings → Secrets and variables → Actions
