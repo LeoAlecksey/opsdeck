@@ -17,6 +17,7 @@ type Tab = { btn: HTMLElement; host: HTMLElement; label: HTMLElement; panes: Pan
 
 const AI_PROVIDERS: Record<string, { program: string; args?: string[] }> = {
   "Claude Code": { program: "claude" },
+  OpenCode: { program: "opencode" },
   Codex: { program: "codex" },
   Gemini: { program: "gemini" },
   Aider: { program: "aider" },
@@ -476,7 +477,7 @@ export function mountTerminal(root: HTMLElement) {
     ideEl.title = n ? "Claude Code подключён к OpsDeck: видит выделение в заметках, @-упоминания" : "";
   };
   listen<number>("ide-status", (e) => setIde(e.payload));
-  invoke<{ clients: number }>("ide_status").then((s) => setIde(s.clients)).catch(() => {});
+  invoke<{ clients: number }>("ide_status").then((s) => setIde(s.clients)).catch(() => { });
 
   // ----- wiring -----
 

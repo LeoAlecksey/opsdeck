@@ -35,7 +35,9 @@ pub struct Stats {
 
 /// ControlPath shared by OpsDeck's ssh sessions and the probe (%C = hash of host/port/user).
 pub fn control_path() -> Option<String> {
-    let dir = crate::store::config_dir().ok()?.join("run");
+    let base = dirs::runtime_dir()
+        .unwrap_or_else(|| dirs::home_dir().unwrap_or_default().join(".opsdeck"));
+    let dir = base.join("run");
     std::fs::create_dir_all(&dir).ok()?;
     crate::store::restrict(&dir, 0o700).ok()?;
     Some(dir.join("ssh-%C").to_string_lossy().into_owned())
@@ -48,9 +50,12 @@ pub fn ssh_master_opts() -> Vec<String> {
     }
     match control_path() {
         Some(cp) => vec![
-            "-o".into(), "ControlMaster=auto".into(),
-            "-o".into(), format!("ControlPath={cp}"),
-            "-o".into(), "ControlPersist=60".into(),
+            "-o".into(),
+            "ControlMaster=auto".into(),
+            "-o".into(),
+            format!("ControlPath=\"{cp}\""),
+            "-o".into(),
+            "ControlPersist=60".into(),
         ],
         None => Vec::new(),
     }
@@ -86,8 +91,12 @@ fn local(state: &SysState) -> Stats {
         mem_total: sys.total_memory(),
         swap_used: sys.used_swap(),
         swap_total: sys.total_swap(),
-        disk_mount: disk.map(|d| d.mount_point().to_string_lossy().into_owned()).unwrap_or_default(),
-        disk_used: disk.map(|d| d.total_space() - d.available_space()).unwrap_or(0),
+        disk_mount: disk
+            .map(|d| d.mount_point().to_string_lossy().into_owned())
+            .unwrap_or_default(),
+        disk_used: disk
+            .map(|d| d.total_space() - d.available_space())
+            .unwrap_or(0),
         disk_total: disk.map(|d| d.total_space()).unwrap_or(0),
         uptime: System::uptime(),
     }
@@ -134,41 +143,67 @@ pub async fn sys_remote(state: State<'_, SysState>, args: Vec<String>) -> Result
     let key = args.join(" ");
     let cp = control_path().ok_or("no control path")?;
     let mut cmd = tokio::process::Command::new("ssh");
-    cmd.args(["-o", "ControlMaster=no", "-o", &format!("ControlPath={cp}"), "-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-T"])
-        .args(&args)
-        .arg(PROBE)
-        .stdin(std::process::Stdio::null())
-        .kill_on_drop(true);
+    cmd.args([
+        "-o",
+        "ControlMaster=no",
+        "-o",
+        &format!("ControlPath=\"{cp}\""),
+        "-o",
+        "BatchMode=yes",
+        "-o",
+        "ConnectTimeout=5",
+        "-T",
+    ])
+    .args(&args)
+    .arg(PROBE)
+    .stdin(std::process::Stdio::null())
+    .kill_on_drop(true);
     let out = tokio::time::timeout(Duration::from_secs(8), cmd.output())
         .await
         .map_err(|_| "удалённая машина не ответила за 8 с".to_string())?
         .map_err(err)?;
     if !out.status.success() {
         let e = String::from_utf8_lossy(&out.stderr);
-        return Err(if e.contains("Permission denied") || e.contains("batch mode") || e.contains("Control socket") {
-            "нет общего соединения — метрики появятся для сессий, открытых в OpsDeck".into()
-        } else {
-            e.lines().last().unwrap_or("ssh error").to_string()
-        });
+        return Err(
+            if e.contains("Permission denied")
+                || e.contains("batch mode")
+                || e.contains("Control socket")
+            {
+                "нет общего соединения — метрики появятся для сессий, открытых в OpsDeck".into()
+            } else {
+                e.lines().last().unwrap_or("ssh error").to_string()
+            },
+        );
     }
     let text = String::from_utf8_lossy(&out.stdout);
     let parts: Vec<&str> = text.split("---\n").collect();
     if parts.len() < 7 {
         return Err("не Linux или нет /proc".into());
     }
-    let nums = |s: &str| s.split_whitespace().filter_map(|x| x.parse::<f64>().ok()).collect::<Vec<_>>();
+    let nums = |s: &str| {
+        s.split_whitespace()
+            .filter_map(|x| x.parse::<f64>().ok())
+            .collect::<Vec<_>>()
+    };
     let l = nums(parts[0]);
     let mut meminfo: HashMap<&str, u64> = HashMap::new();
     for line in parts[2].lines() {
         let mut f = line.split_whitespace();
         if let (Some(k), Some(v)) = (f.next(), f.next()) {
-            meminfo.insert(k.trim_end_matches(':'), v.parse::<u64>().unwrap_or(0) * 1024);
+            meminfo.insert(
+                k.trim_end_matches(':'),
+                v.parse::<u64>().unwrap_or(0) * 1024,
+            );
         }
     }
     let df: Vec<&str> = parts[3].split_whitespace().collect();
     let kb = |i: usize| df.get(i).and_then(|v| v.parse::<u64>().ok()).unwrap_or(0) * 1024;
     // cpu  user nice system idle iowait irq softirq steal …
-    let cpu_fields: Vec<u64> = parts[4].split_whitespace().skip(1).filter_map(|v| v.parse().ok()).collect();
+    let cpu_fields: Vec<u64> = parts[4]
+        .split_whitespace()
+        .skip(1)
+        .filter_map(|v| v.parse().ok())
+        .collect();
     let total: u64 = cpu_fields.iter().sum();
     let idle = cpu_fields.get(3).copied().unwrap_or(0) + cpu_fields.get(4).copied().unwrap_or(0);
     let busy = total.saturating_sub(idle);
@@ -193,10 +228,12 @@ pub async fn sys_remote(state: State<'_, SysState>, args: Vec<String>) -> Result
         mem_total,
         swap_used: swap_total.saturating_sub(meminfo.get("SwapFree").copied().unwrap_or(0)),
         swap_total,
-        disk_mount: df.get(5).map(|s| s.to_string()).unwrap_or_else(|| "/".into()),
+        disk_mount: df
+            .get(5)
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| "/".into()),
         disk_used: kb(2),
         disk_total: kb(1),
         uptime: parts[6].trim().parse::<f64>().unwrap_or(0.0) as u64,
     })
 }
-

@@ -6,7 +6,7 @@ export const HELP_EN: Record<string, { title: string; html: string }> = {
     title: "Terminal & AI",
     html: `
       <h4>How it works</h4>
-      <p>Every tab is a real shell (bash/zsh) with OpsDeck integration: each command becomes a <b>block</b> with its exit code and duration. On the right is the AI panel: Claude Code (or Codex/Gemini/Aider) runs there in its own terminal.</p>
+      <p>Every tab is a real shell (bash/zsh) with OpsDeck integration: each command becomes a <b>block</b> with its exit code and duration. On the right is the AI panel: Claude Code (or OpenCode/Codex/Gemini/Aider) runs there in its own terminal.</p>
       <h4>What's where</h4>
       <ul>
         <li><b>＋</b> — new tab (opens in the same folder), <b>◫ / ⊟</b> — split right / down. When there are more tabs than fit, scroll the tab bar with the mouse wheel.</li>

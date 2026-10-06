@@ -29,12 +29,19 @@ impl Recording {
     /// Terminal output → readable text: escape sequences removed, CRLF → LF, bare CR dropped.
     fn write(&mut self, bytes: &[u8]) {
         let plain = strip_ansi_escapes::strip(bytes);
-        let text: Vec<u8> = plain.into_iter().filter(|&b| b != b'\r' && (b >= 0x20 || b == b'\n' || b == b'\t')).collect();
+        let text: Vec<u8> = plain
+            .into_iter()
+            .filter(|&b| b != b'\r' && (b >= 0x20 || b == b'\n' || b == b'\t'))
+            .collect();
         let _ = self.file.write_all(&text);
         let _ = self.file.flush();
     }
     fn finish(mut self) -> std::path::PathBuf {
-        let _ = writeln!(self.file, "\n# --- запись остановлена {} ---", chrono::Local::now().format("%Y-%m-%d %H:%M:%S"));
+        let _ = writeln!(
+            self.file,
+            "\n# --- запись остановлена {} ---",
+            chrono::Local::now().format("%Y-%m-%d %H:%M:%S")
+        );
         let _ = self.file.flush();
         self.path
     }
@@ -63,19 +70,24 @@ fn err(e: impl std::fmt::Display) -> String {
 #[tauri::command]
 pub fn pty_spawn(app: AppHandle, state: State<PtyState>, req: SpawnRequest) -> Result<(), String> {
     let pair = native_pty_system()
-        .openpty(PtySize { rows: req.rows, cols: req.cols, pixel_width: 0, pixel_height: 0 })
+        .openpty(PtySize {
+            rows: req.rows,
+            cols: req.cols,
+            pixel_width: 0,
+            pixel_height: 0,
+        })
         .map_err(err)?;
 
     let plain_shell = req.program.is_none();
-    let program = req
-        .program
-        .unwrap_or_else(default_shell);
+    let program = req.program.unwrap_or_else(default_shell);
     let mut cmd = CommandBuilder::new(&program);
     if plain_shell {
         // best effort: without integration the tab still works, just without command blocks
         let _ = shell_integration(&program, &mut cmd);
     }
-    let is_ssh = std::path::Path::new(&program).file_stem().is_some_and(|n| n == "ssh");
+    let is_ssh = std::path::Path::new(&program)
+        .file_stem()
+        .is_some_and(|n| n == "ssh");
     if is_ssh {
         // lets the resource bar reuse this session's connection (see sysmon.rs)
         cmd.args(crate::sysmon::ssh_master_opts());
@@ -88,6 +100,9 @@ pub fn pty_spawn(app: AppHandle, state: State<PtyState>, req: SpawnRequest) -> R
     cmd.env("TERM", "xterm-256color");
     cmd.env("COLORTERM", "truecolor");
     cmd.env("TERM_PROGRAM", "OpsDeck");
+    if let Ok(path) = std::env::var("PATH") {
+        cmd.env("PATH", path);
+    }
     if let Some(port) = crate::ide::port() {
         // lets `claude` started in this terminal find OpsDeck's IDE bridge
         cmd.env("CLAUDE_CODE_SSE_PORT", port.to_string());
@@ -124,16 +139,23 @@ pub fn pty_spawn(app: AppHandle, state: State<PtyState>, req: SpawnRequest) -> R
             }
         }
         if let Some(r) = rec.lock().unwrap().take() {
-            let _ = app.emit(&format!("pty-record-{id}"), r.finish().to_string_lossy().into_owned());
+            let _ = app.emit(
+                &format!("pty-record-{id}"),
+                r.finish().to_string_lossy().into_owned(),
+            );
         }
         let _ = app.emit(&format!("pty-exit-{id}"), ());
     });
 
-    state
-        .sessions
-        .lock()
-        .unwrap()
-        .insert(req.id, Session { master: pair.master, writer, child, recorder });
+    state.sessions.lock().unwrap().insert(
+        req.id,
+        Session {
+            master: pair.master,
+            writer,
+            child,
+            recorder,
+        },
+    );
     Ok(())
 }
 
@@ -153,7 +175,10 @@ const ZSH_RC: &str = include_str!("../shell/zshrc");
 fn shell_integration(program: &str, cmd: &mut CommandBuilder) -> Result<(), String> {
     let dir = crate::store::config_dir()?.join("shell");
     std::fs::create_dir_all(&dir).map_err(err)?;
-    match std::path::Path::new(program).file_name().and_then(|n| n.to_str()) {
+    match std::path::Path::new(program)
+        .file_name()
+        .and_then(|n| n.to_str())
+    {
         Some("bash") => {
             let rc = dir.join("bash-integration.sh");
             std::fs::write(&rc, BASH_SI).map_err(err)?;
@@ -169,6 +194,9 @@ fn shell_integration(program: &str, cmd: &mut CommandBuilder) -> Result<(), Stri
             }
             cmd.env("OPSDECK_SI_DIR", &zdir);
             cmd.env("ZDOTDIR", &zdir);
+            if cfg!(target_os = "macos") {
+                cmd.arg("-l");
+            }
         }
         _ => return Ok(()),
     }
@@ -191,7 +219,12 @@ pub fn pty_resize(state: State<PtyState>, id: String, cols: u16, rows: u16) -> R
     let sessions = state.sessions.lock().unwrap();
     let s = sessions.get(&id).ok_or("no such pty")?;
     s.master
-        .resize(PtySize { rows, cols, pixel_width: 0, pixel_height: 0 })
+        .resize(PtySize {
+            rows,
+            cols,
+            pixel_width: 0,
+            pixel_height: 0,
+        })
         .map_err(err)
 }
 
@@ -210,7 +243,9 @@ pub fn pty_kill(state: State<PtyState>, id: String) -> Result<(), String> {
 }
 
 fn records_dir() -> Result<std::path::PathBuf, String> {
-    let base = dirs::document_dir().or_else(dirs::home_dir).ok_or("no home dir")?;
+    let base = dirs::document_dir()
+        .or_else(dirs::home_dir)
+        .ok_or("no home dir")?;
     let dir = base.join("OpsDeck").join("sessions");
     std::fs::create_dir_all(&dir).map_err(err)?;
     Ok(dir)
@@ -218,7 +253,11 @@ fn records_dir() -> Result<std::path::PathBuf, String> {
 
 /// Start writing this terminal's output to a text file; returns its path.
 #[tauri::command]
-pub fn pty_record_start(state: State<PtyState>, id: String, title: String) -> Result<String, String> {
+pub fn pty_record_start(
+    state: State<PtyState>,
+    id: String,
+    title: String,
+) -> Result<String, String> {
     let sessions = state.sessions.lock().unwrap();
     let s = sessions.get(&id).ok_or("no such pty")?;
     let mut rec = s.recorder.lock().unwrap();
@@ -226,13 +265,34 @@ pub fn pty_record_start(state: State<PtyState>, id: String, title: String) -> Re
         return Ok(r.path.to_string_lossy().into_owned());
     }
     let now = chrono::Local::now();
-    let safe: String = title.chars().map(|c| if c.is_alphanumeric() || matches!(c, '-' | '_' | '.') { c } else { '_' }).take(40).collect();
-    let path = records_dir()?.join(format!("{}_{}.log", now.format("%Y-%m-%d_%H-%M-%S"), safe.trim_matches('_')));
+    let safe: String = title
+        .chars()
+        .map(|c| {
+            if c.is_alphanumeric() || matches!(c, '-' | '_' | '.') {
+                c
+            } else {
+                '_'
+            }
+        })
+        .take(40)
+        .collect();
+    let path = records_dir()?.join(format!(
+        "{}_{}.log",
+        now.format("%Y-%m-%d_%H-%M-%S"),
+        safe.trim_matches('_')
+    ));
     let file = std::fs::File::create(&path).map_err(err)?;
     crate::store::restrict(&path, 0o600)?;
     let mut file = std::io::BufWriter::new(file);
-    let _ = writeln!(file, "# OpsDeck — запись терминала «{title}», начата {}\n", now.format("%Y-%m-%d %H:%M:%S"));
-    *rec = Some(Recording { file, path: path.clone() });
+    let _ = writeln!(
+        file,
+        "# OpsDeck — запись терминала «{title}», начата {}\n",
+        now.format("%Y-%m-%d %H:%M:%S")
+    );
+    *rec = Some(Recording {
+        file,
+        path: path.clone(),
+    });
     Ok(path.to_string_lossy().into_owned())
 }
 
@@ -295,7 +355,9 @@ fn from_shell() -> Option<Vec<String>> {
     loop {
         match child.try_wait() {
             Ok(Some(_)) => break,
-            Ok(None) if std::time::Instant::now() < deadline => std::thread::sleep(Duration::from_millis(50)),
+            Ok(None) if std::time::Instant::now() < deadline => {
+                std::thread::sleep(Duration::from_millis(50))
+            }
             _ => {
                 let _ = child.kill();
                 let _ = child.wait();
@@ -304,7 +366,13 @@ fn from_shell() -> Option<Vec<String>> {
         }
     }
     let text = reader.join().ok()?;
-    Some(text.lines().map(str::trim).filter(|l| !l.is_empty()).map(String::from).collect())
+    Some(
+        text.lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty())
+            .map(String::from)
+            .collect(),
+    )
 }
 
 #[cfg(not(unix))]
@@ -314,11 +382,17 @@ fn from_shell() -> Option<Vec<String>> {
 
 fn path_commands() -> Vec<String> {
     let exts: Vec<String> = if cfg!(windows) {
-        std::env::var("PATHEXT").unwrap_or(".EXE;.CMD;.BAT;.PS1".into()).split(';').map(|e| e.to_lowercase()).collect()
+        std::env::var("PATHEXT")
+            .unwrap_or(".EXE;.CMD;.BAT;.PS1".into())
+            .split(';')
+            .map(|e| e.to_lowercase())
+            .collect()
     } else {
         Vec::new()
     };
-    let Some(path) = std::env::var_os("PATH") else { return Vec::new() };
+    let Some(path) = std::env::var_os("PATH") else {
+        return Vec::new();
+    };
     std::env::split_paths(&path)
         .filter_map(|d| std::fs::read_dir(d).ok())
         .flatten()
@@ -327,7 +401,9 @@ fn path_commands() -> Vec<String> {
             let name = e.file_name().to_string_lossy().into_owned();
             if cfg!(windows) {
                 let lower = name.to_lowercase();
-                exts.iter().find(|x| lower.ends_with(x.as_str())).map(|x| name[..name.len() - x.len()].to_string())
+                exts.iter()
+                    .find(|x| lower.ends_with(x.as_str()))
+                    .map(|x| name[..name.len() - x.len()].to_string())
             } else {
                 Some(name)
             }
