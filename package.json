@@ -47,7 +47,8 @@
     "@tauri-apps/cli": "^2",
     "typescript": "^5.6.0",
     "vite": "^6.0.0",
-    "vitest": "^5.0.3"
+    "vitest": "^5.0.3",
+    "webdriverio": "^10.0.1"
   },
   "description": "Desktop cockpit for DevOps engineers: Warp-style terminal with AI, Kubernetes, embedded Grafana/ArgoCD/GitLab, alerts, KeePass, SSH, MikroTik, notes",
   "license": "MIT",
