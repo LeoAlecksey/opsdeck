@@ -149,9 +149,6 @@ jobs:
   # the real app: real backend and real shell, driven through tauri-driver
   e2e:
     name: tests e2e ${{ matrix.os }}
-    # Windows: msedgedriver does not attach to the WebView2 yet ("DevToolsActivePort file doesn't
-    # exist") — reported, but does not block a release until that is solved
-    continue-on-error: ${{ matrix.os == 'windows-latest' }}
     strategy:
       fail-fast: false
       matrix:
@@ -193,6 +190,18 @@ jobs:
           OPSDECK_BIN: src-tauri/target/debug/opsdeck
         run: |
           xvfb-run -a bash -c 'tauri-driver & sleep 2; node --test tests/e2e/app.test.mjs'
+      - name: Does the app start? (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $p = Start-Process -FilePath "src-tauri/target/debug/opsdeck.exe" -PassThru -RedirectStandardOutput app-out.txt -RedirectStandardError app-err.txt
+          Start-Sleep -Seconds 15
+          if ($p.HasExited) { "EXITED with code $($p.ExitCode)" } else { "running after 15 s"; Stop-Process -Id $p.Id -Force }
+          "--- stdout"; Get-Content app-out.txt -ErrorAction SilentlyContinue | Select-Object -Last 40
+          "--- stderr"; Get-Content app-err.txt -ErrorAction SilentlyContinue | Select-Object -Last 40
+          "--- app log"; Get-ChildItem "$env:LOCALAPPDATA\dev.opsdeck.app\logs" -ErrorAction SilentlyContinue | ForEach-Object { Get-Content $_.FullName | Select-Object -Last 40 }
+          "--- WebView2"; Get-ItemProperty "HKLM:\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}" -ErrorAction SilentlyContinue | Select-Object -ExpandProperty pv
+          "--- msedgedriver"; msedgedriver.exe --version
       - name: Run (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
