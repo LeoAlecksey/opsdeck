@@ -46,7 +46,7 @@
       "icons/icon.ico"
     ],
     "category": "DeveloperTool",
-    "shortDescription": "DevOps-панель: терминал с AI, Kubernetes, веб-панели, алерты, KeePass, SSH",
+    "shortDescription": "DevOps cockpit: terminal with local AI, Kubernetes, SSH, databases, notes, KeePass",
     "linux": {
       "deb": {
         "depends": [
@@ -57,7 +57,12 @@
     },
     "macOS": {
       "signingIdentity": "-"
-    }
+    },
+    "longDescription": "OpsDeck is a free open-source desktop app for DevOps engineers: a terminal with a local AI assistant, Kubernetes, SSH, databases, an IDE with git, alerts, notes with tasks and KeePass in one window.",
+    "license": "MIT",
+    "homepage": "https://leoalecksey.github.io/opsdeck/",
+    "publisher": "LeoAlecksey",
+    "copyright": "Copyright (c) LeoAlecksey and contributors, MIT License"
   },
   "plugins": {
     "updater": {
