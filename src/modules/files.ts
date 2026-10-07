@@ -1,3 +1,4 @@
+import { relTo } from "./paths";
 import { fileIcon, folderIcon } from "./fileicons";
 import { icon } from "./icons";
 import { invoke } from "@tauri-apps/api/core";
@@ -169,7 +170,7 @@ export function mountFiles(panel: HTMLElement, host: FilesHost) {
       : "";
   }
 
-  const rel = (abs: string) => (git.root && abs.startsWith(git.root + "/") ? abs.slice(git.root.length + 1) : "");
+  const rel = (abs: string) => relTo(git.root, abs) ?? "";
   const gitClass = (abs: string, dir: boolean) => {
     const r = rel(abs);
     if (!r) return "";

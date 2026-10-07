@@ -1,3 +1,4 @@
+import { relTo } from "./paths";
 import { eolOf, toLf, withEol, type Eol } from "./eol";
 import { locale } from "../i18n";
 import { helpBtn } from "./help";
@@ -36,7 +37,7 @@ import { nginx } from "@codemirror/legacy-modes/mode/nginx";
 import { parseAllDocuments } from "yaml";
 
 type Entry = { name: string; dir: boolean; link: boolean; size: number };
-type Git = { root: string; branch: string; files: Record<string, string> };
+type Git = { root: string; branch: string; files: Record<string, string>; error?: string };
 type Commit = { hash: string; parents: string[]; refs: string[]; author: string; time: number; subject: string };
 type Branch = { name: string; upstream: string; track: string; time: number; subject: string };
 type Branches = { current: string; local: Branch[]; remote: Branch[] };
@@ -369,7 +370,7 @@ export function mountCode(root: HTMLElement) {
   async function readDir(dir: string) {
     listing.set(dir, await invoke<Entry[]>("fs_list", { path: dir, hidden: true }).catch((e) => String(e)));
   }
-  const relToGit = (abs: string) => (git.root && abs.startsWith(git.root + "/") ? abs.slice(git.root.length + 1) : null);
+  const relToGit = (abs: string) => { const r = relTo(git.root, abs); return r ? r : null; };
   const HIDE = new Set([".git", "node_modules", "target", ".terraform", "dist", "__pycache__", ".venv", ".idea", ".vscode"]);
 
   function statusOf(abs: string, dir: boolean): string {
@@ -489,10 +490,11 @@ export function mountCode(root: HTMLElement) {
   }
 
   function drawChanges() {
-    $(".cg-branch").textContent = git.root ? git.branch || "detached" : "не git-репозиторий";
+    $(".cg-branch").textContent = git.root ? git.branch || "detached" : git.error ? "git недоступен" : "не git-репозиторий";
+    $(".cg-branch").closest<HTMLElement>("button")!.title = git.error || "Ветки: переключить, создать, слить, удалить";
     $(".cg-commit-box").hidden = !git.root || !Object.keys(git.files).length;
     const files = Object.entries(git.files).sort(([a], [b]) => a.localeCompare(b));
-    $(".cg-changes").innerHTML = !git.root ? "" : files.length
+    $(".cg-changes").innerHTML = !git.root ? (git.error ? `<p class="err pad">${esc(git.error)}</p>` : "") : files.length
       ? files.map(([f, code]) => `<div class="cg-file ${stClass(code)}" data-file="${esc(f)}" title="${esc(f)} — показать изменения">
           <span class="ct-st">${esc(code.trim() || "M")}</span><span class="ct-ico">${fileIcon(f)}</span><span class="tree-label">${esc(base(f))}</span><span class="cg-dir muted">${esc(f.includes("/") ? f.slice(0, f.lastIndexOf("/")) : "")}</span></div>`).join("")
       : `<p class="muted pad">чисто ✓</p>`;

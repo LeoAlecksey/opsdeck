@@ -61,6 +61,9 @@ pub struct GitStatus {
     branch: String,
     /// path relative to root → two-letter porcelain code ("M ", " M", "??", "A ", "D ", …)
     files: HashMap<String, String>,
+    /// why there is no repo when it is not simply "not a repository" (git missing, unsafe folder)
+    #[serde(skip_serializing_if = "String::is_empty")]
+    error: String,
 }
 
 /// `git status` for the repo containing `path` (nothing if git is missing or it's not a repo).
@@ -74,7 +77,19 @@ pub async fn fs_git_status(path: String) -> GitStatus {
             process::no_console(&mut cmd);
             cmd.output().ok().filter(|o| o.status.success())
         };
-        let Some(root) = git(&["rev-parse", "--show-toplevel"]) else { return GitStatus::default() };
+        let Some(root) = git(&["rev-parse", "--show-toplevel"]) else {
+            // say why, when it is not just "not a repository"
+            let mut cmd = Command::new("git");
+            cmd.arg("-C").arg(&dir).args(["rev-parse", "--show-toplevel"]).stdin(Stdio::null());
+            process::no_console(&mut cmd);
+            let error = match cmd.output() {
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => "git не найден — установите Git (на Windows: Git for Windows) и перезапустите OpsDeck".to_string(),
+                Ok(o) if String::from_utf8_lossy(&o.stderr).contains("dubious ownership") =>
+                    "git не доверяет этой папке (dubious ownership): выполните git config --global --add safe.directory <папка>".to_string(),
+                _ => String::new(),
+            };
+            return GitStatus { error, ..Default::default() };
+        };
         let root = String::from_utf8_lossy(&root.stdout).trim().to_string();
         let mut st = GitStatus { root, ..Default::default() };
         let Some(out) = git(&["status", "--porcelain=v1", "-b", "-z", "--untracked-files=normal"]) else { return st };

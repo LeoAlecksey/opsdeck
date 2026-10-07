@@ -109,6 +109,19 @@ test.describe("IDE", () => {
   });
 });
 
+test.describe("IDE git on Windows", () => {
+  test("git paths C:/… match the project's C:\\… paths; a missing git is reported", async ({ app, page }) => {
+    await app.override("fs_git_status", { root: "C:/Users/demo/infra", branch: "main", files: { "main.tf": " M" } });
+    await app.override("fs_list", [{ name: "main.tf", dir: false, link: false, size: 10 }]);
+    await app.view("code");
+    await page.evaluate(() => window.dispatchEvent(new CustomEvent("open-in-code", { detail: { path: "C:\\Users\\demo\\infra" } })));
+    await expect(page.locator(".code-tree .ct-st, [class*=ct-] .ct-st").first()).toHaveText("M");
+    await app.override("fs_git_status", { root: "", branch: "", files: {}, error: "git не найден — установите Git (на Windows: Git for Windows) и перезапустите OpsDeck" });
+    await page.locator("[data-a=git-toggle]").click();
+    await expect(page.locator(".cg-branch")).toHaveText("git недоступен");
+  });
+});
+
 test.describe("IDE line endings", () => {
   test("a Windows file opens clean and is saved with its own line endings", async ({ app, page }) => {
     await app.override("code_read", { text: "a = 1\r\nb = 2\r\n", mtime: 1 });
