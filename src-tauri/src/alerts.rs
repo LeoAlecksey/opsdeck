@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{
     collections::{BTreeMap, HashMap, HashSet, VecDeque},
-    sync::Mutex,
+    sync::{LazyLock, Mutex},
     time::Duration,
 };
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -451,6 +451,37 @@ async fn zabbix_call(
     Ok(v["result"].clone())
 }
 
+/// Sessions of user.login by API URL and user: signing in at every poll would leave a new session
+/// on the server every minute.
+static ZABBIX_SESSIONS: LazyLock<Mutex<HashMap<String, String>>> = LazyLock::new(Default::default);
+
+async fn zabbix_login(
+    client: &reqwest::Client,
+    url: &str,
+    header: bool,
+    user: &str,
+    pass: &str,
+) -> Result<String, String> {
+    let r = zabbix_call(
+        client,
+        url,
+        "",
+        header,
+        "user.login",
+        serde_json::json!({ "username": user, "password": pass }),
+    )
+    .await?;
+    let session = r
+        .as_str()
+        .ok_or("Zabbix не вернул сессию после входа")?
+        .to_string();
+    ZABBIX_SESSIONS
+        .lock()
+        .unwrap()
+        .insert(format!("{url}\n{user}"), session.clone());
+    Ok(session)
+}
+
 async fn fetch_zabbix(client: &reqwest::Client, c: &connectors::Connector, user: &str, pass: &str) -> Result<Vec<Alert>, String> {
     let url = zabbix_api(c.url.trim_end_matches('/'));
     if pass.is_empty() {
@@ -467,24 +498,37 @@ async fn fetch_zabbix(client: &reqwest::Client, c: &connectors::Connector, user:
     )
     .await?;
     let header = zabbix_token_in_header(&s(&version));
-    let token = if c.auth == "token" {
-        pass.to_string()
+    let kept = if c.auth == "token" {
+        None
     } else {
-        let r = zabbix_call(
-            client,
-            &url,
-            "",
-            header,
-            "user.login",
-            serde_json::json!({ "username": user, "password": pass }),
-        )
-        .await?;
-        r.as_str().ok_or("Zabbix не вернул сессию после входа")?.to_string()
+        ZABBIX_SESSIONS
+            .lock()
+            .unwrap()
+            .get(&format!("{url}\n{user}"))
+            .cloned()
     };
-    let problems = zabbix_call(client, &url, &token, header, "problem.get", serde_json::json!({
+    let mut token = match (c.auth == "token", &kept) {
+        (true, _) => pass.to_string(),
+        (false, Some(session)) => session.clone(),
+        (false, None) => zabbix_login(client, &url, header, user, pass).await?,
+    };
+    let query = serde_json::json!({
         "output": ["eventid", "objectid", "name", "severity", "clock", "suppressed"],
         "selectTags": "extend", "recent": false, "sortfield": ["eventid"], "sortorder": "DESC", "limit": 1000
-    })).await?;
+    });
+    let problems = match zabbix_call(client, &url, &token, header, "problem.get", query.clone())
+        .await
+    {
+        // a kept session ends with auto-logout or a server restart ("Session terminated,
+        // re-login, please."): sign in again, once
+        Err(e)
+            if kept.is_some() && (e.contains("re-login") || e.starts_with("Zabbix не принял")) =>
+        {
+            token = zabbix_login(client, &url, header, user, pass).await?;
+            zabbix_call(client, &url, &token, header, "problem.get", query).await?
+        }
+        r => r?,
+    };
     let ids: Vec<String> = problems.as_array().into_iter().flatten().map(|p| s(&p["eventid"])).collect();
     let events = if ids.is_empty() {
         Value::Array(Vec::new())
