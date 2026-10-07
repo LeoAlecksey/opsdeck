@@ -28,6 +28,20 @@ test.describe("notes", () => {
     expect((await app.called("note_write")).args.content as string).toContain("Новая строка");
   });
 
+  test("a note with Windows line endings is not 'unsaved' after just viewing it, and keeps them", async ({ app, page }) => {
+    await app.override("note_read", "# Attenuator\r\n\r\nWindows line endings.\r\n");
+    const open = (path: string) => page.evaluate((p) => window.dispatchEvent(new CustomEvent("open-note", { detail: { path: p } })), path);
+    await open("runbooks/attenuator.md");
+    await expect(page.locator(".note-view")).toContainText("Windows line endings");
+    await open("k8s/Полезные команды kubectl.md");
+    await expect(page.locator("dialog.ask"), "no 'unsaved changes' question").toHaveCount(0);
+    await page.locator("[data-m=edit]").click();
+    await page.locator(".note-editor").press("End");
+    await page.locator(".note-editor").pressSequentially("\nx");
+    await page.keyboard.press("Control+KeyS");
+    expect((await app.called("note_write")).args.content).toBe("# Attenuator\r\n\r\nWindows line endings.\r\n\r\nx");
+  });
+
   test("the vault menu lists vaults", async ({ page }) => {
     await page.locator(".vault-btn").click();
     await expect(page.locator(".vault-menu")).toContainText("work");
@@ -90,6 +104,24 @@ test.describe("IDE", () => {
     await page.keyboard.type("# changed\n");
     await page.keyboard.press("Control+KeyS");
     await app.called("code_write");
+  });
+});
+
+test.describe("IDE line endings", () => {
+  test("a Windows file opens clean and is saved with its own line endings", async ({ app, page }) => {
+    await app.override("code_read", { text: "a = 1\r\nb = 2\r\n", mtime: 1 });
+    await app.override("code_write", 2);
+    await app.view("code");
+    await page.evaluate(() => window.dispatchEvent(new CustomEvent("open-in-code", { detail: { path: "/home/demo/projects/infra/win.tf" } })));
+    const tab = page.locator(".code-tab", { hasText: "win.tf" });
+    await expect(page.locator(".cm-content")).toContainText("b = 2");
+    await expect(tab).not.toHaveClass(/dirty/);
+    await page.locator(".cm-content").click();
+    await page.keyboard.press("Control+End");
+    await page.keyboard.type("c = 3");
+    await expect(tab).toHaveClass(/dirty/);
+    await page.keyboard.press("Control+KeyS");
+    expect((await app.called("code_write")).args.text).toBe("a = 1\r\nb = 2\r\nc = 3");
   });
 });
 

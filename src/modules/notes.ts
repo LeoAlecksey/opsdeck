@@ -1,3 +1,4 @@
+import { eolOf, toLf, withEol, type Eol } from "./eol";
 import { t as i18nT } from "../i18n";
 import { helpBtn } from "./help";
 import { icon } from "./icons";
@@ -60,6 +61,7 @@ export function mountNotes(root: HTMLElement) {
   let vault: Vault | null = null;
   let current: string | null = null;
   let saved = "";
+  let eol: Eol = "\n"; // the open note's line endings, kept on save
   let mode: "edit" | "view" = (localStorage.getItem("opsdeck.notes.mode") as "edit" | "view") ?? "view";
 
   const dirty = () => current !== null && editor.value !== saved;
@@ -215,7 +217,8 @@ export function mountNotes(root: HTMLElement) {
     try {
       const text = await invoke<string>("note_read", { path });
       current = path;
-      saved = text;
+      eol = eolOf(text);
+      saved = toLf(text);
       if (!q.value.trim()) { reveal(path); drawList(); }
       editor.value = text;
       $(".note-path").textContent = path.replace(/\.md$/, "");
@@ -342,7 +345,7 @@ export function mountNotes(root: HTMLElement) {
   async function save() {
     if (!current || !dirty()) return;
     try {
-      await invoke("note_write", { path: current, content: editor.value });
+      await invoke("note_write", { path: current, content: withEol(editor.value, eol) });
       saved = editor.value;
       markDirty();
       toast("Сохранено");

@@ -1,3 +1,4 @@
+import { eolOf, toLf, withEol, type Eol } from "./eol";
 import { locale } from "../i18n";
 import { helpBtn } from "./help";
 import { icon } from "./icons";
@@ -48,6 +49,8 @@ type Tab = {
   path: string | null;
   state: EditorState;
   saved: string;
+  /** the file's line endings: the editor works in "\n", saving writes these back */
+  eol: Eol;
   mtime: number;
   readonly: boolean;
   btn: HTMLElement;
@@ -282,7 +285,7 @@ export function mountCode(root: HTMLElement) {
     btn.title = path ?? title;
     tabsEl.appendChild(btn);
     const lang = langOverride ?? (path ? languageFor(path).ext : []);
-    const t: Tab = { id, title, path, saved: text, mtime, readonly, btn, state: EditorState.create({ doc: text, extensions: extensionsFor({ path, readonly, lang }) }) };
+    const t: Tab = { id, title, path, saved: toLf(text), eol: eolOf(text), mtime, readonly, btn, state: EditorState.create({ doc: toLf(text), extensions: extensionsFor({ path, readonly, lang }) }) };
     btn.onclick = () => activate(t);
     btn.onauxclick = (e) => { if (e.button === 1) closeTab(t); };
     btn.querySelector<HTMLElement>(".x")!.onclick = (e) => { e.stopPropagation(); closeTab(t); };
@@ -349,7 +352,7 @@ export function mountCode(root: HTMLElement) {
     if (isTf(t.path) && tfTool !== "") await fmt(); // format on save; a syntax error still saves as is
     const text = view.state.doc.toString();
     try {
-      t.mtime = await invoke<number>("code_write", { path: t.path, text, expectMtime: t.mtime || null, force });
+      t.mtime = await invoke<number>("code_write", { path: t.path, text: withEol(text, t.eol), expectMtime: t.mtime || null, force });
       t.saved = text;
       markDirty(t);
       toast(`Сохранено: ${t.title}`);
@@ -606,11 +609,12 @@ export function mountCode(root: HTMLElement) {
       const r = await invoke<{ text: string; mtime: number }>("code_read", { path: t.path }).catch(() => null);
       if (!r) { t.btn.classList.add("gone"); t.btn.title = `${t.path} — файла больше нет на диске`; continue; }
       t.btn.classList.remove("gone");
-      if (r.text === t.saved) { t.mtime = r.mtime; continue; }
+      if (toLf(r.text) === t.saved) { t.mtime = r.mtime; continue; }
       if (isDirty(t)) { toast(`«${t.title}» изменился на диске, а у вас несохранённые правки — при сохранении OpsDeck спросит, что оставить`, "err"); continue; }
       const st = t === active ? view.state : t.state;
-      const next = st.update({ changes: { from: 0, to: st.doc.length, insert: r.text } }).state;
-      t.saved = r.text;
+      const next = st.update({ changes: { from: 0, to: st.doc.length, insert: toLf(r.text) } }).state;
+      t.saved = toLf(r.text);
+      t.eol = eolOf(r.text);
       t.mtime = r.mtime;
       if (t === active) { view.setState(next); t.state = next; } else t.state = next;
       markDirty(t);
