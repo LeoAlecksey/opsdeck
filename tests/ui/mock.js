@@ -199,7 +199,7 @@
       { id: "qwen3.5-9b", title: "Мощная — Qwen3.5 9B", size: 5680522464, ram_gb: 16, installed: true },
       { id: "qwen3.6-35b-a3b", title: "Большая — Qwen3.6 35B-A3B (MoE)", size: 22134528992, ram_gb: 32, installed: false } ] },
     ai_command: { command: "kubectl -n shop rollout restart deploy/worker && kubectl -n shop rollout status deploy/worker --timeout=120s", from_notes: ["kubectl -n shop rollout restart deploy/worker", "kubectl -n shop rollout status deploy/worker --timeout=120s"], elapsed_ms: 1840 },
-    ports_listening: [],
+    ports_listening: [], alerts_poll_now: [], kp_copy: null,
   };
 
   window.__TAURI_INTERNALS__ = {
