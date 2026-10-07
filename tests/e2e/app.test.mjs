@@ -1,6 +1,6 @@
 // End-to-end tests of the real app (real backend, real shell) through tauri-driver.
 // CI: build with `npx tauri build --debug --no-bundle`, start `tauri-driver` (port 4444), then
-//   OPSDECK_BIN=src-tauri/target/debug/opsdeck node --test tests/e2e/
+//   OPSDECK_BIN=src-tauri/target/debug/opsdeck node --test tests/e2e/app.test.mjs
 // Linux needs WebKitWebDriver (package webkit2gtk-driver) and a display (xvfb-run);
 // Windows needs msedgedriver matching the WebView2 version. macOS has no WebDriver for WKWebView.
 import { after, before, describe, it } from "node:test";

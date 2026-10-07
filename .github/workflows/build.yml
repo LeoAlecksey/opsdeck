@@ -189,7 +189,7 @@ jobs:
         env:
           OPSDECK_BIN: src-tauri/target/debug/opsdeck
         run: |
-          xvfb-run -a bash -c 'tauri-driver & sleep 2; node --test tests/e2e/'
+          xvfb-run -a bash -c 'tauri-driver & sleep 2; node --test tests/e2e/app.test.mjs'
       - name: Run (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
@@ -198,7 +198,7 @@ jobs:
         run: |
           Start-Process -FilePath "$HOME/.cargo/bin/tauri-driver.exe" -NoNewWindow
           Start-Sleep -Seconds 3
-          node --test tests/e2e/
+          node --test tests/e2e/app.test.mjs
 
   build:
     name: build ${{ matrix.name }}
