@@ -158,9 +158,10 @@ pub fn prepare(kp: &KeepassState, id: &str) -> Result<(Connector, Url, Option<St
     Ok((c, url, script))
 }
 
-/// Opens the connector in its own window.
+/// Opens the connector in its own window. Async: on Windows, building a window from a synchronous
+/// command deadlocks (WebviewWindowBuilder::build docs) — a blank window that cannot be closed.
 #[tauri::command]
-pub fn connector_open(app: AppHandle, kp: State<KeepassState>, id: String) -> Result<(), String> {
+pub async fn connector_open(app: AppHandle, kp: State<'_, KeepassState>, id: String) -> Result<(), String> {
     let label = format!("conn-{id}");
     if let Some(w) = app.get_webview_window(&label) {
         return w.set_focus().map_err(|e| e.to_string());
