@@ -604,7 +604,12 @@ export function mountTerminal(root: HTMLElement) {
 
   window.addEventListener("view-shown", (e) => {
     if ((e as CustomEvent).detail !== "terminal") return;
-    requestAnimationFrame(() => { activeTab?.panes.forEach((p) => p.pty.resize()); ai?.resize(); activePane()?.pty.term.focus(); });
+    requestAnimationFrame(() => {
+      activeTab?.panes.forEach((p) => p.pty.resize());
+      ai?.resize();
+      // the local AI box opens together with the view: keep the cursor in its input
+      if (root.querySelector(".ai-ask")?.hasAttribute("hidden") !== false) activePane()?.pty.term.focus();
+    });
   });
 
   registerProvider(() => [

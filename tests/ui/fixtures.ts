@@ -9,7 +9,8 @@ export type Demo = { lang?: "ru" | "en"; modules?: string[] | null; overrides?: 
 
 export const test = base.extend<{ demo: Demo; app: App }>({
   demo: [{}, { option: true }],
-  app: async ({ page, demo }, use) => {
+  // auto: every test gets the app with the fake backend, even if it only asks for `page`
+  app: [async ({ page, demo }, use) => {
     const errors: string[] = [];
     page.on("pageerror", (e) => { errors.push(e.message); console.log("pageerror:", e.message, e.stack?.split("\n")[1] ?? ""); });
     page.on("console", (m) => { if (m.type() === "error") console.log("console.error:", m.text()); });
@@ -27,7 +28,7 @@ export const test = base.extend<{ demo: Demo; app: App }>({
     const app = new App(page);
     await use(app);
     expect(errors, "uncaught errors in the page").toEqual([]);
-  },
+  }, { auto: true }],
 });
 export { expect };
 
@@ -47,6 +48,10 @@ export class App {
   async called(cmd: string, timeout = 5000): Promise<Call> {
     await expect.poll(async () => (await this.calls(cmd)).length, { timeout, message: `${cmd} was not called` }).toBeGreaterThan(0);
     return (await this.calls(cmd)).at(-1)!;
+  }
+  /** Make the fake backend answer `cmd` with `value` from now on. */
+  async override(cmd: string, value: unknown) {
+    await this.page.evaluate(([c, v]) => { (window as any).__DEMO_OVERRIDES[c] = v; }, [cmd, value] as const);
   }
   async emit(event: string, payload: unknown) {
     await this.page.evaluate(([e, p]) => (window as any).__demoEmit(e, p), [event, payload] as const);
