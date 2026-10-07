@@ -1016,3 +1016,9 @@ body.no-select, body.no-select * { user-select: none; -webkit-user-select: none;
 /* IDE git graph: a new branch has no line of its own until its first commit */
 .cg-hint { margin: 6px 8px 8px; padding: 8px 10px; font-size: 12px; color: var(--muted); border: 1px dashed var(--border); border-radius: 6px; line-height: 1.5; }
 .web-tabs .dot.kind-zabbix, .web-pick-menu .dot.kind-zabbix { background: #d40000; }
+
+/* terminal colour schemes, Windows block */
+.wsl-btn { font-size: 11px; font-weight: 600; letter-spacing: .02em; width: auto; padding: 0 6px; }
+.theme-row { display: flex; align-items: flex-end; gap: 8px; flex-wrap: wrap; }
+.theme-row label { flex: 1; min-width: 200px; }
+.theme-import textarea { width: 100%; font-family: var(--mono, monospace); font-size: 12px; }

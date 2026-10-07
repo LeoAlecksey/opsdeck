@@ -8,7 +8,8 @@ import { registerProvider } from "./palette";
 import { hlPrefs, setHlPrefs } from "./highlight";
 import { addSnippet } from "./snippets";
 import { attachPathLinks, mountFiles } from "./files";
-import { esc, toast } from "./ui";
+import { esc, overlay, toast } from "./ui";
+import { isWindows } from "./themes";
 
 /** Other modules open a tab via: window.dispatchEvent(new CustomEvent("open-terminal", { detail })) */
 export type OpenTerminalDetail = SpawnOpts & { title?: string; keepOpen?: boolean };
@@ -56,6 +57,7 @@ export function mountTerminal(root: HTMLElement) {
         <button class="icon" data-act="files" title="Файлы: дерево текущей папки, открыть в IDE (Ctrl+Shift+B)">${icon("folder", 16)}</button>
         <div class="tabs"></div>
         <button class="icon" data-act="new" title="Новая вкладка (Ctrl+Shift+T)">${icon("plus", 16)}</button>
+        <button class="icon wsl-btn" data-act="wsl" title="Новая вкладка WSL: выбрать дистрибутив" hidden>WSL</button>
         <button class="icon" data-act="split-r" title="Разделить вправо (Ctrl+Shift+D)">${icon("splitH", 16)}</button>
         <button class="icon" data-act="split-d" title="Разделить вниз (Ctrl+Shift+E)">${icon("splitV", 16)}</button>
         <button class="icon rec-btn" data-act="rec" title="Записывать эту панель в файл (вкл/выкл)">${icon("record", 16)}</button>
@@ -484,6 +486,45 @@ export function mountTerminal(root: HTMLElement) {
 
   providerSel.onchange = () => { save("opsdeck.ai.provider", providerSel.value); startAi(); };
   $("[data-act=new]").onclick = () => newTab();
+
+  // Windows: WSL distributions in one click (the button shows only when WSL has any)
+  type WinShell = { id: string; label: string; program: string; args: string[] };
+  let wsl: WinShell[] = [];
+  if (isWindows()) {
+    invoke<WinShell[]>("win_shells").then((list) => {
+      wsl = list.filter((x) => x.id.startsWith("wsl:"));
+      $("[data-act=wsl]").hidden = !wsl.length;
+    }).catch(() => {});
+  }
+  const openWsl = (sh: WinShell) => newTab({ program: sh.program, args: sh.args, title: sh.id.slice(4) });
+  $("[data-act=wsl]").onclick = () => {
+    if (wsl.length === 1) return openWsl(wsl[0]);
+    document.querySelector(".wsl-menu")?.remove();
+    const menu = document.createElement("div");
+    menu.className = "web-pick-menu wsl-menu";
+    menu.innerHTML = wsl.map((x, i) => `<button class="ghost" data-i="${i}">${esc(x.id.slice(4))}</button>`).join("");
+    const r = $("[data-act=wsl]").getBoundingClientRect();
+    menu.style.left = `${r.left}px`;
+    menu.style.top = `${r.bottom + 4}px`;
+    overlay(true);
+    document.body.appendChild(menu);
+    const close = (e?: Event) => {
+      if (e instanceof KeyboardEvent && e.key !== "Escape") return;
+      if (e && e.type === "pointerdown" && menu.contains(e.target as Node)) return;
+      menu.remove();
+      document.removeEventListener("pointerdown", close, true);
+      document.removeEventListener("keydown", close, true);
+      overlay(false);
+    };
+    menu.addEventListener("click", (e) => {
+      const i = (e.target as HTMLElement).closest<HTMLElement>("[data-i]")?.dataset.i;
+      if (i === undefined) return;
+      close();
+      openWsl(wsl[Number(i)]);
+    });
+    document.addEventListener("pointerdown", close, true);
+    document.addEventListener("keydown", close, true);
+  };
   $("[data-act=split-r]").onclick = () => split("row");
   $("[data-act=split-d]").onclick = () => split("column");
   $("[data-act=rec]").onclick = toggleRec;

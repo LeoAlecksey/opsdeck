@@ -1,3 +1,4 @@
+import { currentTheme } from "./themes";
 import { invoke } from "@tauri-apps/api/core";
 import { t } from "../i18n";
 import { listen, UnlistenFn } from "@tauri-apps/api/event";
@@ -11,11 +12,6 @@ let seq = 0;
 
 export type SpawnOpts = { program?: string; args?: string[]; cwd?: string; env?: Record<string, string> };
 
-const theme = {
-  background: "#0f1117", foreground: "#d6deeb", cursor: "#7fdbca", selectionBackground: "#2b3a55",
-  black: "#1d2130", red: "#ef5f6b", green: "#98d982", yellow: "#e6c07b", blue: "#61afef",
-  magenta: "#c678dd", cyan: "#56b6c2", white: "#d6deeb",
-};
 
 function b64(s: string): Uint8Array {
   const bin = atob(s);
@@ -91,7 +87,7 @@ export class PtyTerminal {
   readonly id = `pty${++seq}`;
   readonly term = new Terminal({
     fontFamily: termFontStack(), fontSize: termFontSize(), cursorBlink: true,
-    scrollback: 20000, theme, allowProposedApi: true, overviewRulerWidth: 8,
+    scrollback: 20000, theme: currentTheme(), allowProposedApi: true, overviewRulerWidth: 8,
   });
   /** Command blocks (only populated when the shell integration is active). */
   readonly blocks = new ShellBlocks(this.term);
@@ -107,6 +103,10 @@ export class PtyTerminal {
   private onFont = (e: Event) => {
     this.term.options.fontSize = (e as CustomEvent<number>).detail;
     this.resize();
+  };
+  private onTheme = (e: Event) => {
+    this.term.options.theme = (e as CustomEvent).detail;
+    this.host.style.background = this.term.options.theme?.background ?? "";
   };
   private onFontFamily = (e: Event) => {
     this.term.options.fontFamily = termFontStack((e as CustomEvent<string>).detail);
@@ -124,6 +124,8 @@ export class PtyTerminal {
     window.addEventListener("term-highlight", this.onHl);
     window.addEventListener("term-font", this.onFont);
     window.addEventListener("term-font-family", this.onFontFamily);
+    window.addEventListener("term-theme", this.onTheme);
+    host.style.background = this.term.options.theme?.background ?? "";
     // Ctrl+wheel: font size
     host.addEventListener("wheel", (e) => {
       if (!e.ctrlKey) return;
@@ -205,6 +207,7 @@ export class PtyTerminal {
     window.removeEventListener("term-highlight", this.onHl);
     window.removeEventListener("term-font", this.onFont);
     window.removeEventListener("term-font-family", this.onFontFamily);
+    window.removeEventListener("term-theme", this.onTheme);
     this.sugg.dispose();
     this.unlisten.forEach((u) => u());
     invoke("pty_kill", { id: this.id });

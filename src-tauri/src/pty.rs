@@ -67,9 +67,13 @@ pub fn pty_spawn(app: AppHandle, state: State<PtyState>, req: SpawnRequest) -> R
         .map_err(err)?;
 
     let plain_shell = req.program.is_none();
-    let program = req
-        .program
-        .unwrap_or_else(default_shell);
+    // Windows: the shell chosen in Settings (PowerShell 7, Git Bash, cmd, WSL…)
+    let chosen = if plain_shell { crate::winshell::chosen(&crate::settings::load().term_shell) } else { None };
+    let mut req = req;
+    if let Some(sh) = &chosen {
+        req.args = Some([sh.args.clone(), req.args.unwrap_or_default()].concat());
+    }
+    let program = chosen.map(|s| s.program).or(req.program.clone()).unwrap_or_else(default_shell);
     let mut cmd = CommandBuilder::new(&program);
     if plain_shell {
         // best effort: without integration the tab still works, just without command blocks

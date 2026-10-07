@@ -32,6 +32,8 @@ pub struct Settings {
     /// for the UI: a key is saved in the keyring
     #[serde(skip_deserializing)]
     pub ai_key_saved: bool,
+    /// Windows: the shell for new terminal tabs ("" = PowerShell); see winshell.rs
+    pub term_shell: String,
 }
 
 impl Default for Settings {
@@ -50,6 +52,7 @@ impl Default for Settings {
             ai_model: String::new(),
             ai_api_key: String::new(),
             ai_key_saved: false,
+            term_shell: String::new(),
         }
     }
 }

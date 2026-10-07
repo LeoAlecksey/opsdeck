@@ -7,6 +7,7 @@ import { mountUpdates } from "./updates";
 import { hlPrefs, setHlPrefs } from "./highlight";
 import { setTermFontSize, termFontSize, setTermFontFamily, termFontFamily, TERM_FONTS, fontInstalled } from "./pty";
 import { setSuggestEnabled, suggestEnabled } from "./suggest";
+import { addThemes, allThemes, currentThemeName, isWindows, parseSchemes, setTheme } from "./themes";
 import { listen } from "@tauri-apps/api/event";
 
 const AUTHOR_TG = "https://t.me/sys_admin_expert";
@@ -126,7 +127,10 @@ type Settings = {
   ai_host: string; ai_port: string; ai_model: string;
   /** only sent when the user typed a new key; the saved one stays in the OS keyring */
   ai_api_key?: string; ai_key_saved?: boolean;
+  /** Windows: shell for new tabs ("" — PowerShell) */
+  term_shell: string;
 };
+type WinShell = { id: string; label: string; program: string; args: string[] };
 type Detected = { keepass: string[]; obsidian: string[]; winbox: string[] };
 
 /** Paths pasted with Windows' "Copy as path" come in quotes: "C:\Program Files\WinBox\winbox64.exe". */
@@ -159,8 +163,20 @@ export function mountSettings(root: HTMLElement) {
           <label>Шрифт терминала <select class="term-font-family"></select></label>
           <label class="term-font-custom-row" hidden>Название шрифта <input class="term-font-custom" maxlength="128" spellcheck="false" placeholder="например, Iosevka" data-no-i18n /></label>
           <p class="muted hint term-font-warn" hidden></p>
+          <div class="theme-row"><label>Цветовая схема <select class="term-theme"></select></label>
+            <button type="button" class="ghost" data-theme-import>Импорт JSON…</button></div>
+          <div class="theme-import" hidden>
+            <textarea class="theme-json" rows="6" spellcheck="false" data-no-i18n placeholder='{"name": "My scheme", "background": "#101010", "foreground": "#e0e0e0", "red": "#ff5555", …}'></textarea>
+            <div class="row"><button type="button" class="primary" data-theme-add>Добавить схемы</button><button type="button" class="ghost" data-theme-cancel>Отмена</button></div>
+            <p class="muted hint">Формат схем Windows Terminal: весь settings.json (берётся список schemes), список схем или одна схема. Цвета — #rrggbb.</p>
+          </div>
           <p class="muted hint">Шрифты из списка, которых нет в системе, помечены «не установлен» — их нужно поставить отдельно, иначе используется запасной. Для иконок Powerlevel10k — MesloLGS NF или Nerd Font. Любой другой установленный шрифт — пункт «Другой…». Выбор сохраняется и сразу применяется ко всем терминалам, включая SSH и AI.</p>
           <p class="muted hint">Применяется сразу. Подсветка ввода работает в локальных вкладках (нужна интеграция с bash/zsh). Вывод, который программа уже раскрасила сама, и полноэкранные программы (vim, htop, less) не трогаются.</p>
+        </fieldset>
+        <fieldset class="win-field" hidden><legend>Windows</legend>
+          <label>Оболочка для новых вкладок <select name="term_shell"><option value="">Windows PowerShell (по умолчанию)</option></select></label>
+          <p class="muted hint">Найдены установленные: PowerShell 5.1 и 7, Git Bash, cmd и дистрибутивы WSL. Применяется к новым вкладкам после «Сохранить». WSL можно открыть и разово — кнопка WSL рядом с ＋ в терминале.</p>
+          <div class="row"><button type="button" class="ghost" data-wt-import>Импорт схем из Windows Terminal</button></div>
         </fieldset>
         <fieldset class="ai-field"><legend>Локальный ИИ</legend>
           <div class="ai-root"></div>
@@ -366,6 +382,15 @@ export function mountSettings(root: HTMLElement) {
     f("ai_api_key").placeholder = s.ai_key_saved ? "сохранён — введите новый, чтобы заменить" : "необязательно";
     root.querySelector<HTMLElement>("[data-ai-key-clear]")!.hidden = !s.ai_key_saved;
     remoteWarn();
+    if (isWindows()) {
+      const shells = await invoke<WinShell[]>("win_shells").catch(() => [] as WinShell[]);
+      const sel = f("term_shell") as unknown as HTMLSelectElement;
+      sel.innerHTML = `<option value="">Windows PowerShell (по умолчанию)</option>` +
+        shells.filter((x) => x.id !== "powershell").map((x) => `<option value="${esc(x.id)}">${esc(x.label)}</option>`).join("");
+      // a shell that is gone stays visible, so saving does not silently change it
+      if (s.term_shell && !shells.some((x) => x.id === s.term_shell)) sel.insertAdjacentHTML("beforeend", `<option value="${esc(s.term_shell)}">${esc(s.term_shell)} — не найден</option>`);
+      sel.value = s.term_shell ?? "";
+    }
     root.querySelector(".detect-state")!.textContent = "ищу варианты в домашней папке…";
     const d = await invoke<Detected>("settings_detect").catch(() => null);
     root.querySelector(".detect-state")!.textContent = "";
@@ -387,6 +412,7 @@ export function mountSettings(root: HTMLElement) {
       update_auto_check: f("update_auto_check").checked,
       ai_host: f("ai_host").value.trim(), ai_port: f("ai_port").value.trim(), ai_model: f("ai_model").value.trim(),
       ai_api_key: f("ai_api_key").value.trim(),
+      term_shell: f("term_shell").value,
     };
     try {
       await invoke("settings_set", { settings });
@@ -418,6 +444,39 @@ export function mountSettings(root: HTMLElement) {
     toast("Ключ удалён");
     load();
   });
+
+  // ----- terminal colour schemes (stored in this profile, applied at once) -----
+  const themeSel = root.querySelector<HTMLSelectElement>(".term-theme")!;
+  const themeBox = root.querySelector<HTMLElement>(".theme-import")!;
+  const themeJson = root.querySelector<HTMLTextAreaElement>(".theme-json")!;
+  const fillThemes = () => {
+    themeSel.innerHTML = allThemes().map((x) => `<option value="${esc(x.name)}">${esc(x.name)}</option>`).join("");
+    themeSel.value = currentThemeName();
+    if (themeSel.selectedIndex < 0) themeSel.selectedIndex = 0;
+  };
+  fillThemes();
+  themeSel.addEventListener("change", () => setTheme(themeSel.value));
+  const importThemes = (text: string) => {
+    try {
+      const list = parseSchemes(text);
+      addThemes(list);
+      fillThemes();
+      themeSel.value = list[0].name;
+      setTheme(list[0].name);
+      toast(`${t("Добавлено схем")}: ${list.length}`);
+      return true;
+    } catch (err) { toast(t((err as Error).message), "err"); return false; }
+  };
+  root.querySelector<HTMLElement>("[data-theme-import]")!.addEventListener("click", () => { themeBox.hidden = !themeBox.hidden; if (!themeBox.hidden) themeJson.focus(); });
+  root.querySelector<HTMLElement>("[data-theme-cancel]")!.addEventListener("click", () => { themeBox.hidden = true; });
+  root.querySelector<HTMLElement>("[data-theme-add]")!.addEventListener("click", () => {
+    if (importThemes(themeJson.value)) { themeJson.value = ""; themeBox.hidden = true; }
+  });
+  root.querySelector<HTMLElement>("[data-wt-import]")!.addEventListener("click", async () => {
+    try { importThemes(await invoke<string>("wt_settings")); } catch (err) { toast(t(String(err)), "err"); }
+  });
+  // shells, WSL and Windows Terminal: only where they exist
+  root.querySelector<HTMLElement>(".win-field")!.hidden = !isWindows();
 
   window.addEventListener("view-shown", (e) => { if ((e as CustomEvent).detail === "settings") load(); });
 }

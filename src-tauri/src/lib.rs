@@ -26,6 +26,7 @@ mod store;
 mod tasks;
 mod tools;
 mod updater;
+mod winshell;
 
 pub fn run() {
     #[cfg(target_os = "macos")]
@@ -156,6 +157,8 @@ pub fn run() {
             ai::ai_set_gpu,
             ai::ai_command,
             ai::ai_test,
+            winshell::win_shells,
+            winshell::wt_settings,
             settings::ai_key_clear,
             cmdindex::cmd_suggest,
             db::db_list,
