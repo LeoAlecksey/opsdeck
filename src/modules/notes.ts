@@ -1,3 +1,4 @@
+import { t as i18nT } from "../i18n";
 import { helpBtn } from "./help";
 import { icon } from "./icons";
 import { invoke } from "@tauri-apps/api/core";
@@ -39,7 +40,7 @@ export function mountNotes(root: HTMLElement) {
     </aside>
     <div class="notes-main">
       <div class="notes-bar">
-        <strong class="note-path muted">выберите заметку</strong><span class="dirty" hidden>●</span>
+        <strong class="note-path muted">${i18nT("выберите заметку")}</strong><span class="dirty" hidden>●</span>
         <span class="spacer"></span>
         <button class="ghost" data-a="task" disabled title="Вставить задачу: срок, напоминание, приоритет, теги">${icon("plus", 16)} Задача</button>
         <div class="seg"><button data-m="edit">Редактор</button><button data-m="view">Просмотр</button></div>
@@ -586,7 +587,7 @@ export function mountNotes(root: HTMLElement) {
         current = null;
         saved = editor.value = "";
         editor.hidden = view.hidden = true;
-        $(".note-path").textContent = "выберите заметку";
+        $(".note-path").textContent = i18nT("выберите заметку");
         $(".note-path").classList.add("muted");
         $(".note-tags").hidden = true;
         ["obsidian", "mention", "task"].forEach((a) => ($<HTMLButtonElement>(`[data-a=${a}]`).disabled = true));
@@ -619,7 +620,7 @@ export function mountNotes(root: HTMLElement) {
     current = null;
     saved = editor.value = "";
     editor.hidden = view.hidden = true;
-    $(".note-path").textContent = "выберите заметку";
+    $(".note-path").textContent = i18nT("выберите заметку");
     $(".note-tags").hidden = true;
     tagFilter = "";
     $(".vault-menu").hidden = true;

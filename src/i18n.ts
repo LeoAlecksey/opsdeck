@@ -48,6 +48,8 @@ export function tr(s: string): string {
 
 /** For text built in code and not shown through the DOM (window titles, notifications…). */
 export const t = (s: string) => tr(s);
+/** Dates and times in the interface language, not the system one. */
+export const locale = () => (lang === "en" ? "en-US" : "ru-RU");
 
 // ----- live DOM translation -----
 
@@ -92,9 +94,13 @@ function translateNode(n: Node) {
   const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT | NodeFilter.SHOW_ELEMENT, {
     acceptNode: (x) => {
       if (x.nodeType !== Node.ELEMENT_NODE || !(x as Element).matches(SKIP)) return NodeFilter.FILTER_ACCEPT;
-      if (!skipAttr(x as Element)) for (const a of ATTRS) {
-        const v = (x as Element).getAttribute(a);
-        if (v && CYR.test(v)) { const out = tr(v); if (out !== v) (x as Element).setAttribute(a, out); }
+      // user content keeps its text, but buttons inside it still have interface tooltips
+      for (const e of [x as Element, ...(x as Element).querySelectorAll("[title],[placeholder],[aria-label]")]) {
+        if (skipAttr(e)) continue;
+        for (const a of ATTRS) {
+          const v = e.getAttribute(a);
+          if (v && CYR.test(v)) { const out = tr(v); if (out !== v) e.setAttribute(a, out); }
+        }
       }
       return NodeFilter.FILTER_REJECT;
     },

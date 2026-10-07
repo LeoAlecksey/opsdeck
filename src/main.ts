@@ -61,7 +61,7 @@ const enabled = new Set<string>(((): string[] => {
     const saved = localStorage.getItem(MODULES_KEY);
     if (saved) return JSON.parse(saved);
     // an existing install keeps everything it had; a fresh one starts with the basic set
-    const used = Object.keys(localStorage).some((k) => k.startsWith("opsdeck."));
+    const used = Object.keys(localStorage).some((k) => k.startsWith("opsdeck.") && k !== "opsdeck.lang");
     return used ? optional.map((v) => v.id) : DEFAULT_MODULES;
   } catch { return DEFAULT_MODULES; }
 })());

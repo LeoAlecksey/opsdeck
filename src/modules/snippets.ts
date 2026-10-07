@@ -1,3 +1,4 @@
+import { t } from "../i18n";
 import { invoke } from "@tauri-apps/api/core";
 import { registerProvider } from "./palette";
 import { ask, esc, toast } from "./ui";
@@ -41,7 +42,7 @@ registerProvider(async () =>
 /** Snippet manager, rendered inside the settings page. */
 export function mountSnippets(el: HTMLElement) {
   el.innerHTML = `
-    <div class="row sn-head"><span class="muted">Команды с параметрами <code>{{имя}}</code> — запуск через палитру (Ctrl+Shift+P). Команда вставляется в терминал, Enter жмёте вы.</span>
+    <div class="row sn-head"><span class="muted">Команды с параметрами <code>${t("{{имя}}")}</code> — запуск через палитру (Ctrl+Shift+P). Команда вставляется в терминал, Enter жмёте вы.</span>
       <button type="button" class="primary" data-a="add">${icon("plus", 16)} Сниппет</button></div>
     <table class="res sn-table"><tbody></tbody></table>
     <dialog class="sn-dialog">

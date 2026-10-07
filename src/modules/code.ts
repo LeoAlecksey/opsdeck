@@ -1,3 +1,4 @@
+import { locale } from "../i18n";
 import { helpBtn } from "./help";
 import { icon } from "./icons";
 import { invoke } from "@tauri-apps/api/core";
@@ -63,7 +64,7 @@ const isTf = (p: string | null) => !!p && /\.(tf|tfvars|hcl)$/i.test(p);
 const shq = (p: string) => (/^[\w@%+=:,./~-]+$/.test(p) ? p : `'${p.replace(/'/g, `'\\''`)}'`);
 const ago = (t: number) => {
   const d = Date.now() / 1000 - t;
-  return d < 3600 ? `${Math.max(1, Math.round(d / 60))} мин` : d < 86400 ? `${Math.round(d / 3600)} ч` : d < 86400 * 60 ? `${Math.round(d / 86400)} дн` : new Date(t * 1000).toLocaleDateString();
+  return d < 3600 ? `${Math.max(1, Math.round(d / 60))} мин` : d < 86400 ? `${Math.round(d / 3600)} ч` : d < 86400 * 60 ? `${Math.round(d / 86400)} дн` : new Date(t * 1000).toLocaleDateString(locale());
 };
 
 function languageFor(path: string): { ext: Extension; name: string } {
@@ -544,8 +545,8 @@ export function mountCode(root: HTMLElement) {
         const cls = r.startsWith("tag: ") ? "tag" : r.startsWith("HEAD") ? "head" : r.includes("/") ? "remote" : "branch";
         return `<span class="cg-ref ${cls}">${esc(r.replace(/^HEAD -> /, "● ").replace(/^tag: /, "🏷 "))}</span>`;
       }).join("");
-      const when = new Date(c.time * 1000).toLocaleDateString();
-      rows.push(`<div class="cg-commit" data-h="${c.hash}" title="${esc(`${c.hash.slice(0, 10)} · ${c.author} · ${new Date(c.time * 1000).toLocaleString()}\n${c.subject}`)}">
+      const when = new Date(c.time * 1000).toLocaleDateString(locale());
+      rows.push(`<div class="cg-commit" data-h="${c.hash}" title="${esc(`${c.hash.slice(0, 10)} · ${c.author} · ${new Date(c.time * 1000).toLocaleString(locale())}\n${c.subject}`)}">
         <svg width="${x(width - 1) + 8}" height="${H}" class="cg-lanes">${svg}</svg>
         <span class="cg-msg">${refs}${esc(c.subject)}</span><span class="cg-meta muted">${esc(c.author.split(" ")[0])} · ${when}</span></div>`);
     }
