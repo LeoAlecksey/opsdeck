@@ -56,7 +56,10 @@ pub fn connectors_list() -> Result<Vec<Connector>, String> {
     let mut list = load()?;
     // older configs could keep a pasted token in the login field (plain text on disk):
     // token auth never uses the login, so drop it — the token itself is in the keyring
-    if list.iter().any(|c| c.auth == "token" && !c.username.is_empty()) {
+    if list
+        .iter()
+        .any(|c| c.auth == "token" && !c.username.is_empty())
+    {
         for c in list.iter_mut().filter(|c| c.auth == "token") {
             c.username.clear();
         }
@@ -106,7 +109,10 @@ pub fn connector_save(mut connector: Connector, secret: Option<String>) -> Resul
 #[tauri::command]
 pub fn connector_regen_token(id: String) -> Result<String, String> {
     let mut list = load()?;
-    let c = list.iter_mut().find(|c| c.id == id && c.kind == "ai").ok_or("AI-коннектор не найден")?;
+    let c = list
+        .iter_mut()
+        .find(|c| c.id == id && c.kind == "ai")
+        .ok_or("AI-коннектор не найден")?;
     c.ingest_token = new_token();
     let token = c.ingest_token.clone();
     store::save_json(FILE, &list)?;
@@ -132,15 +138,28 @@ pub fn credentials(kp: &KeepassState, c: &Connector) -> Result<(String, String),
         "none" => (c.username.clone(), String::new()),
         "keepass" => {
             let (user, pass) = keepass::credentials(kp, &c.keepass_entry)?;
-            (if c.username.is_empty() { user } else { c.username.clone() }, pass)
+            (
+                if c.username.is_empty() {
+                    user
+                } else {
+                    c.username.clone()
+                },
+                pass,
+            )
         }
-        _ => (c.username.clone(), store::secret_get(&secret_key(&c.id)).unwrap_or_default()),
+        _ => (
+            c.username.clone(),
+            store::secret_get(&secret_key(&c.id)).unwrap_or_default(),
+        ),
     })
 }
 
 /// Connector, its start URL and (if credentials are configured) the auto-login init script.
 pub fn prepare(kp: &KeepassState, id: &str) -> Result<(Connector, Url, Option<String>), String> {
-    let mut c = load()?.into_iter().find(|c| c.id == id).ok_or("connector not found")?;
+    let mut c = load()?
+        .into_iter()
+        .find(|c| c.id == id)
+        .ok_or("connector not found")?;
     let url = Url::parse(&c.url).map_err(|e| e.to_string())?;
     let secret = match c.auth.as_str() {
         "none" => String::new(),
@@ -161,7 +180,11 @@ pub fn prepare(kp: &KeepassState, id: &str) -> Result<(Connector, Url, Option<St
 /// Opens the connector in its own window. Async: on Windows, building a window from a synchronous
 /// command deadlocks (WebviewWindowBuilder::build docs) — a blank window that cannot be closed.
 #[tauri::command]
-pub async fn connector_open(app: AppHandle, kp: State<'_, KeepassState>, id: String) -> Result<(), String> {
+pub async fn connector_open(
+    app: AppHandle,
+    kp: State<'_, KeepassState>,
+    id: String,
+) -> Result<(), String> {
     let label = format!("conn-{id}");
     if let Some(w) = app.get_webview_window(&label) {
         return w.set_focus().map_err(|e| e.to_string());
