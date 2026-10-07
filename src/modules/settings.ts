@@ -129,6 +129,9 @@ type Settings = {
 };
 type Detected = { keepass: string[]; obsidian: string[]; winbox: string[] };
 
+/** Paths pasted with Windows' "Copy as path" come in quotes: "C:\Program Files\WinBox\winbox64.exe". */
+const cleanPath = (v: string) => v.trim().replace(/^["']+|["']+$/g, "").trim();
+
 export function mountSettings(root: HTMLElement) {
   root.innerHTML = `
     <div class="page settings">
@@ -376,10 +379,10 @@ export function mountSettings(root: HTMLElement) {
   form.onsubmit = async (e) => {
     e.preventDefault();
     const settings: Settings = {
-      keepass_path: f("keepass_path").value.trim(), keepass_keyfile: f("keepass_keyfile").value.trim(),
+      keepass_path: cleanPath(f("keepass_path").value), keepass_keyfile: cleanPath(f("keepass_keyfile").value),
       keepass_lock_minutes: Number(f("keepass_lock_minutes").value) || 0,
       keepass_keep_open: f("keepass_keep_open").checked,
-      obsidian_vault: f("obsidian_vault").value.trim(), winbox_path: f("winbox_path").value.trim(),
+      obsidian_vault: cleanPath(f("obsidian_vault").value), winbox_path: cleanPath(f("winbox_path").value),
       k8s_include_system: f("k8s_include_system").checked,
       update_auto_check: f("update_auto_check").checked,
       ai_host: f("ai_host").value.trim(), ai_port: f("ai_port").value.trim(), ai_model: f("ai_model").value.trim(),

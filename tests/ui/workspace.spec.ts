@@ -149,6 +149,12 @@ test.describe("settings", () => {
     await expect(page.locator("input[name=ai_api_key]")).toHaveValue("");
   });
 
+  test("paths pasted with quotes (Windows 'Copy as path') are cleaned on save", async ({ app, page }) => {
+    await page.locator("input[name=winbox_path]").fill('"C:\\Program Files\\WinBox\\winbox64.exe"');
+    await view(page).locator("button[type=submit]", { hasText: "Сохранить" }).click();
+    expect(((await app.called("settings_set")).args as any).settings.winbox_path).toBe("C:\\Program Files\\WinBox\\winbox64.exe");
+  });
+
   test("terminal font picker", async ({ page }) => {
     await page.locator(".term-font-family").selectOption("Ubuntu Mono");
     expect(await page.evaluate(() => localStorage.getItem("opsdeck.term.fontFamily"))).toBe("Ubuntu Mono");
