@@ -26,6 +26,7 @@ mod store;
 mod tasks;
 mod tools;
 mod updater;
+mod winbox_import;
 mod winshell;
 
 pub fn run() {
@@ -159,6 +160,9 @@ pub fn run() {
             ai::ai_test,
             winshell::win_shells,
             winshell::wt_settings,
+            winbox_import::mt_import_scan,
+            winbox_import::mt_import,
+            winbox_import::mt_import_pick,
             settings::ai_key_clear,
             cmdindex::cmd_suggest,
             db::db_list,

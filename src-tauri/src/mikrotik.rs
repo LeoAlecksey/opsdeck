@@ -42,12 +42,20 @@ fn default_ssh_port() -> u16 {
     22
 }
 
-fn secret_key(id: &str) -> String {
+pub(crate) fn secret_key(id: &str) -> String {
     format!("mikrotik:{id}")
 }
 
 fn load() -> Result<Vec<Device>, String> {
     store::load_json(FILE)
+}
+
+pub(crate) fn list() -> Result<Vec<Device>, String> {
+    load()
+}
+
+pub(crate) fn save_all(list: &[Device]) -> Result<(), String> {
+    store::save_json(FILE, &list)
 }
 
 fn find(id: &str) -> Result<Device, String> {

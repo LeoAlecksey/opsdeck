@@ -244,6 +244,7 @@ export const HELP_EN: Record<string, { title: string; html: string }> = {
       <h4>What's where</h4>
       <ul><li><b>＋ Device</b> — address, WinBox/SSH ports, credentials (from KeePass, the keyring or no password).</li>
       <li><b>WinBox</b> connects to the router right away; <b>SSH</b> — a terminal tab, the password in the clipboard for 30 s; <b>ping</b> — a tab with ping.</li>
+      <li><b>Import from WinBox</b> brings over the routers saved in WinBox's address list (Addresses.cdb): address, port, login, group, the note as the name and, if ticked, passwords — into the OS keyring. The list is shown before anything is added; addresses already here are skipped. If WinBox has a master password, remove it for the import.</li>
       <li>The WinBox path — in ⚙ Settings.</li></ul>
       <h4>Caveat</h4>
       <p>WinBox accepts the password only as a command-line argument, so while it is open the password is visible in your user's process list.</p>`,

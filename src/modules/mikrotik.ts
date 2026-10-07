@@ -3,6 +3,7 @@ import { icon } from "./icons";
 import { invoke } from "@tauri-apps/api/core";
 import { kpEntries, kpStatus, pickEntry } from "./keepass";
 import { ask, esc, toast } from "./ui";
+import { t } from "../i18n";
 import { registerProvider } from "./palette";
 
 type Device = {
@@ -17,10 +18,21 @@ export function mountMikrotik(root: HTMLElement) {
     <div class="page">
       <div class="page-head">
         <h2>MikroTik</h2>
-        <div class="row"><input class="mt-filter" placeholder="фильтр…" spellcheck="false" /><button class="primary" data-a="add">${icon("plus", 16)} Устройство</button>${helpBtn("winbox")}</div>
+        <div class="row"><input class="mt-filter" placeholder="фильтр…" spellcheck="false" /><button class="ghost" data-a="import" title="Перенести сохранённые роутеры из списка адресов WinBox">Импорт из WinBox</button><button class="primary" data-a="add">${icon("plus", 16)} Устройство</button>${helpBtn("winbox")}</div>
       </div>
       <p class="muted">WinBox запускается с логином и паролем из KeePass или keyring. SSH открывается вкладкой терминала, а пароль кладётся в буфер на 30 с.</p>
       <div class="mt-list"></div>
+      <dialog class="mt-import">
+        <form method="dialog">
+          <h3>Импорт из WinBox</h3>
+          <div class="row"><span class="muted mt-import-file"></span><span class="spacer"></span><button type="button" class="ghost" data-a="import-pick">Другой файл…</button></div>
+          <p class="err mt-import-err"></p>
+          <div class="mt-import-list"></div>
+          <label class="check"><input type="checkbox" name="passwords" checked /> Перенести сохранённые пароли в системное хранилище (keyring)</label>
+          <p class="muted hint">Читается список адресов WinBox (Addresses.cdb): адрес, логин, пароль, заметка и группа. Если в WinBox задан мастер-пароль, снимите его на время импорта. Уже добавленные адреса пропускаются.</p>
+          <div class="actions"><button value="cancel" formnovalidate>Отмена</button><button value="import" class="primary" data-a="import-go">Добавить</button></div>
+        </form>
+      </dialog>
       <dialog class="mt-dialog">
         <form method="dialog">
           <h3>Устройство</h3>
@@ -45,7 +57,7 @@ export function mountMikrotik(root: HTMLElement) {
 
   const list = root.querySelector<HTMLElement>(".mt-list")!;
   const filter = root.querySelector<HTMLInputElement>(".mt-filter")!;
-  const dialog = root.querySelector<HTMLDialogElement>("dialog")!;
+  const dialog = root.querySelector<HTMLDialogElement>("dialog.mt-dialog")!;
   const form = dialog.querySelector("form")!;
   const f = (n: string) => form.elements.namedItem(n) as HTMLInputElement & HTMLSelectElement;
   let devices: Device[] = [];
@@ -166,6 +178,57 @@ export function mountMikrotik(root: HTMLElement) {
     { group: "MikroTik", title: `SSH: ${d.name}`, hint: d.host, run: () => { list.querySelector<HTMLElement>(`tr[data-id="${d.id}"] [data-a=ssh]`)?.click() ?? toast("Откройте раздел MikroTik", "err"); } },
   ]));
   root.querySelector<HTMLElement>("[data-a=add]")!.onclick = () => open(null);
+
+  // ----- import from WinBox's address list -----
+  type Candidate = { name: string; host: string; port: number; username: string; group: string; has_password: boolean; exists: boolean };
+  const imp = root.querySelector<HTMLDialogElement>(".mt-import")!;
+  const impForm = imp.querySelector("form")!;
+  const impList = imp.querySelector<HTMLElement>(".mt-import-list")!;
+  const impErr = imp.querySelector<HTMLElement>(".mt-import-err")!;
+  const impGo = imp.querySelector<HTMLButtonElement>("[data-a=import-go]")!;
+  let impFile = "";
+  const key = (c: Candidate) => `${c.host}:${c.port}`;
+  async function scan(path: string | null) {
+    impErr.textContent = "";
+    impList.innerHTML = "";
+    impGo.disabled = true;
+    try {
+      const p = await invoke<{ file: string; items: Candidate[] }>("mt_import_scan", { path });
+      impFile = p.file;
+      imp.querySelector(".mt-import-file")!.textContent = p.file;
+      impList.innerHTML = `<table class="res mt-table"><thead><tr><th><input type="checkbox" class="mt-import-all" checked /></th><th>Название</th><th>Адрес</th><th>Логин</th><th>Группа</th></tr></thead><tbody>${p.items.map((c) => `
+        <tr${c.exists ? ` class="muted"` : ""}><td><input type="checkbox" data-k="${esc(key(c))}" ${c.exists ? "disabled" : "checked"} /></td>
+          <td>${esc(c.name)}${c.exists ? ` <span class="muted">· уже есть</span>` : ""}</td>
+          <td>${esc(c.host)}${c.port !== 8291 ? `<span class="muted">:${c.port}</span>` : ""}</td>
+          <td>${esc(c.username)}${c.has_password ? ` ${icon("key", 12)}` : ""}</td><td>${esc(c.group)}</td></tr>`).join("")}</tbody></table>`;
+      impGo.disabled = !p.items.some((c) => !c.exists);
+    } catch (err) {
+      impFile = "";
+      imp.querySelector(".mt-import-file")!.textContent = "";
+      impErr.textContent = String(err);
+    }
+  }
+  impList.addEventListener("change", (e) => {
+    const t = e.target as HTMLInputElement;
+    if (t.classList.contains("mt-import-all")) impList.querySelectorAll<HTMLInputElement>("input[data-k]:not(:disabled)").forEach((x) => (x.checked = t.checked));
+    impGo.disabled = !impList.querySelector("input[data-k]:checked");
+  });
+  imp.querySelector<HTMLElement>("[data-a=import-pick]")!.onclick = async () => {
+    const p = await invoke<string | null>("mt_import_pick").catch(() => null);
+    if (p) scan(p);
+  };
+  impForm.addEventListener("submit", async (e) => {
+    if ((e.submitter as HTMLButtonElement | null)?.value !== "import") return;
+    e.preventDefault();
+    const chosen = [...impList.querySelectorAll<HTMLInputElement>("input[data-k]:checked")].map((x) => x.dataset.k!);
+    try {
+      const n = await invoke<number>("mt_import", { path: impFile, chosen, passwords: (impForm.elements.namedItem("passwords") as HTMLInputElement).checked });
+      imp.close();
+      toast(`${t("Добавлено устройств")}: ${n}`);
+      load();
+    } catch (err) { impErr.textContent = String(err); }
+  });
+  root.querySelector<HTMLElement>("[data-a=import]")!.onclick = () => { imp.showModal(); scan(null); };
   window.addEventListener("view-shown", (e) => { if ((e as CustomEvent).detail === "winbox") load(); });
   load();
 }
