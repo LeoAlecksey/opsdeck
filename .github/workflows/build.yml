@@ -149,6 +149,9 @@ jobs:
   # the real app: real backend and real shell, driven through tauri-driver
   e2e:
     name: tests e2e ${{ matrix.os }}
+    # Windows: msedgedriver does not attach to the WebView2 yet ("DevToolsActivePort file doesn't
+    # exist") — reported, but does not block a release until that is solved
+    continue-on-error: ${{ matrix.os == 'windows-latest' }}
     strategy:
       fail-fast: false
       matrix:
