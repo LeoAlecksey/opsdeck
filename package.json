@@ -9,7 +9,9 @@
     "tauri": "tauri",
     "release": "node scripts/release.mjs",
     "i18n:missing": "node scripts/i18n-extract.mjs",
-    "i18n:check": "node scripts/i18n-check.mjs"
+    "i18n:check": "node scripts/i18n-check.mjs",
+    "test": "vitest run",
+    "test:ui": "playwright test"
   },
   "dependencies": {
     "@codemirror/autocomplete": "^6.20.3",
@@ -41,9 +43,11 @@
     "yaml": "^2.9.1"
   },
   "devDependencies": {
+    "@playwright/test": "^1.60.0",
     "@tauri-apps/cli": "^2",
     "typescript": "^5.6.0",
-    "vite": "^6.0.0"
+    "vite": "^6.0.0",
+    "vitest": "^5.0.3"
   },
   "description": "Desktop cockpit for DevOps engineers: Warp-style terminal with AI, Kubernetes, embedded Grafana/ArgoCD/GitLab, alerts, KeePass, SSH, MikroTik, notes",
   "license": "MIT",
