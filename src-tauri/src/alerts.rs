@@ -407,13 +407,33 @@ fn parse_zabbix(problems: &Value, events: &Value, base: &str, source: &str) -> V
         .collect()
 }
 
-async fn zabbix_call(client: &reqwest::Client, url: &str, token: &str, method: &str, params: Value) -> Result<Value, String> {
+/// Where a server takes the token: the Authorization header since 6.4, the "auth" field before.
+/// Both at once no longer works — 7.2 removed the field and rejects a request that has it.
+fn zabbix_token_in_header(version: &str) -> bool {
+    let mut parts = version.split('.').map(|p| p.parse::<u32>().ok());
+    match (parts.next().flatten(), parts.next().flatten()) {
+        (Some(major), Some(minor)) => (major, minor) >= (6, 4),
+        // not a version we can read: the current way
+        _ => true,
+    }
+}
+
+async fn zabbix_call(
+    client: &reqwest::Client,
+    url: &str,
+    token: &str,
+    header: bool,
+    method: &str,
+    params: Value,
+) -> Result<Value, String> {
     let mut body = serde_json::json!({ "jsonrpc": "2.0", "method": method, "params": params, "id": 1 });
     let mut req = client.post(url);
     if !token.is_empty() && method != "user.login" {
-        // Zabbix 6.4+ reads the header; 6.0/6.2 only the "auth" field — send both
-        req = req.bearer_auth(token);
-        body["auth"] = Value::String(token.to_string());
+        if header {
+            req = req.bearer_auth(token);
+        } else {
+            body["auth"] = Value::String(token.to_string());
+        }
     }
     let r = req.json(&body).send().await.map_err(|e| format!("нет соединения ({e}) — проверьте URL и VPN"))?;
     if !r.status().is_success() {
@@ -436,13 +456,32 @@ async fn fetch_zabbix(client: &reqwest::Client, c: &connectors::Connector, user:
     if pass.is_empty() {
         return Err("не задан API-токен или пароль Zabbix".into());
     }
+    // apiinfo.version needs no auth
+    let version = zabbix_call(
+        client,
+        &url,
+        "",
+        false,
+        "apiinfo.version",
+        serde_json::json!([]),
+    )
+    .await?;
+    let header = zabbix_token_in_header(&s(&version));
     let token = if c.auth == "token" {
         pass.to_string()
     } else {
-        let r = zabbix_call(client, &url, "", "user.login", serde_json::json!({ "username": user, "password": pass })).await?;
+        let r = zabbix_call(
+            client,
+            &url,
+            "",
+            header,
+            "user.login",
+            serde_json::json!({ "username": user, "password": pass }),
+        )
+        .await?;
         r.as_str().ok_or("Zabbix не вернул сессию после входа")?.to_string()
     };
-    let problems = zabbix_call(client, &url, &token, "problem.get", serde_json::json!({
+    let problems = zabbix_call(client, &url, &token, header, "problem.get", serde_json::json!({
         "output": ["eventid", "objectid", "name", "severity", "clock", "suppressed"],
         "selectTags": "extend", "recent": false, "sortfield": ["eventid"], "sortorder": "DESC", "limit": 1000
     })).await?;
@@ -450,7 +489,7 @@ async fn fetch_zabbix(client: &reqwest::Client, c: &connectors::Connector, user:
     let events = if ids.is_empty() {
         Value::Array(Vec::new())
     } else {
-        zabbix_call(client, &url, &token, "event.get", serde_json::json!({ "eventids": ids, "output": ["eventid"], "selectHosts": ["host", "name"] })).await?
+        zabbix_call(client, &url, &token, header, "event.get", serde_json::json!({ "eventids": ids, "output": ["eventid"], "selectHosts": ["host", "name"] })).await?
     };
     Ok(parse_zabbix(&problems, &events, &c.url, &c.name))
 }
@@ -874,6 +913,20 @@ mod tests {
         assert_eq!(a[0].fingerprint, parse_zabbix(&problems, &events, "https://zabbix.example.com", "Zabbix")[0].fingerprint, "stable per event");
         assert_eq!(zabbix_api("https://z.example.com"), "https://z.example.com/api_jsonrpc.php");
         assert_eq!(zabbix_api("https://z.example.com/api_jsonrpc.php"), "https://z.example.com/api_jsonrpc.php");
+    }
+
+    #[test]
+    fn zabbix_token_place() {
+        for v in ["6.0.48", "6.2.9"] {
+            assert!(!zabbix_token_in_header(v), "{v}: the auth field");
+        }
+        for v in ["6.4.21", "7.0.31", "7.4.15", "8.0.0"] {
+            assert!(
+                zabbix_token_in_header(v),
+                "{v}: the header (7.2+ rejects the field)"
+            );
+        }
+        assert!(zabbix_token_in_header(""));
     }
 
     #[test]
