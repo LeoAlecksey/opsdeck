@@ -6,27 +6,36 @@
 import { after, before, describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { remote } from "webdriverio";
+import { resolve } from "node:path";
 
-const BIN = process.env.OPSDECK_BIN;
+// absolute: msedgedriver starts the app from its own folder
+const BIN = process.env.OPSDECK_BIN && resolve(process.env.OPSDECK_BIN);
 const WIN = process.platform === "win32";
 const ENTER = "";
 let b;
 
-/** Poll until fn() is truthy (or fail after `ms`). */
-async function until(fn, what, ms = 20_000) {
+/** Poll until fn() is truthy (or fail after `ms`); `show()` adds what was on screen to the error. */
+async function until(fn, what, ms = 20_000, show) {
   const end = Date.now() + ms;
   let last;
   while (Date.now() < end) {
     try { last = await fn(); if (last) return last; } catch (e) { last = e; }
     await new Promise((r) => setTimeout(r, 250));
   }
-  throw new Error(`timed out waiting for ${what} (last: ${last})`);
+  const screen = show ? `\n--- on screen ---\n${await show().catch((e) => String(e))}` : "";
+  throw new Error(`timed out waiting for ${what} (last: ${last})${screen}`);
 }
+const pause = (ms) => new Promise((r) => setTimeout(r, ms));
 const view = (id) => b.$(`#sidebar button[data-view="${id}"]`);
 const termText = () => b.execute(() => [...document.querySelectorAll(".term-host:not([hidden]) .xterm-rows")].map((e) => e.textContent).join("\n"));
+/** Key by key: WebKitWebDriver merges two equal keys sent back to back ("))" arrived as ")"). */
+const typeKeys = async (text) => {
+  for (const ch of text) { await b.keys(ch); await pause(30); }
+};
 const typeInTerminal = async (text) => {
   await (await b.$(".term-host:not([hidden]) .xterm")).click();
-  await b.keys([...text, ENTER]);
+  await typeKeys(text);
+  await b.keys(ENTER);
 };
 
 before(async () => {
@@ -53,7 +62,7 @@ describe("OpsDeck (real app)", () => {
     await until(async () => (await termText()).trim().length > 0, "a shell prompt", 30_000);
     // arithmetic proves the shell evaluated the command (an echo of the typed text would not)
     await typeInTerminal(WIN ? '"opsdeck-" + (40+2)' : "echo opsdeck-$((40+2))");
-    await until(async () => (await termText()).includes("opsdeck-42"), "the command output");
+    await until(async () => (await termText()).includes("opsdeck-42"), "the command output", 20_000, termText);
     const text = await termText();
     assert.ok(!/ParserError|CategoryInfo|is not recognized|command not found/i.test(text), `shell integration errors:\n${text}`);
   });
@@ -61,7 +70,7 @@ describe("OpsDeck (real app)", () => {
   it("suggests the rest of a command typed before (shell integration works)", async () => {
     const typed = WIN ? '"opsdeck-" + (40' : "echo opsdeck-$((4";
     await (await b.$(".term-host:not([hidden]) .xterm")).click();
-    await b.keys([...typed]);
+    await typeKeys(typed);
     // grey inline suggestion after the cursor: needs the OSC 133 marks of the shell integration
     await until(async () => b.execute(() => [...document.querySelectorAll(".term-ghost")].map((e) => e.textContent).join("")), "an inline suggestion", 10_000)
       .then((ghost) => assert.ok(ghost.startsWith(WIN ? "+2)" : "0+2))"), `suggestion: ${ghost}`));
@@ -76,7 +85,7 @@ describe("OpsDeck (real app)", () => {
     await until(async () => (await tabs()) === before + 1, "a new tab");
     await until(async () => (await termText()).trim().length > 0, "the new shell prompt", 30_000);
     await typeInTerminal("exit");
-    await until(async () => (await tabs()) === before, "the tab to close after exit", 15_000);
+    await until(async () => (await tabs()) === before, "the tab to close after exit", 15_000, termText);
   });
 
   it("modules can be turned on: network tools ping localhost", async () => {
@@ -84,13 +93,21 @@ describe("OpsDeck (real app)", () => {
     await (await b.$('.modules-pop input[data-mod="net"]')).click();
     await b.keys(["Escape"]);
     await (await view("net")).click();
-    await (await b.$("[data-pane=tools] input[name=target]")).setValue("127.0.0.1");
-    const count = await b.$("[data-pane=tools] input[name=count]");
-    await count.clearValue();
-    await count.setValue("1");
+    // set the fields directly: typing into number inputs is unreliable in WebKitWebDriver
+    await b.execute(() => {
+      const set = (name, v) => {
+        const el = document.querySelector(`[data-pane=tools] [name=${name}]`);
+        el.value = v;
+        el.dispatchEvent(new Event("input", { bubbles: true }));
+      };
+      set("target", "127.0.0.1");
+      set("count", "1");
+    });
     await (await b.$("[data-pane=tools] button[type=submit]")).click();
     const out = () => b.execute(() => document.querySelector("[data-pane=tools] .output")?.textContent ?? "");
-    await until(async () => /127\.0\.0\.1/.test((await out()).split("\n").slice(1).join("\n")), "ping output", 30_000);
+    const form = () => b.execute(() => [...document.querySelectorAll("[data-pane=tools] input, [data-pane=tools] select")].map((e) => `${e.name}=${e.value}`).join(" "));
+    await until(async () => /from 127\.0\.0\.1|от 127\.0\.0\.1|Reply from|Ответ от|bytes from/i.test(await out()), "ping output", 30_000,
+      async () => `form: ${await form()}\noutput:\n${await out()}`);
     // OEM output decoded on Windows: no replacement characters
     assert.ok(!(await out()).includes("�"), await out());
   });
