@@ -113,6 +113,13 @@ jobs:
       - name: cargo test
         working-directory: src-tauri
         run: cargo test --lib
+      # static analysis of the Rust code: any clippy warning fails the build
+      - name: cargo clippy
+        if: runner.os == 'Linux'
+        working-directory: src-tauri
+        run: |
+          rustup component add clippy
+          cargo clippy --lib --tests -- -D warnings
 
   ui:
     name: tests ui (vitest + playwright)

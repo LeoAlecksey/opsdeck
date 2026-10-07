@@ -145,7 +145,7 @@ pub fn prepare(kp: &KeepassState, id: &str) -> Result<(Connector, Url, Option<St
     let secret = match c.auth.as_str() {
         "none" => String::new(),
         "keepass" => {
-            let (user, pass) = keepass::credentials(&kp, &c.keepass_entry)?;
+            let (user, pass) = keepass::credentials(kp, &c.keepass_entry)?;
             if c.username.is_empty() {
                 c.username = user;
             }

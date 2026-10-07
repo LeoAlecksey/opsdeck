@@ -851,12 +851,7 @@ mod tests {
     use crate::settings::Settings;
 
     fn settings(host: &str, port: &str, model: &str, key: &str) -> Settings {
-        let mut s = Settings::default();
-        s.ai_host = host.into();
-        s.ai_port = port.into();
-        s.ai_model = model.into();
-        s.ai_api_key = key.into();
-        s
+        Settings { ai_host: host.into(), ai_port: port.into(), ai_model: model.into(), ai_api_key: key.into(), ..Default::default() }
     }
 
     #[test]

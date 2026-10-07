@@ -4,6 +4,7 @@
 //!   this machine, so a changing IP or NAT doesn't matter;
 //! - push, loopback only: a local analyzer (log/alert AI running on this machine) POSTs findings
 //!   or alerts to 127.0.0.1 with its connector's token.
+//!
 //! Current items are keyed by fingerprint; a bounded event history is kept on disk.
 
 use crate::{connectors, keepass::KeepassState, store};

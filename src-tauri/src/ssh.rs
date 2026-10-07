@@ -152,8 +152,8 @@ pub struct Effective {
 }
 
 /// Cache of `ssh -G` keyed by ~/.ssh/config mtime — otherwise every ssh_list spawns ssh.exe per alias.
-static EFFECTIVE_CACHE: Mutex<Option<(Option<SystemTime>, HashMap<String, Option<Effective>>)>> =
-    Mutex::new(None);
+type EffectiveCache = (Option<SystemTime>, HashMap<String, Option<Effective>>);
+static EFFECTIVE_CACHE: Mutex<Option<EffectiveCache>> = Mutex::new(None);
 
 fn config_mtime() -> Option<SystemTime> {
     std::fs::metadata(ssh_dir().join("config"))
