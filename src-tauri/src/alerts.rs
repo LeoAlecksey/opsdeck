@@ -414,6 +414,27 @@ fn zabbix_token_in_header(version: &str) -> bool {
     zabbix_version(version).is_none_or(|v| v >= (6, 4))
 }
 
+/// How the token or session goes to the API.
+#[derive(Clone, Copy, PartialEq, Debug)]
+enum ZabbixAuth {
+    Header,
+    Field,
+    /// zbx_session cookie of the web sign-in
+    Cookie,
+}
+
+/// With HTTP Basic auth of the web server in front of Zabbix the Authorization header is taken, so
+/// the token can go only in the "auth" field — and 7.2 removed it. There the API is called with the
+/// session of the web sign-in (index.php), a workaround: the API itself has no other way.
+fn zabbix_auth(version: &str, basic: bool) -> ZabbixAuth {
+    match (basic, zabbix_version(version)) {
+        (true, Some(v)) if v >= (7, 2) => ZabbixAuth::Cookie,
+        (true, _) => ZabbixAuth::Field,
+        _ if zabbix_token_in_header(version) => ZabbixAuth::Header,
+        _ => ZabbixAuth::Field,
+    }
+}
+
 /// (major, minor) of a version string like "7.0.31".
 fn zabbix_version(version: &str) -> Option<(u32, u32)> {
     let mut parts = version.split('.').map(|p| p.parse::<u32>().ok());
@@ -438,26 +459,52 @@ fn zabbix_shown(problems: &Value, triggers: &Value) -> Value {
         .collect()
 }
 
+/// A Zabbix API endpoint with the HTTP Basic pair of the web server in front of it, if any.
+struct ZabbixApi<'a> {
+    client: &'a reqwest::Client,
+    url: String,
+    basic: Option<(String, String)>,
+}
+
+/// Turns a non-2xx answer into an explanation; a 401 asking for Basic means the web server wants it.
+fn zabbix_http_error(r: &reqwest::Response, basic: bool) -> String {
+    let basic_demanded = r
+        .headers()
+        .get(reqwest::header::WWW_AUTHENTICATE)
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|v| v.to_ascii_lowercase().starts_with("basic"));
+    match (r.status().as_u16(), basic_demanded, basic) {
+        (401, true, false) => "HTTP 401: веб-сервер перед Zabbix требует Basic auth — заполните логин и пароль Basic в коннекторе".to_string(),
+        (401, true, true) => "HTTP 401: веб-сервер не принял логин/пароль Basic auth".to_string(),
+        (code, ..) => format!("HTTP {code} — проверьте URL (нужен адрес веб-интерфейса Zabbix)"),
+    }
+}
+
 async fn zabbix_call(
-    client: &reqwest::Client,
-    url: &str,
+    api: &ZabbixApi<'_>,
     token: &str,
-    header: bool,
+    auth: ZabbixAuth,
     method: &str,
     params: Value,
 ) -> Result<Value, String> {
-    let mut body = serde_json::json!({ "jsonrpc": "2.0", "method": method, "params": params, "id": 1 });
-    let mut req = client.post(url);
+    let mut body =
+        serde_json::json!({ "jsonrpc": "2.0", "method": method, "params": params, "id": 1 });
+    let mut req = api.client.post(&api.url);
+    if let Some((user, pass)) = &api.basic {
+        req = req.basic_auth(user, Some(pass));
+    }
     if !token.is_empty() && method != "user.login" {
-        if header {
-            req = req.bearer_auth(token);
-        } else {
-            body["auth"] = Value::String(token.to_string());
+        match auth {
+            ZabbixAuth::Header => req = req.bearer_auth(token),
+            ZabbixAuth::Field => body["auth"] = Value::String(token.to_string()),
+            ZabbixAuth::Cookie => {
+                req = req.header(reqwest::header::COOKIE, format!("zbx_session={token}"))
+            }
         }
     }
     let r = req.json(&body).send().await.map_err(|e| format!("нет соединения ({e}) — проверьте URL и VPN"))?;
     if !r.status().is_success() {
-        return Err(format!("HTTP {} — проверьте URL (нужен адрес веб-интерфейса Zabbix)", r.status().as_u16()));
+        return Err(zabbix_http_error(&r, api.basic.is_some()));
     }
     let v: Value = r.json().await.map_err(|e| format!("ответ не JSON ({e}) — проверьте URL"))?;
     if let Some(e) = v.get("error") {
@@ -471,66 +518,147 @@ async fn zabbix_call(
     Ok(v["result"].clone())
 }
 
-/// Sessions of user.login by API URL and user: signing in at every poll would leave a new session
-/// on the server every minute.
+/// Sessions of user.login (or zbx_session cookies of the web sign-in) by API URL and user: signing
+/// in at every poll would leave a new session on the server every minute.
 static ZABBIX_SESSIONS: LazyLock<Mutex<HashMap<String, String>>> = LazyLock::new(Default::default);
 
+fn zabbix_session_key(url: &str, auth: ZabbixAuth, user: &str) -> String {
+    format!("{url}\n{auth:?}\n{user}")
+}
+
 async fn zabbix_login(
-    client: &reqwest::Client,
-    url: &str,
-    header: bool,
+    api: &ZabbixApi<'_>,
+    auth: ZabbixAuth,
     user: &str,
     pass: &str,
 ) -> Result<String, String> {
-    let r = zabbix_call(
-        client,
-        url,
-        "",
-        header,
-        "user.login",
-        serde_json::json!({ "username": user, "password": pass }),
-    )
-    .await?;
-    let session = r
-        .as_str()
-        .ok_or("Zabbix не вернул сессию после входа")?
-        .to_string();
+    let session = if auth == ZabbixAuth::Cookie {
+        zabbix_web_login(api, user, pass).await?
+    } else {
+        let r = zabbix_call(
+            api,
+            "",
+            auth,
+            "user.login",
+            serde_json::json!({ "username": user, "password": pass }),
+        )
+        .await?;
+        r.as_str()
+            .ok_or("Zabbix не вернул сессию после входа")?
+            .to_string()
+    };
     ZABBIX_SESSIONS
         .lock()
         .unwrap()
-        .insert(format!("{url}\n{user}"), session.clone());
+        .insert(zabbix_session_key(&api.url, auth, user), session.clone());
     Ok(session)
 }
 
-async fn fetch_zabbix(client: &reqwest::Client, c: &connectors::Connector, user: &str, pass: &str) -> Result<Vec<Alert>, String> {
-    let url = zabbix_api(c.url.trim_end_matches('/'));
+/// The sign-in form of the web UI (index.php) through the Basic auth of the web server; returns the
+/// zbx_session cookie, which the API accepts like a token.
+async fn zabbix_web_login(api: &ZabbixApi<'_>, user: &str, pass: &str) -> Result<String, String> {
+    // the session cookie comes with the 302 of a successful sign-in, so no redirects here
+    let client = reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .timeout(Duration::from_secs(15))
+        .build()
+        .map_err(|e| e.to_string())?;
+    let form = [
+        ("name", user),
+        ("password", pass),
+        ("autologin", "1"),
+        ("enter", "Sign in"),
+    ];
+    let mut req = client
+        .post(format!(
+            "{}/index.php",
+            api.url.trim_end_matches("/api_jsonrpc.php")
+        ))
+        .form(&form);
+    if let Some((u, p)) = &api.basic {
+        req = req.basic_auth(u, Some(p));
+    }
+    let r = req
+        .send()
+        .await
+        .map_err(|e| format!("нет соединения ({e}) — проверьте URL и VPN"))?;
+    let location = r
+        .headers()
+        .get(reqwest::header::LOCATION)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or_default()
+        .to_string();
+    match r.status().as_u16() {
+        302 if location.contains("index_mfa") => {
+            return Err("вход в веб-интерфейс Zabbix требует второй фактор (MFA) — для Zabbix 7.2+ за Basic auth нужен пользователь без MFA".into())
+        }
+        // a wrong password shows the form again (with a guest zbx_session)
+        302 if !location.contains("index.php") => {}
+        401 => return Err(zabbix_http_error(&r, true)),
+        _ => return Err("вход в веб-интерфейс Zabbix не удался — проверьте логин и пароль Zabbix".into()),
+    }
+    r.headers()
+        .get_all(reqwest::header::SET_COOKIE)
+        .iter()
+        .filter_map(|v| v.to_str().ok())
+        .find_map(|v| v.strip_prefix("zbx_session="))
+        .and_then(|v| v.split(';').next())
+        .map(str::to_string)
+        .ok_or_else(|| "вход в веб-интерфейс Zabbix: сервер не выдал cookie zbx_session".into())
+}
+
+async fn fetch_zabbix(
+    client: &reqwest::Client,
+    c: &connectors::Connector,
+    user: &str,
+    pass: &str,
+) -> Result<Vec<Alert>, String> {
+    let api = ZabbixApi {
+        client,
+        url: zabbix_api(c.url.trim_end_matches('/')),
+        basic: connectors::basic_credentials(c)?,
+    };
+    zabbix_problems(&api, c, user, pass).await
+}
+
+async fn zabbix_problems(
+    api: &ZabbixApi<'_>,
+    c: &connectors::Connector,
+    user: &str,
+    pass: &str,
+) -> Result<Vec<Alert>, String> {
     if pass.is_empty() {
         return Err("не задан API-токен или пароль Zabbix".into());
     }
     // apiinfo.version needs no auth
     let version = zabbix_call(
-        client,
-        &url,
+        api,
         "",
-        false,
+        ZabbixAuth::Field,
         "apiinfo.version",
         serde_json::json!([]),
     )
     .await?;
-    let header = zabbix_token_in_header(&s(&version));
+    let auth = zabbix_auth(&s(&version), api.basic.is_some());
+    if auth == ZabbixAuth::Cookie && c.auth == "token" {
+        return Err(format!(
+            "Zabbix {}: за Basic auth токен можно передать только в поле auth, а в 7.2+ его нет. Варианты: снять Basic с /api_jsonrpc.php на веб-сервере и закрыть его по IP (VPN), или авторизация «логин/пароль» — тогда OpsDeck войдёт в веб-интерфейс Zabbix и пойдёт в API с этой сессией (обходной путь)",
+            s(&version)
+        ));
+    }
     let kept = if c.auth == "token" {
         None
     } else {
         ZABBIX_SESSIONS
             .lock()
             .unwrap()
-            .get(&format!("{url}\n{user}"))
+            .get(&zabbix_session_key(&api.url, auth, user))
             .cloned()
     };
     let mut token = match (c.auth == "token", &kept) {
         (true, _) => pass.to_string(),
         (false, Some(session)) => session.clone(),
-        (false, None) => zabbix_login(client, &url, header, user, pass).await?,
+        (false, None) => zabbix_login(api, auth, user, pass).await?,
     };
     let mut query = serde_json::json!({
         "output": ["eventid", "objectid", "name", "severity", "clock", "suppressed"],
@@ -540,16 +668,14 @@ async fn fetch_zabbix(client: &reqwest::Client, c: &connectors::Connector, user:
     if zabbix_version(&s(&version)).is_some_and(|v| v >= (7, 0)) {
         query["symptom"] = Value::Bool(false);
     }
-    let problems = match zabbix_call(client, &url, &token, header, "problem.get", query.clone())
-        .await
-    {
+    let problems = match zabbix_call(api, &token, auth, "problem.get", query.clone()).await {
         // a kept session ends with auto-logout or a server restart ("Session terminated,
         // re-login, please."): sign in again, once
         Err(e)
             if kept.is_some() && (e.contains("re-login") || e.starts_with("Zabbix не принял")) =>
         {
-            token = zabbix_login(client, &url, header, user, pass).await?;
-            zabbix_call(client, &url, &token, header, "problem.get", query).await?
+            token = zabbix_login(api, auth, user, pass).await?;
+            zabbix_call(api, &token, auth, "problem.get", query).await?
         }
         r => r?,
     };
@@ -567,10 +693,9 @@ async fn fetch_zabbix(client: &reqwest::Client, c: &connectors::Connector, user:
         problems
     } else {
         let triggers = zabbix_call(
-            client,
-            &url,
+            api,
             &token,
-            header,
+            auth,
             "trigger.get",
             serde_json::json!({ "output": ["triggerid"], "triggerids": triggerids, "monitored": true, "skipDependent": true }),
         )
@@ -581,7 +706,7 @@ async fn fetch_zabbix(client: &reqwest::Client, c: &connectors::Connector, user:
     let events = if ids.is_empty() {
         Value::Array(Vec::new())
     } else {
-        zabbix_call(client, &url, &token, header, "event.get", serde_json::json!({ "eventids": ids, "output": ["eventid"], "selectHosts": ["host", "name"] })).await?
+        zabbix_call(api, &token, auth, "event.get", serde_json::json!({ "eventids": ids, "output": ["eventid"], "selectHosts": ["host", "name"] })).await?
     };
     Ok(parse_zabbix(&problems, &events, &c.url, &c.name))
 }
@@ -1019,6 +1144,23 @@ mod tests {
             );
         }
         assert!(zabbix_token_in_header(""));
+    }
+
+    #[test]
+    fn zabbix_auth_behind_basic() {
+        // HTTP Basic of the web server takes the Authorization header
+        for v in ["6.0.48", "6.4.21", "7.0.31"] {
+            assert_eq!(zabbix_auth(v, true), ZabbixAuth::Field, "{v}");
+        }
+        for v in ["7.2.0", "7.4.15", "8.0.0"] {
+            assert_eq!(
+                zabbix_auth(v, true),
+                ZabbixAuth::Cookie,
+                "{v}: no auth field, the web sign-in session"
+            );
+        }
+        assert_eq!(zabbix_auth("7.4.15", false), ZabbixAuth::Header);
+        assert_eq!(zabbix_auth("6.0.48", false), ZabbixAuth::Field);
     }
 
     #[test]
