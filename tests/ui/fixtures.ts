@@ -2,7 +2,7 @@ import { test as base, expect, type Page } from "@playwright/test";
 import { fileURLToPath } from "node:url";
 
 export type Call = { cmd: string; args: Record<string, unknown> };
-const ALL = ["terminal", "k8s", "web", "alerts", "net", "ssh", "code", "db", "notes", "tasks", "vault", "winbox"];
+const ALL = ["terminal", "k8s", "web", "alerts", "net", "ssh", "monitor", "code", "db", "notes", "tasks", "vault", "winbox"];
 
 /** Options for the fake backend, set per test with `test.use({ demo: {...} })`. */
 export type Demo = { lang?: "ru" | "en"; modules?: string[] | null; overrides?: Record<string, unknown> };

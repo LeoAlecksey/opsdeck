@@ -2,7 +2,7 @@ import { test, expect } from "./fixtures";
 
 test.describe("start and modules", () => {
   test("every section opens without errors", async ({ app, page }) => {
-    for (const id of ["terminal", "k8s", "web", "alerts", "net", "ssh", "code", "db", "notes", "tasks", "vault", "winbox", "settings"]) {
+    for (const id of ["terminal", "k8s", "web", "alerts", "net", "ssh", "monitor", "code", "db", "notes", "tasks", "vault", "winbox", "settings"]) {
       await app.view(id);
       await expect(page.locator("section.view:not([hidden])")).toHaveCount(1);
     }
@@ -56,7 +56,7 @@ test.describe("English", () => {
   test.use({ demo: { lang: "en" } });
   test("every section is translated", async ({ app, page }) => {
     const left: Record<string, string[]> = {};
-    for (const id of ["terminal", "k8s", "web", "alerts", "net", "ssh", "code", "db", "notes", "tasks", "vault", "winbox", "settings"]) {
+    for (const id of ["terminal", "k8s", "web", "alerts", "net", "ssh", "monitor", "code", "db", "notes", "tasks", "vault", "winbox", "settings"]) {
       await app.view(id);
       await page.waitForTimeout(300);
       const cyr = await page.locator("section.view:not([hidden])").evaluate((el) => {

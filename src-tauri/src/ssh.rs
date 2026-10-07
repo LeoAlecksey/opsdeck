@@ -373,14 +373,7 @@ pub fn ssh_connect(app: AppHandle, kp: State<KeepassState>, id: Option<String>, 
     if !valid_user(&user) {
         return Err("некорректный пользователь в записи KeePass".into());
     }
-    let mut args = vec!["-p".to_string(), h.port.to_string()];
-    if !h.identity_file.is_empty() {
-        args.extend(["-i".into(), h.identity_file.clone()]);
-    }
-    if !h.jump.is_empty() {
-        args.extend(["-J".into(), h.jump.clone()]);
-    }
-    args.push(if user.is_empty() { h.host.clone() } else { format!("{user}@{}", h.host) });
+    let args = profile_args(&h, &user);
     let copied = !pass.is_empty();
     if copied {
         keepass::copy_secret(&app, pass)?;
@@ -390,8 +383,46 @@ pub fn ssh_connect(app: AppHandle, kp: State<KeepassState>, id: Option<String>, 
 
 
 
+/// ssh arguments for the monitoring board's probe: "id:<profile>" or "alias:<Host from ~/.ssh/config>".
+/// Never asks KeePass or the keyring: the probe logs in by key or over an open session.
+pub(crate) fn probe_args(target: &str) -> Result<Vec<String>, String> {
+    if let Some(alias) = target.strip_prefix("alias:") {
+        if alias.starts_with('-') || !parse_config().iter().any(|h| h.alias == alias) {
+            return Err("хост не найден в ~/.ssh/config".into());
+        }
+        return Ok(vec![alias.to_string()]);
+    }
+    let id = target.strip_prefix("id:").ok_or("неизвестный хост")?;
+    let h = load()?.into_iter().find(|h| h.id == id).ok_or("профиль не найден")?;
+    Ok(profile_args(&h, &h.user))
+}
+
+fn profile_args(h: &SshHost, user: &str) -> Vec<String> {
+    let mut args = vec!["-p".to_string(), h.port.to_string()];
+    if !h.identity_file.is_empty() {
+        args.extend(["-i".into(), h.identity_file.clone()]);
+    }
+    if !h.jump.is_empty() {
+        args.extend(["-J".into(), h.jump.clone()]);
+    }
+    args.push(if user.is_empty() { h.host.clone() } else { format!("{user}@{}", h.host) });
+    args
+}
+
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn board_probe_args() {
+        let h = SshHost {
+            id: "a".into(), name: "web".into(), group: String::new(), host: "192.0.2.1".into(), port: 2222, user: "ops".into(),
+            identity_file: "~/.ssh/id".into(), jump: "bastion".into(), auth: "keepass".into(), keepass_entry: "k".into(),
+        };
+        assert_eq!(profile_args(&h, &h.user), ["-p", "2222", "-i", "~/.ssh/id", "-J", "bastion", "ops@192.0.2.1"]);
+        assert_eq!(profile_args(&SshHost { identity_file: String::new(), jump: String::new(), ..h.clone() }, "").last().unwrap(), "192.0.2.1");
+        assert!(probe_args("alias:-oProxyCommand=x").is_err());
+        assert!(probe_args("rm -rf").is_err());
+    }
     use super::*;
 
     const CONFIG: &str = "

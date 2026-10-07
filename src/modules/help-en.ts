@@ -125,6 +125,18 @@ export const HELP_EN: Record<string, { title: string; html: string }> = {
       <li>For DNS you can set the record type and the server (e.g. 8.8.8.8), for ping/mtr — the packet count.</li>
       <li><b>Stop</b> interrupts a long command.</li></ul>`,
   },
+  monitor: {
+    title: "Host monitoring",
+    html: `
+      <h4>What it is</h4>
+      <p>A board of SSH host cards: CPU, load average, memory, disk and uptime. The card colour follows the worst value: yellow from 75%, red from 90%.</p>
+      <h4>How to turn it on</h4>
+      <ul><li>The module is turned on with a checkbox in the ⊞ menu at the bottom of the left column.</li>
+      <li><b>＋ Hosts</b> — choose profiles from the SSH section and hosts from ~/.ssh/config; the choice is remembered. Host groups become sections of the board.</li>
+      <li>“Refresh” — how often to poll (or by hand with ⟳). While the section is not open, hosts are not polled.</li></ul>
+      <h4>How metrics are collected</h4>
+      <p>Over ssh without a password: a key login (ssh-agent, IdentityFile) or a session already open in OpsDeck is needed. The connection is kept for 2 minutes and reused, so the next poll is cheap. /proc and df are read — Linux only. If a host has never been connected to, accept its key: connect once from the terminal.</p>`,
+  },
   ssh: {
     title: "SSH",
     html: `

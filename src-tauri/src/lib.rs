@@ -220,6 +220,7 @@ pub fn run() {
             ssh::ssh_group_rename,
             sysmon::sys_local,
             sysmon::sys_remote,
+            sysmon::mon_probe,
             ports::ports_scan,
             ports::ports_listening,
             snippets::snippets_save,

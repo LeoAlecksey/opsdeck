@@ -1,4 +1,5 @@
 export type IconName =
+  | "activity"
   | "terminal"
   | "k8s"
   | "web"
@@ -39,6 +40,7 @@ export type IconName =
 ;
 
 const ICONS: Record<IconName, string> = {
+  activity: "<path d=\"M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2\" />",
   grid: "<rect width=\"7\" height=\"7\" x=\"3\" y=\"3\" rx=\"1\" /> <rect width=\"7\" height=\"7\" x=\"14\" y=\"3\" rx=\"1\" /> <rect width=\"7\" height=\"7\" x=\"14\" y=\"14\" rx=\"1\" /> <rect width=\"7\" height=\"7\" x=\"3\" y=\"14\" rx=\"1\" />",
   terminal: "<path d=\"M12 19h8\" /> <path d=\"m4 17 6-6-6-6\" />",
   k8s: "<circle cx=\"12\" cy=\"12\" r=\"8\" /> <path d=\"M12 2v7.5\" /> <path d=\"m19 5-5.23 5.23\" /> <path d=\"M22 12h-7.5\" /> <path d=\"m19 19-5.23-5.23\" /> <path d=\"M12 14.5V22\" /> <path d=\"M10.23 13.77 5 19\" /> <path d=\"M9.5 12H2\" /> <path d=\"M10.23 10.23 5 5\" /> <circle cx=\"12\" cy=\"12\" r=\"2.5\" />",

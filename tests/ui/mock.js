@@ -219,6 +219,12 @@
         setTimeout(() => emit(`pty-data-${id}`, b64(prog ? L("AI-панель: выберите инструмент сверху\r\n", "AI panel: pick a tool at the top\r\n") : termOut)), 100);
         return null;
       }
+      if (cmd === "mon_probe") {
+        if (args.target === "id:h6") throw L("нет входа по ключу — добавьте ключ (ssh-copy-id) или откройте сессию в OpsDeck", "no key login — add a key (ssh-copy-id) or open a session in OpsDeck");
+        const n = Number(args.target.replace(/\D/g, "")) || 1;
+        const disk = args.target === "id:h2" ? 0.95 : 0.4;
+        return { host: args.target.replace(/^\w+:/, "") === "h1" ? "bastion" : args.target.split(":")[1], cpu: 10 * n, cores: 4, load: [0.2 * n, 0.3, 0.25], mem_used: 3e9, mem_total: 8e9, swap_used: 0, swap_total: 0, disk_mount: "/", disk_used: disk * 100e9, disk_total: 100e9, uptime: 90000 * n };
+      }
       if (cmd === "k8s_list") return args.kind === "namespaces" ? ["default", "kube-system", "monitoring", "shop"].map((n) => ({ metadata: { name: n, uid: n } })) : pods;
       if (cmd === "k8s_watch_start") { setTimeout(() => emit(`k8s-watch-${args.id}`, { type: "reset", items: args.kind === "pods" ? pods : [] }), 50); return null; }
       if (cmd === "db_tree") return dbTree(args.path);
