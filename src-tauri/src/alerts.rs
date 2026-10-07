@@ -633,3 +633,114 @@ pub fn alerts_resolve(app: AppHandle, fingerprint: String) {
 pub async fn alerts_poll_now(app: AppHandle) -> Vec<String> {
     poll_once(&app).await
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn alertmanager_v2_alert() {
+        let a = parse_alert(
+            &json!({
+                "labels": { "alertname": "PodCrashLooping", "severity": "critical", "namespace": "shop" },
+                "annotations": { "summary": "worker restarts", "message": "OOM" },
+                "status": { "state": "suppressed" },
+                "fingerprint": "abc123",
+                "startsAt": "2026-10-06T09:00:00Z",
+                "endsAt": "0001-01-01T00:00:00Z",
+                "generatorURL": "https://grafana.example.com/alerting"
+            }),
+            "Alertmanager",
+        );
+        assert_eq!(a.name, "PodCrashLooping");
+        assert_eq!(a.severity, "critical");
+        assert_eq!(a.status, "firing");
+        assert!(a.silenced, "suppressed in API v2 = silenced");
+        assert_eq!(a.fingerprint, "abc123");
+        assert_eq!(a.summary, "worker restarts");
+        assert_eq!(a.description, "OOM", "message is used when there is no description");
+        assert_eq!(a.ends_at, "", "the zero date means 'not ended'");
+        assert_eq!(a.labels["namespace"], "shop");
+        assert_eq!(a.source, "Alertmanager");
+    }
+
+    #[test]
+    fn webhook_alert_without_fingerprint_gets_stable_one() {
+        let v = json!({ "labels": { "alertname": "X", "priority": "P2" }, "status": "resolved", "startsAt": "t" });
+        let a = parse_alert(&v, "Grafana");
+        let b = parse_alert(&v, "Grafana");
+        assert_eq!(a.status, "resolved");
+        assert_eq!(a.severity, "P2", "priority is the fallback severity");
+        assert!(!a.fingerprint.is_empty());
+        assert_eq!(a.fingerprint, b.fingerprint, "same labels → same fingerprint");
+        let c = parse_alert(&json!({ "labels": { "alertname": "Y" }, "startsAt": "t" }), "Grafana");
+        assert_ne!(a.fingerprint, c.fingerprint);
+    }
+
+    #[test]
+    fn ai_finding() {
+        let f = parse_finding(
+            &json!({
+                "title": "Burst of 401",
+                "severity": "warning",
+                "summary": "312 responses",
+                "details": "long text",
+                "status": "closed",
+                "labels": { "app": "api" },
+                "links": [{ "title": "Grafana", "url": "https://grafana.example.com/d/1" }, { "title": "bad", "url": "javascript:alert(1)" }]
+            }),
+            "log-analyzer",
+        )
+        .unwrap();
+        assert_eq!(f.kind, "ai");
+        assert_eq!(f.status, "resolved");
+        assert_eq!(f.links.len(), 1, "only http(s) links are kept");
+        assert_eq!(f.description, "long text");
+        assert!(parse_finding(&json!({ "summary": "no title" }), "x").is_none());
+    }
+
+    #[test]
+    fn finding_fingerprint_by_id_or_content() {
+        let by_id = |t: &str| parse_finding(&json!({ "id": "stable-1", "title": t }), "a").unwrap().fingerprint;
+        assert_eq!(by_id("first wording"), by_id("second wording"), "same id updates the same finding");
+        let by_content = |src: &str| parse_finding(&json!({ "title": "T", "labels": { "a": "1" } }), src).unwrap().fingerprint;
+        assert_ne!(by_content("a"), by_content("b"), "different sources never collide");
+    }
+
+    #[test]
+    fn finding_is_bounded() {
+        let long = "x".repeat(5000);
+        let f = parse_finding(&json!({ "title": long, "summary": long, "links": (0..20).map(|i| json!({ "url": format!("https://e.com/{i}") })).collect::<Vec<_>>() }), "a").unwrap();
+        assert_eq!(f.name.chars().count(), 200);
+        assert_eq!(f.summary.chars().count(), 1000);
+        assert_eq!(f.links.len(), 8);
+    }
+
+    #[test]
+    fn item_kind_detection() {
+        assert_eq!(parse_item(&json!({ "labels": { "alertname": "A" }, "startsAt": "t" }), "s").unwrap().kind, "alert");
+        assert_eq!(parse_item(&json!({ "title": "F" }), "s").unwrap().kind, "ai");
+        assert!(parse_item(&json!({ "foo": 1 }), "s").is_none());
+    }
+
+    #[test]
+    fn body_shapes() {
+        assert_eq!(items_of(&json!([1, 2, 3])).len(), 3);
+        assert_eq!(items_of(&json!({ "alerts": [1, 2] })).len(), 2);
+        assert_eq!(items_of(&json!({ "findings": [1] })).len(), 1);
+        assert_eq!(items_of(&json!({ "items": [1, 2, 3, 4] })).len(), 4);
+        assert_eq!(items_of(&json!({ "title": "one" })).len(), 1);
+        assert!(items_of(&json!("text")).is_empty());
+    }
+
+    #[test]
+    fn muting() {
+        let cfg = AlertsConfig { muted: vec![Mute { source: "Grafana".into(), name: "Noise".into() }, Mute { source: String::new(), name: "Everywhere".into() }], ..Default::default() };
+        let a = |src: &str, name: &str| Alert { source: src.into(), name: name.into(), ..Default::default() };
+        assert!(is_muted(&cfg, &a("Grafana", "Noise")));
+        assert!(!is_muted(&cfg, &a("Alertmanager", "Noise")), "a mute is per source");
+        assert!(is_muted(&cfg, &a("Alertmanager", "Everywhere")), "empty source mutes in every source");
+        assert!(!is_muted(&cfg, &a("Grafana", "Other")));
+    }
+}

@@ -200,3 +200,22 @@ pub async fn sys_remote(state: State<'_, SysState>, args: Vec<String>) -> Result
     })
 }
 
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn v(a: &[&str]) -> Vec<String> {
+        a.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn ssh_args_for_the_probe() {
+        assert_eq!(sanitize_ssh_args(&v(&["-p", "2222", "-J", "bastion", "ops@host"])).unwrap(), v(&["-p", "2222", "-J", "bastion", "ops@host"]));
+        assert!(sanitize_ssh_args(&v(&["-o", "ProxyCommand=sh", "host"])).is_err(), "no -o: ProxyCommand would run a command");
+        assert!(sanitize_ssh_args(&v(&["-p", "-oX", "host"])).is_err());
+        assert!(sanitize_ssh_args(&v(&["host", "other"])).is_err(), "one destination only");
+        assert!(sanitize_ssh_args(&v(&["-p", "22"])).is_err(), "a destination is required");
+        assert!(sanitize_ssh_args(&v(&["-i"])).is_err());
+    }
+}

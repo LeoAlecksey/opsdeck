@@ -304,3 +304,18 @@ fn spawn_detached(program: &str, args: &[String], cwd: &Path) -> Result<(), Stri
     std::thread::spawn(move || child.wait()); // reap; the editor keeps running on its own
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn tilde() {
+        let home = dirs::home_dir().unwrap_or_default();
+        assert_eq!(expand("~"), home);
+        assert_eq!(expand("~/notes/a.md"), home.join("notes/a.md"));
+        assert_eq!(expand("~user/x"), PathBuf::from("~user/x"), "other users' homes are not guessed");
+        assert_eq!(expand("/etc/hosts"), PathBuf::from("/etc/hosts"));
+        assert_eq!(expand("rel/path"), PathBuf::from("rel/path"));
+    }
+}

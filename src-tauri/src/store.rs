@@ -108,3 +108,24 @@ pub fn ct_eq(a: &str, b: &str) -> bool {
 pub fn valid_id(id: &str) -> bool {
     !id.is_empty() && id.len() <= 64 && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ids() {
+        assert!(valid_id("3f2b9c1e-7a4d-4f6b-9a1e-0c2d3e4f5a6b"));
+        for bad in ["", "../etc/passwd", "a b", "a/b", "ид", &"a".repeat(65)] {
+            assert!(!valid_id(bad), "{bad}");
+        }
+    }
+
+    #[test]
+    fn token_compare() {
+        assert!(ct_eq("secret-token", "secret-token"));
+        assert!(!ct_eq("secret-token", "secret-tokeN"));
+        assert!(!ct_eq("short", "shorter"));
+        assert!(ct_eq("", ""));
+    }
+}

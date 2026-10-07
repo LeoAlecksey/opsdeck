@@ -200,3 +200,30 @@ pub async fn ports_listening() -> Result<Vec<Listener>, String> {
     .map_err(err)?
 }
 
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn port_lists() {
+        assert_eq!(parse_ports("443, 22,80;22").unwrap(), [22, 80, 443], "sorted and unique");
+        assert_eq!(parse_ports("8000-8003").unwrap(), [8000, 8001, 8002, 8003]);
+        assert!(parse_ports("").is_err());
+        assert!(parse_ports("0").is_err());
+        assert!(parse_ports("90-80").is_err());
+        assert!(parse_ports("http").is_err());
+        assert!(parse_ports("70000").is_err());
+        assert!(parse_ports("1-65535").is_err(), "too many ports at once");
+    }
+
+    #[test]
+    fn names_and_banners() {
+        assert_eq!(service_name(22), "ssh");
+        assert_eq!(service_name(6443), "kubernetes api");
+        assert_eq!(service_name(12345), "");
+        assert_eq!(printable(b"SSH-2.0-OpenSSH_9.6\r\nsecond line"), "SSH-2.0-OpenSSH_9.6");
+        assert_eq!(printable(b"\x1b[31mred\x07"), "[31mred", "control characters are dropped");
+        assert_eq!(printable(&[b'x'; 500]).len(), 120);
+    }
+}

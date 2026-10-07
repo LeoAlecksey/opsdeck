@@ -84,6 +84,10 @@ fn ssh_dir() -> PathBuf {
 /// Concrete `Host` entries of ~/.ssh/config (patterns with * ? ! are skipped; Include is not followed).
 fn parse_config() -> Vec<ConfigHost> {
     let Ok(raw) = std::fs::read_to_string(ssh_dir().join("config")) else { return Vec::new() };
+    parse_config_text(&raw)
+}
+
+fn parse_config_text(raw: &str) -> Vec<ConfigHost> {
     let mut out: Vec<ConfigHost> = Vec::new();
     let mut current: Vec<usize> = Vec::new();
     let mut comment_group = String::new();
@@ -385,3 +389,64 @@ pub fn ssh_connect(app: AppHandle, kp: State<KeepassState>, id: Option<String>, 
 }
 
 
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const CONFIG: &str = "
+# group: prod
+Host bastion bastion-alt
+    HostName bastion.example.com
+    User ops
+    Port 2222
+    IdentityFile ~/.ssh/id_ed25519
+
+Host app-1
+    HostName=198.51.100.11
+    ProxyJump bastion
+    User deploy
+    User ignored-second-value
+
+Host *.internal !secret
+    User wildcard
+
+Match host foo
+    User from-match
+
+host lower
+  hostname lower.example.com
+";
+
+    #[test]
+    fn config_hosts() {
+        let hosts = parse_config_text(CONFIG);
+        let names: Vec<_> = hosts.iter().map(|h| h.alias.as_str()).collect();
+        assert_eq!(names, ["bastion", "bastion-alt", "app-1", "lower"], "patterns are skipped");
+        let b = &hosts[0];
+        assert_eq!((b.hostname.as_str(), b.user.as_str(), b.port.as_str()), ("bastion.example.com", "ops", "2222"));
+        assert_eq!(b.group, "prod", "# group: comment above Host");
+        assert_eq!(hosts[1].hostname, "bastion.example.com", "settings apply to every alias of the line");
+        assert_eq!(hosts[1].group, "prod");
+        let app = &hosts[2];
+        assert_eq!(app.hostname, "198.51.100.11", "key=value form");
+        assert_eq!(app.user, "deploy", "first value wins, like ssh");
+        assert_eq!(app.proxy_jump, "bastion");
+        assert_eq!(app.group, "", "the group comment is used once");
+        assert_eq!(hosts[3].hostname, "lower.example.com", "keywords are case-insensitive");
+        assert_eq!(hosts[3].user, "", "Match blocks do not leak into the next Host");
+    }
+
+    #[test]
+    fn users_and_jumps() {
+        assert!(valid_user("deploy"));
+        assert!(valid_user("user@CORP.example"), "AD-style logins");
+        assert!(!valid_user("-oProxyCommand=x"), "no option injection");
+        assert!(!valid_user("a b"));
+        assert!(!valid_user("a;rm"));
+        assert!(valid_jump("bastion"));
+        assert!(valid_jump("ops@bastion.example.com:2222,deploy@10.0.0.1"));
+        assert!(!valid_jump("-J evil"));
+        assert!(!valid_jump("ops@host;id"));
+    }
+}

@@ -1284,3 +1284,126 @@ pub async fn k8s_object_events(state: State<'_, K8sState>, ctx: Ctx, namespace: 
     Ok(items)
 }
 
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const KUBECONFIG: &str = r#"
+apiVersion: v1
+kind: Config
+current-context: prod
+clusters:
+- name: prod-cluster
+  cluster: { server: "https://k8s.example.com:6443", certificate-authority: certs/ca.crt }
+- name: stage-cluster
+  cluster: { server: "https://stage.example.com:6443" }
+users:
+- name: admin
+  user: { client-certificate: certs/admin.crt, client-key: /abs/admin.key }
+- name: oidc
+  user:
+    exec: { command: kubelogin, args: [get-token, --oidc-issuer-url=https://sso.example.com] }
+contexts:
+- name: prod
+  context: { cluster: prod-cluster, user: admin, namespace: shop }
+- name: stage
+  context: { cluster: stage-cluster, user: admin }
+- name: stage-oidc
+  context: { cluster: stage-cluster, user: oidc }
+"#;
+
+    /// A kubeconfig in its own temp folder (removed at the end of the test).
+    struct Tmp(PathBuf);
+    impl Tmp {
+        fn new(name: &str) -> Self {
+            let dir = std::env::temp_dir().join(format!("opsdeck-k8s-{name}-{}", std::process::id()));
+            let _ = fs::remove_dir_all(&dir);
+            fs::create_dir_all(&dir).unwrap();
+            let file = dir.join("config.yaml");
+            fs::write(&file, KUBECONFIG).unwrap();
+            Tmp(file)
+        }
+        fn dir(&self) -> &Path {
+            self.0.parent().unwrap()
+        }
+    }
+    impl Drop for Tmp {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(self.dir());
+        }
+    }
+
+    #[test]
+    fn contexts_from_a_file() {
+        let t = Tmp::new("ctx");
+        let list = contexts_of(vec![(t.0.clone(), "opsdeck")]);
+        assert_eq!(list.len(), 3);
+        let prod = &list[0];
+        assert_eq!((prod.context.as_str(), prod.namespace.as_str(), prod.server.as_str()), ("prod", "shop", "https://k8s.example.com:6443"));
+        assert!(prod.current);
+        assert_eq!(list[1].namespace, "default", "no namespace → default");
+        assert!(!list[1].current);
+        assert_eq!(prod.label, "config");
+    }
+
+    #[test]
+    fn one_context_extracted_with_absolute_paths() {
+        let t = Tmp::new("single");
+        let cfg = single_context(&t.0, "prod", Some("payments")).unwrap();
+        assert_eq!(cfg["current-context"], "prod");
+        assert_eq!(cfg["contexts"].as_array().unwrap().len(), 1);
+        assert_eq!(cfg["contexts"][0]["context"]["namespace"], "payments", "namespace override");
+        let ca = cfg["clusters"][0]["cluster"]["certificate-authority"].as_str().unwrap();
+        assert_eq!(Path::new(ca), t.dir().join("certs/ca.crt"), "relative cert paths become absolute");
+        assert_eq!(cfg["users"][0]["user"]["client-key"], "/abs/admin.key", "absolute paths stay");
+        assert!(single_context(&t.0, "missing", None).is_err());
+    }
+
+    #[test]
+    fn delete_context_keeps_shared_entries_and_makes_a_backup() {
+        let t = Tmp::new("delete");
+        let ctx = Ctx { file: t.0.to_string_lossy().into_owned(), context: "prod".into() };
+        let backup = delete_context_in_file(&ctx).unwrap();
+        assert_eq!(fs::read_to_string(&backup).unwrap(), KUBECONFIG, "backup is the original file");
+        let cfg: Value = serde_yaml_ng::from_str(&fs::read_to_string(&t.0).unwrap()).unwrap();
+        let names = |list: &str| cfg[list].as_array().unwrap().iter().map(|x| x["name"].as_str().unwrap().to_string()).collect::<Vec<_>>();
+        assert_eq!(names("contexts"), ["stage", "stage-oidc"]);
+        assert_eq!(names("clusters"), ["stage-cluster"], "prod-cluster is no longer used");
+        assert_eq!(names("users"), ["admin", "oidc"], "admin is still used by stage");
+        assert_eq!(cfg["current-context"], "", "the deleted context is no longer current");
+    }
+
+    #[test]
+    fn helpers() {
+        assert_eq!(sanitize("prod/eu west:1"), "prod_eu_west_1");
+        assert_eq!(sanitize("..hidden.."), "hidden");
+        assert_eq!(sanitize(&"x".repeat(200)).len(), 80);
+        let cfg: Value = serde_yaml_ng::from_str(KUBECONFIG).unwrap();
+        assert_eq!(exec_commands(&cfg), ["kubelogin get-token --oidc-issuer-url=https://sso.example.com"]);
+    }
+
+    #[test]
+    fn quantities() {
+        assert_eq!(cpu_milli("250m"), 250.0);
+        assert_eq!(cpu_milli("2"), 2000.0);
+        assert_eq!(cpu_milli("1500000n"), 1.5);
+        assert_eq!(cpu_milli("garbage"), 0.0);
+        assert_eq!(mem_bytes("512Mi"), 512.0 * 1048576.0);
+        assert_eq!(mem_bytes("1G"), 1e9);
+        assert_eq!(mem_bytes("1024"), 1024.0);
+    }
+
+    #[test]
+    fn yaml_cleanup_and_selectors() {
+        let v = clean(json!({ "metadata": { "name": "a", "managedFields": [1], "annotations": { "kubectl.kubernetes.io/last-applied-configuration": "{}", "keep": "1" } } }));
+        assert!(v["metadata"].get("managedFields").is_none());
+        assert_eq!(v["metadata"]["annotations"], json!({ "keep": "1" }));
+        let sel = json!({ "matchLabels": { "app": "api" }, "matchExpressions": [
+            { "key": "tier", "operator": "In", "values": ["web", "api"] },
+            { "key": "canary", "operator": "DoesNotExist" } ] });
+        assert_eq!(selector_string(&sel).unwrap(), "app=api,tier in (web,api),!canary");
+        assert!(selector_string(&json!({})).is_none());
+        assert!(selector_string(&json!({ "matchExpressions": [{ "key": "x", "operator": "Weird" }] })).is_none());
+    }
+}

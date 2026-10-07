@@ -211,3 +211,55 @@ async fn port_check(app: AppHandle, run_id: String, req: ToolRequest) -> Result<
     });
     Ok(cmdline)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn req(tool: &str, target: &str) -> ToolRequest {
+        ToolRequest { tool: tool.into(), target: target.into(), count: None, server: None, record: None, port: None }
+    }
+
+    #[test]
+    fn hosts() {
+        for ok in ["example.com", "192.0.2.1", "2001:db8::1", "my_host-1.local"] {
+            assert!(valid_host(ok), "{ok}");
+        }
+        for bad in ["", "-c 100", "a b", "a;id", "$(id)", "a/b", &"a".repeat(254)] {
+            assert!(!valid_host(bad), "{bad}");
+        }
+    }
+
+    #[test]
+    fn commands() {
+        let (prog, args) = build(&req("ping", "example.com")).unwrap();
+        assert_eq!(prog, "ping");
+        assert_eq!(args.last().unwrap(), "example.com", "the target is always the last, positional argument");
+        assert_eq!(args[1], "4", "default count");
+
+        let mut r = req("dig", "example.com");
+        r.server = Some("192.0.2.53".into());
+        r.record = Some("mx".into());
+        assert_eq!(build(&r).unwrap(), ("dig", vec!["@192.0.2.53".to_string(), "example.com".into(), "MX".into()]));
+
+        let mut r = req("nslookup", "example.com");
+        r.record = Some("TXT".into());
+        assert_eq!(build(&r).unwrap().1, ["-type=TXT", "example.com"]);
+
+        let mut r = req("ping", "example.com");
+        r.count = Some(1_000_000);
+        assert_eq!(build(&r).unwrap().1[1], "1000", "count is clamped");
+    }
+
+    #[test]
+    fn rejects() {
+        assert!(build(&req("ping", "-f")).is_err());
+        assert!(build(&req("rm", "example.com")).is_err());
+        let mut r = req("dig", "example.com");
+        r.record = Some("A; id".into());
+        assert!(build(&r).is_err());
+        let mut r = req("dig", "example.com");
+        r.server = Some("-x".into());
+        assert!(build(&r).is_err());
+    }
+}
