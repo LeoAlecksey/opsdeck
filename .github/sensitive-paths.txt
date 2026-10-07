@@ -1,0 +1,13 @@
+# Пути (регулярные выражения), изменения в которых требуют особого внимания в PR.
+# Используется workflow pr-guard; те же места перечислены в CODEOWNERS.
+^\.github/
+^scripts/
+^src-tauri/tauri(\.release)?\.conf\.json$
+^src-tauri/capabilities/
+^src-tauri/Cargo\.(toml|lock)$
+^package(-lock)?\.json$
+^src-tauri/src/(updater|store|keepass|settings|connectors|ai|ide|embed|pty|process|ssh|mikrotik|db)\.rs$
+^src-tauri/shell/
+^src/modules/(settings|updates)\.ts$
+^README\.md$
+^site/

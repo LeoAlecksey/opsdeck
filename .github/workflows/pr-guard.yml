@@ -1,0 +1,74 @@
+# Проверка внешних PR на безопасность: метка «⚠ безопасность» и комментарий, если PR трогает CI,
+# релизы и обновления, пароли/секреты, запуск команд, зависимости или ссылки автора; красная
+# проверка, если ссылки на донат/Telegram подменены или добавлены чужие.
+# pull_request_target даёт права ставить метки на PR из форков, поэтому код PR здесь НЕ запускается:
+# скрипт проверки берётся из нашей ветки, файлы PR только читаются.
+name: pr-guard
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+jobs:
+  guard:
+    runs-on: ubuntu-24.04
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      REPO: ${{ github.repository }}
+      PR: ${{ github.event.pull_request.number }}
+    steps:
+      - name: Trusted scripts (base branch)
+        uses: actions/checkout@v4
+        with:
+          path: base
+      - name: PR files (read only, never executed)
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: pr
+          persist-credentials: false
+      - name: Check
+        id: check
+        run: |
+          gh api --paginate "repos/$REPO/pulls/$PR/files" --jq '.[].filename' > files.txt
+          grep -v '^#' base/.github/sensitive-paths.txt | grep -v '^$' > patterns.txt
+          grep -E -f patterns.txt files.txt > sensitive.txt || true
+          links_ok=1
+          (cd pr && node ../base/scripts/check-links.mjs) > links.txt 2>&1 || links_ok=0
+          echo "links_ok=$links_ok" >> "$GITHUB_OUTPUT"
+          {
+            echo "<!-- pr-guard -->"
+            if [ "$links_ok" = 0 ]; then
+              echo "### ⛔ Ссылки на донат или Telegram изменены"
+              echo '```'; cat links.txt; echo '```'
+            fi
+            if [ -s sensitive.txt ]; then
+              echo "### ⚠ PR трогает места, важные для безопасности"
+              echo "CI и ключ подписи, релизы и обновления, пароли и секреты, запуск команд, зависимости или ссылки автора. Нужна внимательная проверка владельцем:"
+              sed 's/^/- `/; s/$/`/' sensitive.txt
+            fi
+          } > comment.md
+          if [ "$links_ok" = 1 ] && [ ! -s sensitive.txt ]; then echo "clean=1" >> "$GITHUB_OUTPUT"; fi
+          cat comment.md
+      - name: Label and comment
+        if: steps.check.outputs.clean != '1'
+        run: |
+          gh label create "⚠ безопасность" --repo "$REPO" --color D93F0B --description "PR трогает безопасность — проверить внимательно" 2>/dev/null || true
+          gh pr edit "$PR" --repo "$REPO" --add-label "⚠ безопасность"
+          id=$(gh api "repos/$REPO/issues/$PR/comments" --jq '[.[] | select(.body | startswith("<!-- pr-guard -->"))][0].id // empty')
+          if [ -n "$id" ]; then
+            gh api -X PATCH "repos/$REPO/issues/comments/$id" -F body=@comment.md >/dev/null
+          else
+            gh pr comment "$PR" --repo "$REPO" --body-file comment.md
+          fi
+      - name: Fail on changed author links
+        if: steps.check.outputs.links_ok == '0'
+        run: |
+          echo "::error::Ссылки на донат/Telegram подменены или добавлены чужие — см. комментарий в PR"
+          exit 1

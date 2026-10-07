@@ -11,7 +11,8 @@
     "i18n:missing": "node scripts/i18n-extract.mjs",
     "i18n:check": "node scripts/i18n-check.mjs",
     "test": "vitest run",
-    "test:ui": "playwright test"
+    "test:ui": "playwright test",
+    "check:links": "node scripts/check-links.mjs"
   },
   "dependencies": {
     "@codemirror/autocomplete": "^6.20.3",
