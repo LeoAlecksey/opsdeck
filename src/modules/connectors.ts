@@ -12,6 +12,7 @@ const KINDS: Record<string, { label: string; auth: string[]; hint: string }> = {
   argocd: { label: "ArgoCD", auth: ["keepass", "password", "token"], hint: "admin/пароль или API-токен (argocd account generate-token)." },
   gitlab: { label: "GitLab", auth: ["keepass", "password", "none"], hint: "Логин/пароль заполняются в форму входа. 2FA вводится руками." },
   alertmanager: { label: "Alertmanager", auth: ["none", "password", "token", "keepass"], hint: "Prometheus Alertmanager, URL вида http://alertmanager:9093. OpsDeck опрашивает /api/v2/alerts — алерты появятся в разделе «Алерты»." },
+  zabbix: { label: "Zabbix", auth: ["token", "keepass", "password"], hint: "Zabbix 6.0+: проблемы забираются по API раз в минуту. Удобнее всего API-токен (Users → API tokens), можно логин/пароль." },
   ai: { label: "AI / анализатор", auth: ["none", "token", "password", "keepass"], hint: "Локальный или удалённый анализатор логов и алертов. Как подключить — ниже." },
   generic: { label: "Другое (URL)", auth: ["none"], hint: "Просто открыть веб-интерфейс в отдельном окне." },
 };
@@ -119,9 +120,9 @@ export function mountConnectors(root: HTMLElement) {
   function renderSourceHelp() {
     const kind = f("kind").value, auth = f("auth").value;
     const box = form.querySelector<HTMLElement>(".src-help")!;
-    const canCheck = kind === "grafana" || kind === "alertmanager" || (kind === "ai" && !!f("url").value.trim());
+    const canCheck = kind === "grafana" || kind === "alertmanager" || kind === "zabbix" || (kind === "ai" && !!f("url").value.trim());
     form.querySelector<HTMLElement>("[data-check]")!.hidden = !canCheck || (kind === "grafana" && auth === "none");
-    box.hidden = kind !== "grafana" && kind !== "alertmanager";
+    box.hidden = kind !== "grafana" && kind !== "alertmanager" && kind !== "zabbix";
     if (kind === "grafana") {
       box.innerHTML = `<div class="side-head small">Сбор алертов из этой Grafana</div>
         <ol>
@@ -139,6 +140,12 @@ export function mountConnectors(root: HTMLElement) {
         <ol><li>URL — адрес Alertmanager, например <code>http://alertmanager.monitoring:9093</code> (доступный с этого компьютера, через VPN тоже).</li>
         <li>Если перед ним нет авторизации — оставьте «без автологина»; иначе логин/пароль или токен.</li>
         <li><b>Сохранить и проверить</b>.</li></ol>`;
+    } else if (kind === "zabbix") {
+      box.innerHTML = `<div class="side-head small">Сбор проблем из Zabbix</div>
+        <ol><li>URL — адрес веб-интерфейса Zabbix, например <code>https://zabbix.example.com</code> (API найдётся сам).</li>
+        <li>Токен: Zabbix → <b>Users → API tokens → Create API token</b> (пользователь с правом чтения нужных хостов). Здесь: Авторизация = <b>токен</b>.</li>
+        <li>Или логин/пароль (в том числе из KeePass) — OpsDeck сам войдёт через API.</li>
+        <li><b>Сохранить и проверить</b>. Важность Disaster/High — critical, Average/Warning — warning, Information — info.</li></ol>`;
     }
   }
 

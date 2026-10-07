@@ -240,11 +240,13 @@ export function mountAlerts(root: HTMLElement) {
       <ol>
         <li><b>Grafana</b>: в Grafana создайте токен — Administration → Users and access → Service accounts → Add service account (роль Viewer) → Add service account token. Затем здесь «＋ Grafana», авторизация «токен», «Сохранить и проверить».</li>
         <li><b>Prometheus Alertmanager</b>: «＋ Alertmanager», URL вида http://alertmanager:9093.</li>
+        <li><b>Zabbix</b>: «＋ Zabbix», адрес веб-интерфейса и API-токен (Users → API tokens) или логин/пароль.</li>
         <li><b>Свой AI-анализатор</b>: «＋ AI-анализатор» — в карточке будет адрес, токен и пример curl.</li>
       </ol>
       <div class="row">
         <button class="primary" data-add="grafana">${icon("plus", 16)} Grafana</button>
         <button data-add="alertmanager">${icon("plus", 16)} Alertmanager</button>
+        <button data-add="zabbix">${icon("plus", 16)} Zabbix</button>
         <button data-add="ai">${icon("plus", 16)} AI-анализатор</button>
       </div>
     </div>`;

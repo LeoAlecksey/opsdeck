@@ -85,6 +85,7 @@ export const HELP_EN: Record<string, { title: string; html: string }> = {
       <ul>
         <li><b>Grafana</b> — Grafana Alerting alerts (login/password, a service account token with the Viewer role, or KeePass);</li>
         <li><b>Alertmanager</b> — Prometheus Alertmanager;</li>
+        <li><b>Zabbix</b> — Zabbix 6.0+ problems over the API: an API token (Users → API tokens) or a login/password;</li>
         <li><b>AI / analyzer</b> — findings of your log/alert analyzer: a local one posts them to 127.0.0.1 with its token, a remote one serves a JSON feed at a URL.</li>
       </ul>
       <h4>Connecting Grafana — step by step</h4>

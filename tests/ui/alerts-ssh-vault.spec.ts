@@ -41,6 +41,25 @@ test.describe("alerts", () => {
   });
 });
 
+test.describe("alerts: a Zabbix source", () => {
+  test.use({ demo: { overrides: { alerts_sources: [], alerts_get: { current: [], history: [], firing: 0 }, alerts_test_source: 3 } } });
+  test("＋ Zabbix → dialog → save and check", async ({ app, page }) => {
+    await app.view("alerts");
+    await page.locator("[data-add=zabbix]").click();
+    const dlg = page.locator("dialog.conn-dialog");
+    await expect(dlg).toBeVisible();
+    await expect(dlg.locator("select[name=kind]")).toHaveValue("zabbix");
+    await expect(dlg).toContainText("Сбор проблем из Zabbix");
+    await dlg.locator("input[name=name]").fill("Zabbix prod");
+    await dlg.locator("input[name=url]").fill("https://zabbix.example.com");
+    await dlg.locator("input[name=secret]").fill("zbx-token");
+    await dlg.locator("[data-check]").click();
+    const save = await app.called("connector_save");
+    expect(save.args).toMatchObject({ connector: { kind: "zabbix", name: "Zabbix prod", url: "https://zabbix.example.com", auth: "token" }, secret: "zbx-token" });
+    await app.called("alerts_test_source");
+  });
+});
+
 test.describe("ssh", () => {
   test.beforeEach(async ({ app }) => { await app.view("ssh"); });
   const group = (page: Page, g: string) => page.locator(`details.ssh-group[data-g="${g}"]`);
