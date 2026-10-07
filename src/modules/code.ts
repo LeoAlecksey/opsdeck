@@ -555,8 +555,24 @@ export function mountCode(root: HTMLElement) {
         <svg width="${x(width - 1) + 8}" height="${H}" class="cg-lanes">${svg}</svg>
         <span class="cg-msg">${refs}${esc(c.subject)}</span><span class="cg-meta muted">${esc(c.author.split(" ")[0])} · ${when}</span></div>`);
     }
-    box.innerHTML = rows.join("") + (commits.length === 300 ? `<p class="muted pad">показаны последние 300 коммитов</p>` : "");
+    const br = await invoke<Branches>("code_git_branches", { root: git.root }).catch(() => null);
+    box.innerHTML = branchHint(commits, br) + rows.join("") + (commits.length === 300 ? `<p class="muted pad">показаны последние 300 коммитов</p>` : "");
   }
+
+  /** A just-created branch sits on the same commit as the one it came from, so it has no line of its
+   *  own yet: say so instead of leaving only a label. */
+  function branchHint(commits: Commit[], br: Branches | null): string {
+    const head = commits.find((c) => c.refs.some((r) => r.startsWith("HEAD -> ")));
+    if (!head || !br) return "";
+    const cur = head.refs.find((r) => r.startsWith("HEAD -> "))!.slice(8);
+    const locals = new Set(br.local.map((b) => b.name)), remotes = new Set(br.remote.map((b) => b.name));
+    const others = head.refs.filter((r) => r !== cur && !r.startsWith("HEAD") && !r.startsWith("tag: "));
+    const upstream = br.local.find((b) => b.name === cur)?.upstream;
+    const from = others.find((r) => locals.has(r)) ?? others.find((r) => remotes.has(r) && r !== upstream)?.replace(/^[^/]+\//, "");
+    if (!from) return "";
+    return `<div class="cg-hint"><span class="cg-ref head">● ${esc(cur)}</span> создана от <b>${esc(from)}</b> — своя линия в графе появится после первого коммита в этой ветке</div>`;
+  }
+
 
   function drawGit() { drawChanges(); drawGraph(); }
   $(".cg-changes").addEventListener("click", async (e) => {

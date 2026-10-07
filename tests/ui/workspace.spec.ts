@@ -109,6 +109,28 @@ test.describe("IDE", () => {
   });
 });
 
+test.describe("IDE git graph", () => {
+  test("a new branch on the same commit is explained", async ({ app, page }) => {
+    await app.override("code_git_log", [
+      { hash: "f6a8b54", parents: ["d4c6f32"], refs: ["HEAD -> feature/new", "origin/main", "main"], author: "Alex", time: 1791300000, subject: "cluster: node_count 3 → 4" },
+      { hash: "d4c6f32", parents: [], refs: [], author: "Maria", time: 1791200000, subject: "network" },
+    ]);
+    await app.view("code");
+    await page.evaluate(() => window.dispatchEvent(new CustomEvent("open-in-code", { detail: { path: "/home/demo/projects/infra" } })));
+    await page.locator("[data-a=git-toggle]").click();
+    await expect(page.locator(".cg-hint")).toContainText("feature/new");
+    await expect(page.locator(".cg-hint")).toContainText("создана от main");
+  });
+
+  test("no hint once the branch has its own commits", async ({ app, page }) => {
+    await app.view("code");
+    await page.evaluate(() => window.dispatchEvent(new CustomEvent("open-in-code", { detail: { path: "/home/demo/projects/infra" } })));
+    await page.locator("[data-a=git-toggle]").click();
+    await expect(page.locator(".cg-commit")).toHaveCount(8);
+    await expect(page.locator(".cg-hint")).toHaveCount(0);
+  });
+});
+
 test.describe("IDE git on Windows", () => {
   test("git paths C:/… match the project's C:\\… paths; a missing git is reported", async ({ app, page }) => {
     await app.override("fs_git_status", { root: "C:/Users/demo/infra", branch: "main", files: { "main.tf": " M" } });
