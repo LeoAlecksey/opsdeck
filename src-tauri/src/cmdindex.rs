@@ -37,6 +37,29 @@ fn shell_history() -> Vec<String> {
             }
         }
     }
+    // PowerShell (PSReadLine): one command per line, a trailing ` continues it
+    let ps = if cfg!(windows) {
+        dirs::data_dir().map(|d| d.join("Microsoft/Windows/PowerShell/PSReadLine/ConsoleHost_history.txt"))
+    } else {
+        dirs::data_dir().map(|d| d.join("powershell/PSReadLine/ConsoleHost_history.txt"))
+    };
+    if let Some(text) = ps.and_then(|p| fs::read(p).ok()) {
+        let text = String::from_utf8_lossy(&text);
+        let mut cont = String::new();
+        for l in text.lines() {
+            let l = l.trim_end_matches('\r');
+            if let Some(part) = l.strip_suffix('`') {
+                cont += part;
+                cont.push('\n');
+                continue;
+            }
+            let cmd = std::mem::take(&mut cont) + l;
+            let cmd = cmd.trim();
+            if cmd.len() >= 2 && !cmd.starts_with('#') {
+                out.push(cmd.to_string());
+            }
+        }
+    }
     out
 }
 

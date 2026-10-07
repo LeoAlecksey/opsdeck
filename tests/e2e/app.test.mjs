@@ -54,6 +54,19 @@ describe("OpsDeck (real app)", () => {
     // arithmetic proves the shell evaluated the command (an echo of the typed text would not)
     await typeInTerminal(WIN ? '"opsdeck-" + (40+2)' : "echo opsdeck-$((40+2))");
     await until(async () => (await termText()).includes("opsdeck-42"), "the command output");
+    const text = await termText();
+    assert.ok(!/ParserError|CategoryInfo|is not recognized|command not found/i.test(text), `shell integration errors:\n${text}`);
+  });
+
+  it("suggests the rest of a command typed before (shell integration works)", async () => {
+    const typed = WIN ? '"opsdeck-" + (40' : "echo opsdeck-$((4";
+    await (await b.$(".term-host:not([hidden]) .xterm")).click();
+    await b.keys([...typed]);
+    // grey inline suggestion after the cursor: needs the OSC 133 marks of the shell integration
+    await until(async () => b.execute(() => [...document.querySelectorAll(".term-ghost")].map((e) => e.textContent).join("")), "an inline suggestion", 10_000)
+      .then((ghost) => assert.ok(ghost.startsWith(WIN ? "+2)" : "0+2))"), `suggestion: ${ghost}`));
+    await b.keys(["Control", "c"]);
+    await b.keys(["Control"]);
   });
 
   it("exit in a second tab closes it", async () => {

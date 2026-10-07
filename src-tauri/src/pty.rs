@@ -180,12 +180,23 @@ fn default_shell() -> String {
 const BASH_SI: &str = include_str!("../shell/bash-integration.sh");
 const ZSH_ENV: &str = include_str!("../shell/zshenv");
 const ZSH_RC: &str = include_str!("../shell/zshrc");
+const PWSH_SI: &str = include_str!("../shell/powershell-integration.ps1");
 
-/// Hooks OSC 133/7 marks into bash (--rcfile) or zsh (ZDOTDIR) so the UI can build command blocks.
+/// Hooks OSC 133/7 marks into bash (--rcfile), zsh (ZDOTDIR) or PowerShell (dot-sourced after the
+/// profile) so the UI can build command blocks and suggest commands.
 fn shell_integration(program: &str, cmd: &mut CommandBuilder) -> Result<(), String> {
     let dir = crate::store::config_dir()?.join("shell");
     std::fs::create_dir_all(&dir).map_err(err)?;
-    match std::path::Path::new(program).file_name().and_then(|n| n.to_str()) {
+    // by stem, lowercase: "bash.exe" from Git for Windows, "pwsh.exe", "PowerShell.exe"
+    let stem = std::path::Path::new(program).file_stem().and_then(|n| n.to_str()).unwrap_or_default().to_lowercase();
+    match Some(stem.as_str()) {
+        Some("powershell" | "pwsh") => {
+            let ps1 = dir.join("powershell-integration.ps1");
+            std::fs::write(&ps1, PWSH_SI).map_err(err)?;
+            // the profile still loads (no -NoProfile); Bypass only for this process, for our script
+            cmd.args(["-NoLogo", "-NoExit", "-ExecutionPolicy", "Bypass", "-Command"]);
+            cmd.arg(format!(". '{}'", ps1.to_string_lossy().replace('\'', "''")));
+        }
         Some("bash") => {
             let rc = dir.join("bash-integration.sh");
             std::fs::write(&rc, BASH_SI).map_err(err)?;
