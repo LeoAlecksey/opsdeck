@@ -23,11 +23,11 @@ jobs:
       PR: ${{ github.event.pull_request.number }}
     steps:
       - name: Trusted scripts (base branch)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           path: base
       - name: PR files (read only, never executed)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: ${{ github.event.pull_request.head.repo.full_name }}
           ref: ${{ github.event.pull_request.head.sha }}

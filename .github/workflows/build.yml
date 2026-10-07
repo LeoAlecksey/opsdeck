@@ -59,8 +59,8 @@ jobs:
     name: checks (types, audits)
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: 20
           cache: npm
@@ -93,7 +93,7 @@ jobs:
         os: [ubuntu-22.04, windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Linux deps
         if: runner.os == 'Linux'
         run: |
@@ -118,8 +118,8 @@ jobs:
     name: tests ui (vitest + playwright)
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: 20
           cache: npm
@@ -132,7 +132,7 @@ jobs:
         run: npm run test:ui
       - name: Report
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: playwright-report
           path: |
@@ -148,14 +148,14 @@ jobs:
         os: [ubuntu-22.04, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Linux deps (+ WebKitWebDriver, Xvfb)
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev \
             libayatana-appindicator3-dev librsvg2-dev build-essential webkit2gtk-driver xvfb
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 20
           cache: npm
@@ -205,7 +205,7 @@ jobs:
     env:
       RELEASE: ${{ startsWith(github.ref, 'refs/tags/v') }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Release notes from the tag message
         if: env.RELEASE == 'true'
@@ -238,7 +238,7 @@ jobs:
               libjavascriptcoregtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf build-essential
           fi
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 20
           cache: npm
@@ -259,7 +259,7 @@ jobs:
       - run: npm ci
 
       - name: Build (tauri)
-        uses: tauri-apps/tauri-action@v0
+        uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # подпись обновлений (только релизы): Settings → Secrets and variables → Actions
@@ -277,7 +277,7 @@ jobs:
           releaseDraft: true
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: opsdeck-${{ matrix.name }}
           if-no-files-found: error
@@ -299,7 +299,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       # builds that finish at the same moment overwrite each other's entries in latest.json:
       # assemble it once from all the signed files before the release becomes visible
       - name: Rebuild latest.json
