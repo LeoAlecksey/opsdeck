@@ -150,7 +150,7 @@ pub async fn related(query: &str, n: usize) -> Vec<String> {
         q.iter().filter(|t| ct.iter().any(|c| c == *t || (t.chars().count() >= 4 && c.starts_with(t.as_str())))).count()
     };
     let mut scored: Vec<(usize, String)> = idx.notes.iter().map(|(c, _)| (score(c) * 2, c.clone())).chain(idx.history.keys().map(|c| (score(c), c.clone()))).filter(|(s, _)| *s > 0).collect();
-    scored.sort_by(|a, b| b.0.cmp(&a.0));
+    scored.sort_by_key(|a| std::cmp::Reverse(a.0));
     let mut out: Vec<String> = Vec::new();
     for (_, c) in scored {
         if !out.contains(&c) {

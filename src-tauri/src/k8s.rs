@@ -1356,7 +1356,13 @@ contexts:
         assert_eq!(cfg["contexts"][0]["context"]["namespace"], "payments", "namespace override");
         let ca = cfg["clusters"][0]["cluster"]["certificate-authority"].as_str().unwrap();
         assert_eq!(Path::new(ca), t.dir().join("certs/ca.crt"), "relative cert paths become absolute");
-        assert_eq!(cfg["users"][0]["user"]["client-key"], "/abs/admin.key", "absolute paths stay");
+        let key = cfg["users"][0]["user"]["client-key"].as_str().unwrap();
+        if cfg!(windows) {
+            // "/abs/…" has no drive on Windows: it is on the drive of the kubeconfig
+            assert!(key.ends_with("/abs/admin.key") && key.as_bytes()[1] == b':', "{key}");
+        } else {
+            assert_eq!(key, "/abs/admin.key", "absolute paths stay");
+        }
         assert!(single_context(&t.0, "missing", None).is_err());
     }
 

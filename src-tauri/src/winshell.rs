@@ -16,7 +16,7 @@ pub struct Shell {
 /// `wsl.exe -l -q` prints UTF-16LE (with a BOM sometimes) and blank lines.
 pub fn parse_wsl_list(bytes: &[u8]) -> Vec<String> {
     let text = if bytes.len() >= 2 && bytes.len().is_multiple_of(2) && bytes.iter().skip(1).step_by(2).filter(|b| **b == 0).count() * 2 >= bytes.len() / 2 {
-        let units: Vec<u16> = bytes.chunks_exact(2).map(|c| u16::from_le_bytes([c[0], c[1]])).collect();
+        let units: Vec<u16> = bytes.as_chunks::<2>().0.iter().map(|c| u16::from_le_bytes(*c)).collect();
         String::from_utf16_lossy(&units)
     } else {
         String::from_utf8_lossy(bytes).into_owned()
