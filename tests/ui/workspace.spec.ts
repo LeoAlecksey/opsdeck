@@ -129,6 +129,9 @@ test.describe("other sections", () => {
   test("web panels open as tabs", async ({ app, page }) => {
     await app.view("web");
     await expect(page.locator(".card-name")).toHaveCount(3);
+    // ⧉ — the panel in its own window (#28: froze on Windows when the command was sync)
+    await page.locator(".card", { hasText: "Argo CD" }).locator("[data-act=window]").click();
+    expect((await app.called("connector_open")).args).toEqual({ id: "c2" });
     await page.locator(".card", { hasText: "Grafana" }).locator("[data-act=open]").click();
     await app.called("web_embed_show");
   });
