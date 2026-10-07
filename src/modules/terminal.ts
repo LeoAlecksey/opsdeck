@@ -580,6 +580,28 @@ export function mountTerminal(root: HTMLElement) {
     e.stopPropagation();
   }, true);
 
+  // tab switching (#26): Alt+1…9 (9 = last), Alt+←/→, Ctrl+Tab / Ctrl+Shift+Tab, Ctrl+PageDown/PageUp
+  const cycleTab = (step: number) => {
+    if (tabs.length < 2 || !activeTab) return;
+    activate(tabs[(tabs.indexOf(activeTab) + step + tabs.length) % tabs.length]);
+  };
+  window.addEventListener("keydown", (e) => {
+    if (root.hidden || e.metaKey) return;
+    const alt = e.altKey && !e.ctrlKey && !e.shiftKey;
+    const digit = /^Digit([1-9])$/.exec(e.code)?.[1];
+    if (alt && digit) {
+      const n = Number(digit);
+      const t = n === 9 ? tabs[tabs.length - 1] : tabs[n - 1];
+      if (!t) return;
+      activate(t);
+    } else if (alt && (e.key === "ArrowRight" || e.key === "ArrowLeft")) cycleTab(e.key === "ArrowRight" ? 1 : -1);
+    else if (e.ctrlKey && !e.altKey && e.key === "Tab") cycleTab(e.shiftKey ? -1 : 1);
+    else if (e.ctrlKey && !e.altKey && !e.shiftKey && (e.key === "PageDown" || e.key === "PageUp")) cycleTab(e.key === "PageDown" ? 1 : -1);
+    else return;
+    e.preventDefault();
+    e.stopPropagation();
+  }, true);
+
   window.addEventListener("view-shown", (e) => {
     if ((e as CustomEvent).detail !== "terminal") return;
     requestAnimationFrame(() => { activeTab?.panes.forEach((p) => p.pty.resize()); ai?.resize(); activePane()?.pty.term.focus(); });
@@ -587,6 +609,8 @@ export function mountTerminal(root: HTMLElement) {
 
   registerProvider(() => [
     { group: "Терминал", title: "Новая вкладка", hint: "Ctrl+Shift+T", run: () => { show(); newTab(); } },
+    { group: "Терминал", title: "Следующая вкладка", hint: "Alt+→ · Ctrl+Tab", run: () => { show(); cycleTab(1); } },
+    { group: "Терминал", title: "Предыдущая вкладка", hint: "Alt+← · Ctrl+Shift+Tab", run: () => { show(); cycleTab(-1); } },
     { group: "Терминал", title: "Разделить вправо", hint: "Ctrl+Shift+D", run: () => { show(); split("row"); } },
     { group: "Терминал", title: "Разделить вниз", hint: "Ctrl+Shift+E", run: () => { show(); split("column"); } },
     { group: "Терминал", title: "AI-панель: показать/скрыть", hint: "Ctrl+Shift+I", run: () => { show(); toggleAi(); } },

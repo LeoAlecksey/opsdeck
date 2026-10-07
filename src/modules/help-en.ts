@@ -27,6 +27,7 @@ export const HELP_EN: Record<string, { title: string; html: string }> = {
       <h4>Hotkeys</h4>
       <ul>
         <li>${kbd("Ctrl+Shift+T")} new tab, ${kbd("Ctrl+Shift+W")} close pane/tab</li>
+        <li>${kbd("Alt+1")}…${kbd("Alt+9")} go to a tab by number (${kbd("Alt+9")} — the last one), ${kbd("Alt+←/→")} or ${kbd("Ctrl+Tab")} / ${kbd("Ctrl+Shift+Tab")} — previous / next tab</li>
         <li>${kbd("Ctrl+Shift+D")} / ${kbd("Ctrl+Shift+E")} split right / down, ${kbd("Ctrl+Shift+←/→")} between panes</li>
         <li>${kbd("Ctrl+Shift+↑/↓")} to the previous / next command</li>
         <li>${kbd("Ctrl+=")} / ${kbd("Ctrl+-")} / ${kbd("Ctrl+0")} font size</li>

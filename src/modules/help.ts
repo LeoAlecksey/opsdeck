@@ -33,6 +33,7 @@ const HELP: Record<string, { title: string; html: string }> = {
       <h4>Горячие клавиши</h4>
       <ul>
         <li>${kbd("Ctrl+Shift+T")} новая вкладка, ${kbd("Ctrl+Shift+W")} закрыть панель/вкладку</li>
+        <li>${kbd("Alt+1")}…${kbd("Alt+9")} вкладка по номеру (${kbd("Alt+9")} — последняя), ${kbd("Alt+←/→")} или ${kbd("Ctrl+Tab")} / ${kbd("Ctrl+Shift+Tab")} — предыдущая / следующая вкладка</li>
         <li>${kbd("Ctrl+Shift+D")} / ${kbd("Ctrl+Shift+E")} разделить вправо / вниз, ${kbd("Ctrl+Shift+←/→")} между панелями</li>
         <li>${kbd("Ctrl+Shift+↑/↓")} к предыдущей / следующей команде</li>
         <li>${kbd("Ctrl+=")} / ${kbd("Ctrl+-")} / ${kbd("Ctrl+0")} размер шрифта</li>
