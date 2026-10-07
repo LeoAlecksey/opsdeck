@@ -174,6 +174,24 @@ test.describe("other sections", () => {
     await app.called("web_embed_show");
   });
 
+  test("＋ opens another panel straight from a tab (two Grafanas, from feedback)", async ({ app, page }) => {
+    await app.view("web");
+    await page.locator(".card", { hasText: "Grafana" }).locator("[data-act=open]").click();
+    await expect.poll(async () => (await app.calls("web_embed_show")).at(-1)?.args.id).toBe("c1");
+    await page.locator(".web-pick").click();
+    await expect(page.locator(".web-pick-menu")).toBeVisible();
+    expect((await app.calls("web_embed_hide")).length, "the native page hides under the menu").toBeGreaterThan(0);
+    await page.locator(".web-pick-menu button", { hasText: "Argo CD" }).click();
+    await expect(page.locator(".web-pick-menu")).toHaveCount(0);
+    await expect(page.locator(".web-tablist .tab.active")).toContainText("Argo CD");
+    await expect.poll(async () => (await app.calls("web_embed_show")).at(-1)?.args.id).toBe("c2");
+    await expect(page.locator(".web-tablist .tab")).toHaveCount(2);
+    // the page never covers the tab bar
+    const show = (await app.calls("web_embed_show")).at(-1)!.args as any;
+    const bar = await page.locator(".web-tabs").boundingBox();
+    expect(show.rect.y).toBeGreaterThanOrEqual(bar!.y + bar!.height - 0.5);
+  });
+
   test("network tools run without a shell", async ({ app, page }) => {
     await app.view("net");
     await page.locator("input[name=target]").fill("example.com");

@@ -1000,3 +1000,12 @@ body.no-select, body.no-select * { user-select: none; -webkit-user-select: none;
 .ai-others button.link { padding: 0; border: 0; background: none; color: var(--accent); cursor: pointer; font-size: 12px; }
 .ai-others button.link:hover { text-decoration: underline; }
 .hint.warn { color: #e6c07b; }
+
+/* web panels: ＋ menu to open another panel from a tab */
+.web-pick { margin-left: 2px; }
+.web-pick-menu { position: fixed; z-index: 70; min-width: 220px; max-height: 60vh; overflow: auto; padding: 4px; background: var(--panel);
+  border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 8px 28px rgba(0, 0, 0, .35); display: flex; flex-direction: column; }
+.web-pick-menu button { justify-content: flex-start; gap: 8px; width: 100%; }
+.web-pick-menu button .muted { margin-left: auto; font-size: 12px; }
+.web-pick-menu .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); flex: none; }
+.web-pick-menu .dot.kind-grafana { background: #f2a54a; } .web-pick-menu .dot.kind-argocd { background: #ef7b4d; } .web-pick-menu .dot.kind-gitlab { background: #e2432a; }

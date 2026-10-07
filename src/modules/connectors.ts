@@ -2,7 +2,7 @@ import { helpBtn } from "./help";
 import { icon } from "./icons";
 import { invoke } from "@tauri-apps/api/core";
 import { pickEntry } from "./keepass";
-import { ask, esc, toast } from "./ui";
+import { ask, esc, toast, overlay } from "./ui";
 import { registerProvider } from "./palette";
 
 type Connector = { id: string; kind: string; name: string; group?: string; url: string; username: string; auth: string; keepass_entry?: string; ingest_token?: string };
@@ -21,8 +21,9 @@ export function mountConnectors(root: HTMLElement) {
   root.classList.add("web");
   root.innerHTML = `
     <div class="tabbar web-tabs">
-      <div class="tab active" data-t="home">☰ Панели</div>
+      <div class="tab active" data-t="home" title="Все панели: открыть другую, добавить, изменить">☰ Панели</div>
       <div class="tabs web-tablist"></div>
+      <button class="icon web-pick" data-act="pick" title="Открыть ещё панель (вторую Grafana и т.п.)">${icon("plus", 16)}</button>
       <span class="spacer"></span>
       ${helpBtn("web")}
       <span class="web-nav" hidden>
@@ -398,7 +399,11 @@ export function mountConnectors(root: HTMLElement) {
     requestAnimationFrame(async () => {
       placing = false;
       if (!visible()) return;
-      const r = slot.getBoundingClientRect();
+      const s = slot.getBoundingClientRect();
+      const bar = root.querySelector(".web-tabs")!.getBoundingClientRect();
+      // the page is a native view: never let it cover the tab bar (☰ Панели, ＋, tabs)
+      const top = Math.max(s.top, bar.bottom);
+      const r = { left: s.left, top, width: s.width, height: s.bottom - top };
       if (r.width < 2 || r.height < 2) return;
       const url = pendingUrl?.id === active ? pendingUrl.url : null;
       pendingUrl = null;
@@ -437,8 +442,44 @@ export function mountConnectors(root: HTMLElement) {
     else drawTabs();
   }
 
+  // ＋ in the tab bar: open another panel straight from a tab (no need to go back to ☰ Панели).
+  // The page is a native view over the window, so it is hidden while the menu is open.
+  async function pickMenu(anchor: HTMLElement) {
+    document.querySelector(".web-pick-menu")?.remove();
+    const list = (await invoke<Connector[]>("connectors_list").catch(() => [] as Connector[])).filter((c) => c.url && c.kind !== "ai");
+    const menu = document.createElement("div");
+    menu.className = "web-pick-menu";
+    menu.innerHTML = list.length
+      ? list.map((c) => `<button class="ghost" data-id="${esc(c.id)}"><span class="dot kind-${esc(c.kind)}"></span>${esc(c.name)}<span class="muted">${esc(c.group || "")}</span></button>`).join("")
+      : `<p class="muted pad">Панелей пока нет — ☰ Панели → ＋ Добавить</p>`;
+    const r = anchor.getBoundingClientRect();
+    menu.style.left = `${r.left}px`;
+    menu.style.top = `${r.bottom + 4}px`;
+    overlay(true);
+    document.body.appendChild(menu);
+    const close = (e?: Event) => {
+      if (e instanceof KeyboardEvent && e.key !== "Escape") return;
+      if (e && e.type === "pointerdown" && menu.contains(e.target as Node)) return;
+      menu.remove();
+      document.removeEventListener("pointerdown", close, true);
+      document.removeEventListener("keydown", close, true);
+      overlay(false);
+    };
+    menu.addEventListener("click", (e) => {
+      const id = (e.target as HTMLElement).closest<HTMLElement>("[data-id]")?.dataset.id;
+      const c = list.find((x) => x.id === id);
+      if (!c) return;
+      close();
+      openTab(c);
+    });
+    document.addEventListener("pointerdown", close, true);
+    document.addEventListener("keydown", close, true);
+  }
+
   root.querySelector<HTMLElement>(".web-tabs")!.addEventListener("click", (e) => {
     const t = e.target as HTMLElement;
+    const pick = t.closest<HTMLElement>("[data-act=pick]");
+    if (pick) return void pickMenu(pick);
     const tab = t.closest<HTMLElement>("[data-t]");
     if (t.closest(".x") && tab) return closeTab(tab.dataset.t!);
     if (tab) return activate(tab.dataset.t!);
