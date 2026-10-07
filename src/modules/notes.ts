@@ -8,6 +8,7 @@ import { ask, esc, toast } from "./ui";
 import { registerProvider } from "./palette";
 import { fileIcon, folderIcon } from "./fileicons";
 import { setFrontTags, tagsOf, taskDialog, ymd } from "./taskkit";
+import { getAiAgent } from "./ai-agents";
 
 type VaultEntry = { name: string; path: string; exists: boolean; obsidian: boolean; found: boolean };
 type TagInfo = { tag: string; notes: string[] };
@@ -43,7 +44,7 @@ export function mountNotes(root: HTMLElement) {
         <span class="spacer"></span>
         <button class="ghost" data-a="task" disabled title="Вставить задачу: срок, напоминание, приоритет, теги">${icon("plus", 16)} Задача</button>
         <div class="seg"><button data-m="edit">Редактор</button><button data-m="view">Просмотр</button></div>
-        <button class="ghost" data-a="mention" disabled title="Вставить ссылку на заметку (или выделенные строки) в запрос Claude Code">@ Claude</button>
+        <button class="ghost" data-a="mention" disabled title="Вставить ссылку на заметку (или выделенные строки) в запрос ${getAiAgent()}">@ ${getAiAgent()}</button>
         <button data-a="save" title="Ctrl+S" disabled>Сохранить</button>
         ${helpBtn("notes")}
         <button class="ghost" data-a="obsidian" disabled title="Открыть эту заметку в приложении Obsidian">Obsidian ↗</button>
@@ -377,7 +378,16 @@ export function mountNotes(root: HTMLElement) {
   $("[data-a=obsidian]").onclick = () => current && invoke("note_open_obsidian", { path: current }).catch((e) => toast(String(e), "err"));
   $("[data-a=reload]").onclick = loadVault;
 
-  // ----- Claude Code IDE bridge -----
+  const mentionBtn = $<HTMLButtonElement>("[data-a=mention]");
+  const updateMentionBtn = () => {
+    const agent = getAiAgent();
+    mentionBtn.textContent = `@ ${agent}`;
+    mentionBtn.title = `Вставить ссылку на заметку (или выделенные строки) в запрос ${agent}`;
+  };
+  updateMentionBtn();
+  window.addEventListener("ai-agent-changed", updateMentionBtn);
+
+  // ----- Claude Code / AI agent IDE bridge -----
   const fullPath = (rel: string) => `${vault?.root ?? ""}/${rel}`;
   const lineCol = (text: string, offset: number) => {
     const before = text.slice(0, offset);
@@ -399,10 +409,19 @@ export function mountNotes(root: HTMLElement) {
   });
   $("[data-a=mention]").onclick = () => {
     if (!current) return;
+    const cur = current;
     const { selectionStart: a, selectionEnd: b, value } = editor;
     const lines = !editor.hidden && a !== b ? { lineStart: lineCol(value, a).line, lineEnd: lineCol(value, b).line } : { lineStart: null, lineEnd: null };
-    invoke("ide_at_mention", { filePath: fullPath(current), ...lines })
-      .then(() => toast("Ссылка на заметку вставлена в запрос Claude"), (e) => toast(String(e), "err"));
+    invoke("ide_at_mention", { filePath: fullPath(cur), ...lines })
+      .then(() => toast(`Ссылка на заметку вставлена в запрос ${getAiAgent()}`), () => {
+        // Fallback: if IDE bridge is not connected (e.g. non-Claude agent or Claude not in MCP mode),
+        // send selection / note link directly to the AI panel
+        const ref = lines.lineStart !== null && lines.lineEnd !== null
+          ? `@${fullPath(cur)}#L${lines.lineStart}-L${lines.lineEnd}`
+          : `@${fullPath(cur)}`;
+        window.dispatchEvent(new CustomEvent("send-to-ai", { detail: ref }));
+        toast(`Ссылка на заметку отправлена в ${getAiAgent()}`);
+      });
   };
   // Claude asked OpsDeck to open a file (openFile tool)
   listen<string>("ide-open-file", (e) => {

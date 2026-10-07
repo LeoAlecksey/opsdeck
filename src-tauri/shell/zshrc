@@ -1,6 +1,9 @@
 # OpsDeck shell integration for zsh
 ZDOTDIR="$__opsdeck_user_zdotdir"
 [[ "$ZDOTDIR" == "$HOME" ]] && unset ZDOTDIR
+
+# If login shell, source user's .zprofile first so PATH (brew/pyenv/kubectl/etc.) is initialized
+[[ -o login && -f "${ZDOTDIR:-$HOME}/.zprofile" ]] && source "${ZDOTDIR:-$HOME}/.zprofile"
 [[ -f "${ZDOTDIR:-$HOME}/.zshrc" ]] && source "${ZDOTDIR:-$HOME}/.zshrc"
 
 if [[ -z "$__OPSDECK_SI" ]]; then
@@ -21,5 +24,5 @@ fi
 # ssh typed in an OpsDeck tab shares its connection with the resource bar (ControlMaster)
 if [[ -n "$OPSDECK_SSH_CP" && -z "$__OPSDECK_SSH_WRAP" ]]; then
   __OPSDECK_SSH_WRAP=1
-  ssh() { command ssh -o ControlMaster=auto -o "ControlPath=$OPSDECK_SSH_CP" -o ControlPersist=60 "$@"; }
+  ssh() { command ssh -o ControlMaster=auto -o "ControlPath=\"$OPSDECK_SSH_CP\"" -o ControlPersist=60 "$@"; }
 fi

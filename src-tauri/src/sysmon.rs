@@ -35,7 +35,8 @@ pub struct Stats {
 
 /// ControlPath shared by OpsDeck's ssh sessions and the probe (%C = hash of host/port/user).
 pub fn control_path() -> Option<String> {
-    let dir = crate::store::config_dir().ok()?.join("run");
+    let base = dirs::runtime_dir().unwrap_or_else(|| dirs::home_dir().unwrap_or_default().join(".opsdeck"));
+    let dir = base.join("run");
     std::fs::create_dir_all(&dir).ok()?;
     crate::store::restrict(&dir, 0o700).ok()?;
     Some(dir.join("ssh-%C").to_string_lossy().into_owned())
@@ -49,7 +50,7 @@ pub fn ssh_master_opts() -> Vec<String> {
     match control_path() {
         Some(cp) => vec![
             "-o".into(), "ControlMaster=auto".into(),
-            "-o".into(), format!("ControlPath={cp}"),
+            "-o".into(), format!("ControlPath=\"{cp}\""),
             "-o".into(), "ControlPersist=60".into(),
         ],
         None => Vec::new(),
@@ -134,7 +135,7 @@ pub async fn sys_remote(state: State<'_, SysState>, args: Vec<String>) -> Result
     let key = args.join(" ");
     let cp = control_path().ok_or("no control path")?;
     let mut cmd = tokio::process::Command::new("ssh");
-    cmd.args(["-o", "ControlMaster=no", "-o", &format!("ControlPath={cp}"), "-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-T"])
+    cmd.args(["-o", "ControlMaster=no", "-o", &format!("ControlPath=\"{cp}\""), "-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-T"])
         .args(&args)
         .arg(PROBE)
         .stdin(std::process::Stdio::null())

@@ -8,6 +8,7 @@ import { registerProvider } from "./palette";
 import { hlPrefs, setHlPrefs } from "./highlight";
 import { addSnippet } from "./snippets";
 import { attachPathLinks, mountFiles } from "./files";
+import { getAiAgent, setAiAgent, AI_PROVIDERS } from "./ai-agents";
 import { esc, toast } from "./ui";
 
 /** Other modules open a tab via: window.dispatchEvent(new CustomEvent("open-terminal", { detail })) */
@@ -16,13 +17,6 @@ export type OpenTerminalDetail = SpawnOpts & { title?: string; keepOpen?: boolea
 type Pane = { pty: PtyTerminal; el: HTMLElement; tab: Tab; keepOpen: boolean; recording?: string };
 type Tab = { btn: HTMLElement; host: HTMLElement; label: HTMLElement; panes: Pane[]; active: Pane | null; dir: "row" | "column" };
 
-const AI_PROVIDERS: Record<string, { program: string; args?: string[] }> = {
-  "Claude Code": { program: "claude" },
-  Codex: { program: "codex" },
-  Gemini: { program: "gemini" },
-  Aider: { program: "aider" },
-  OpenCode: { program: "opencode" },
-};
 const MAX_PANES = 4;
 
 function load(key: string, fallback: string) {
@@ -122,7 +116,16 @@ export function mountTerminal(root: HTMLElement) {
   let ai: PtyTerminal | null = null;
 
   for (const name of Object.keys(AI_PROVIDERS)) providerSel.add(new Option(name, name));
-  providerSel.value = load("opsdeck.ai.provider", "Claude Code");
+  providerSel.value = getAiAgent();
+
+  const syncProviderFromAgent = () => {
+    const current = getAiAgent();
+    if (providerSel.value !== current) {
+      providerSel.value = current;
+      if (!aiPanel.hidden) startAi();
+    }
+  };
+  window.addEventListener("ai-agent-changed", syncProviderFromAgent);
 
   const activePane = () => activeTab?.active ?? null;
   const cwd = () => activePane()?.pty.blocks.cwd || undefined;
@@ -482,7 +485,7 @@ export function mountTerminal(root: HTMLElement) {
 
   // ----- wiring -----
 
-  providerSel.onchange = () => { save("opsdeck.ai.provider", providerSel.value); startAi(); };
+  providerSel.onchange = () => { setAiAgent(providerSel.value); startAi(); };
   $("[data-act=new]").onclick = () => newTab();
   $("[data-act=split-r]").onclick = () => split("row");
   $("[data-act=split-d]").onclick = () => split("column");
@@ -599,7 +602,7 @@ export function mountTerminal(root: HTMLElement) {
     { group: "Терминал", title: "Шрифт по умолчанию", hint: "Ctrl+0", run: () => termFontStep(0) },
     { group: "Терминал", title: "Открыть папку с записями сессий", run: () => { invoke("pty_records_open").catch((e) => toast(String(e), "err")); } },
     ...Object.keys(AI_PROVIDERS).map((name) => ({
-      group: "AI", title: `AI-панель: ${name}`, run: () => { show(); providerSel.value = name; save("opsdeck.ai.provider", name); startAi(); toggleAi(true); },
+      group: "AI", title: `AI-панель: ${name}`, run: () => { show(); setAiAgent(name); toggleAi(true); },
     })),
     // recent commands of the active pane, newest first, without duplicates
     ...[...new Map(terminalApi.history().map((b) => [b.command, b])).values()].slice(0, 40).map((b) => ({

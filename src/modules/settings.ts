@@ -7,6 +7,7 @@ import { mountUpdates } from "./updates";
 import { hlPrefs, setHlPrefs } from "./highlight";
 import { setTermFontSize, termFontSize, setTermFontFamily, termFontFamily, TERM_FONTS, fontInstalled } from "./pty";
 import { setSuggestEnabled, suggestEnabled } from "./suggest";
+import { getAiAgent, setAiAgent, AI_PROVIDERS } from "./ai-agents";
 import { listen } from "@tauri-apps/api/event";
 
 const AUTHOR_TG = "https://t.me/sys_admin_expert";
@@ -159,6 +160,10 @@ export function mountSettings(root: HTMLElement) {
           <p class="muted hint">Шрифты из списка, которых нет в системе, помечены «не установлен» — их нужно поставить отдельно, иначе используется запасной. Для иконок Powerlevel10k — MesloLGS NF или Nerd Font. Любой другой установленный шрифт — пункт «Другой…». Выбор сохраняется и сразу применяется ко всем терминалам, включая SSH и AI.</p>
           <p class="muted hint">Применяется сразу. Подсветка ввода работает в локальных вкладках (нужна интеграция с bash/zsh). Вывод, который программа уже раскрасила сама, и полноэкранные программы (vim, htop, less) не трогаются.</p>
         </fieldset>
+        <fieldset class="ai-agent-field"><legend>AI-агент</legend>
+          <label>Агент по умолчанию <select class="ai-agent-sel"></select></label>
+          <p class="muted hint">Выбранный агент открывается в боковой панели терминала (Ctrl+Shift+I), используется при отправке выделенного текста (Ctrl+Shift+A), команд с ошибками, логов и алертов (⇢ AI), а также для ссылки на заметку в редакторе (@-кнопка).</p>
+        </fieldset>
         <fieldset class="ai-field"><legend>Локальный ИИ</legend>
           <div class="ai-root"></div>
           <p class="muted hint">Модель и движок llama.cpp скачиваются отдельно (по умолчанию — лёгкая Qwen2.5-Coder 1.5B, ≈1,1 ГБ; для мощных ПК есть модели крупнее, можно указать и свой файл .gguf) и работают только на этом компьютере — запросы никуда не уходят. В терминале ${"Ctrl+Shift+K"} или кнопка «✦ ИИ»: опишите словами, что сделать, — ИИ предложит команду с учётом ваших заметок и истории. Модель запускается при первом запросе и выгружается из памяти через 15 минут без дела.</p>
@@ -237,6 +242,16 @@ export function mountSettings(root: HTMLElement) {
   const sugg = root.querySelector<HTMLInputElement>(".term-sugg")!;
   sugg.checked = suggestEnabled();
   sugg.onchange = () => setSuggestEnabled(sugg.checked);
+
+  const aiAgentSel = root.querySelector<HTMLSelectElement>(".ai-agent-sel")!;
+  for (const name of Object.keys(AI_PROVIDERS)) {
+    aiAgentSel.add(new Option(name, name));
+  }
+  const syncAiAgent = () => { aiAgentSel.value = getAiAgent(); };
+  syncAiAgent();
+  aiAgentSel.onchange = () => setAiAgent(aiAgentSel.value);
+  window.addEventListener("ai-agent-changed", syncAiAgent);
+
   mountAi(root.querySelector<HTMLElement>(".ai-root")!);
   // внешний ИИ-сервер: «Проверить» → список моделей в выпадающий список поля «Модель»
   // (комбо-поле: можно и выбрать из списка, и ввести любую свою модель)

@@ -30,9 +30,8 @@ if [[ -z "$__OPSDECK_SI" && $- == *i* ]]; then
   PS1="$PS1"'\[\e]133;B\a\]'
 fi
 
-# ssh typed in an OpsDeck tab shares its connection with the resource bar (ControlMaster);
-# `command ssh` bypasses this wrapper if ever needed
+# ssh typed in an OpsDeck tab shares its connection with the resource bar (ControlMaster)
 if [[ -n "$OPSDECK_SSH_CP" && -z "$__OPSDECK_SSH_WRAP" ]]; then
   __OPSDECK_SSH_WRAP=1
-  ssh() { command ssh -o ControlMaster=auto -o "ControlPath=$OPSDECK_SSH_CP" -o ControlPersist=60 "$@"; }
+  ssh() { command ssh -o ControlMaster=auto -o "ControlPath=\"$OPSDECK_SSH_CP\"" -o ControlPersist=60 "$@"; }
 fi

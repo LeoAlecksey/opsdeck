@@ -27,7 +27,101 @@ mod tasks;
 mod tools;
 mod updater;
 
+#[cfg(target_os = "macos")]
+fn fix_macos_path() {
+    let current_path = std::env::var("PATH").unwrap_or_default();
+    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".into());
+    let shell_path = (|| {
+        let marker = "__OPSDECK_PATH__";
+        let mut child = std::process::Command::new(&shell)
+            .args([
+                "-l",
+                "-c",
+                &format!("printf '{marker}%s{marker}' \"$PATH\""),
+            ])
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .ok()?;
+        let deadline = std::time::Instant::now() + std::time::Duration::from_millis(1500);
+        loop {
+            match child.try_wait() {
+                Ok(Some(status)) if status.success() => {
+                    let mut out = String::new();
+                    if let Some(mut stdout) = child.stdout.take() {
+                        use std::io::Read;
+                        let _ = stdout.read_to_string(&mut out);
+                    }
+                    if let Some(start) = out.find(marker) {
+                        let rest = &out[start + marker.len()..];
+                        if let Some(end) = rest.find(marker) {
+                            return Some(rest[..end].to_string());
+                        }
+                    }
+                    return Some(out);
+                }
+                Ok(Some(_)) => return None,
+                Ok(None) if std::time::Instant::now() < deadline => {
+                    std::thread::sleep(std::time::Duration::from_millis(30));
+                }
+                _ => {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return None;
+                }
+            }
+        }
+    })();
+
+    let mut new_paths: Vec<std::path::PathBuf> = Vec::new();
+    if let Some(sp) = shell_path.filter(|s| !s.trim().is_empty()) {
+        for p in std::env::split_paths(&sp) {
+            if !new_paths.contains(&p) {
+                new_paths.push(p);
+            }
+        }
+    }
+
+    let fallback_paths = [
+        "/opt/homebrew/bin",
+        "/opt/homebrew/sbin",
+        "/usr/local/bin",
+        "/usr/local/sbin",
+    ];
+    for fb in fallback_paths {
+        let p = std::path::PathBuf::from(fb);
+        if p.exists() && !new_paths.contains(&p) {
+            new_paths.push(p);
+        }
+    }
+
+    if let Some(home) = dirs::home_dir() {
+        let user_dirs = [
+            home.join(".local/bin"),
+            home.join(".cargo/bin"),
+            home.join(".opencode/bin"),
+        ];
+        for ud in user_dirs {
+            if ud.exists() && !new_paths.contains(&ud) {
+                new_paths.push(ud);
+            }
+        }
+    }
+
+    for p in std::env::split_paths(&current_path) {
+        if !new_paths.contains(&p) {
+            new_paths.push(p);
+        }
+    }
+
+    if let Ok(joined) = std::env::join_paths(new_paths) {
+        std::env::set_var("PATH", joined);
+    }
+}
+
 pub fn run() {
+    #[cfg(target_os = "macos")]
+    fix_macos_path();
     tauri::Builder::default()
         .plugin(diag::log_plugin())
         .plugin(tauri_plugin_clipboard_manager::init())

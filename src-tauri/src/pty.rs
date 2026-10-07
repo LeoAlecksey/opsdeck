@@ -88,6 +88,9 @@ pub fn pty_spawn(app: AppHandle, state: State<PtyState>, req: SpawnRequest) -> R
     cmd.env("TERM", "xterm-256color");
     cmd.env("COLORTERM", "truecolor");
     cmd.env("TERM_PROGRAM", "OpsDeck");
+    if let Ok(path) = std::env::var("PATH") {
+        cmd.env("PATH", path);
+    }
     if let Some(port) = crate::ide::port() {
         // lets `claude` started in this terminal find OpsDeck's IDE bridge
         cmd.env("CLAUDE_CODE_SSE_PORT", port.to_string());
@@ -201,6 +204,8 @@ fn shell_integration(program: &str, cmd: &mut CommandBuilder) -> Result<(), Stri
             }
             cmd.env("OPSDECK_SI_DIR", &zdir);
             cmd.env("ZDOTDIR", &zdir);
+            #[cfg(target_os = "macos")]
+            cmd.arg("-l");
         }
         _ => return Ok(()),
     }

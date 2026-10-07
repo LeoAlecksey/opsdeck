@@ -198,7 +198,7 @@ export const HELP_EN: Record<string, { title: string; html: string }> = {
       <li><b>⋯</b> on a row (or right-click): new note here, rename, <b>delete</b>. Deleted items move to the vault's trash (the <code>.trash</code> folder, like in Obsidian) — you can restore them from there.</li>
       <li><b>Drag and drop</b>: drag a note or a folder into another folder or to the root. Hold over a closed folder — it opens.</li>
       <li><b>Editor / Preview</b> (${kbd("Ctrl+E")}), <b>Save</b> (${kbd("Ctrl+S")}), [[…]] links are clickable.</li>
-      <li><b>@ Claude</b> — insert a link to the note (or the selected lines) into the Claude Code prompt; <b>Obsidian ↗</b> — open in Obsidian.</li></ul>
+      <li><b>@ [Agent]</b> — insert a link to the note (or the selected lines) into the prompt of the chosen AI agent; <b>Obsidian ↗</b> — open in Obsidian.</li></ul>
       <h4>Tags</h4>
       <p>Above the note there is a tag bar: type a tag into <b>＋ tag</b> and press ${kbd("Enter")} — existing tags are suggested. These tags are stored at the top of the note (<code>tags: [...]</code>, like in Obsidian), <b>×</b> removes one. Tags written right in the text (<code>#idea</code>) are shown too — with a dashed border.</p>
       <h4>Tasks</h4>
