@@ -201,6 +201,9 @@ fn shell_integration(program: &str, cmd: &mut CommandBuilder) -> Result<(), Stri
             }
             cmd.env("OPSDECK_SI_DIR", &zdir);
             cmd.env("ZDOTDIR", &zdir);
+            if cfg!(target_os = "macos") {
+                cmd.arg("-l"); // like Terminal.app: /etc/zprofile and ~/.zprofile set up PATH
+            }
         }
         _ => return Ok(()),
     }

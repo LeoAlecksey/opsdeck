@@ -34,8 +34,13 @@ pub struct Stats {
 }
 
 /// ControlPath shared by OpsDeck's ssh sessions and the probe (%C = hash of host/port/user).
+/// A short path without spaces: the config dir on macOS is "Library/Application Support" (the space
+/// broke ssh's option parsing) and sockets there must stay under 104 bytes.
 pub fn control_path() -> Option<String> {
-    let dir = crate::store::config_dir().ok()?.join("run");
+    let dir = match dirs::runtime_dir() {
+        Some(run) => run.join("opsdeck"),
+        None => dirs::home_dir()?.join(".opsdeck").join("run"),
+    };
     std::fs::create_dir_all(&dir).ok()?;
     crate::store::restrict(&dir, 0o700).ok()?;
     Some(dir.join("ssh-%C").to_string_lossy().into_owned())
@@ -49,7 +54,7 @@ pub fn ssh_master_opts() -> Vec<String> {
     match control_path() {
         Some(cp) => vec![
             "-o".into(), "ControlMaster=auto".into(),
-            "-o".into(), format!("ControlPath={cp}"),
+            "-o".into(), format!("ControlPath=\"{cp}\""),
             "-o".into(), "ControlPersist=60".into(),
         ],
         None => Vec::new(),
@@ -134,7 +139,7 @@ pub async fn sys_remote(state: State<'_, SysState>, args: Vec<String>) -> Result
     let key = args.join(" ");
     let cp = control_path().ok_or("no control path")?;
     let mut cmd = tokio::process::Command::new("ssh");
-    cmd.args(["-o", "ControlMaster=no", "-o", &format!("ControlPath={cp}"), "-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-T"])
+    cmd.args(["-o", "ControlMaster=no", "-o", &format!("ControlPath=\"{cp}\""), "-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-T"])
         .args(&args)
         .arg(PROBE)
         .stdin(std::process::Stdio::null())
@@ -207,6 +212,15 @@ mod tests {
 
     fn v(a: &[&str]) -> Vec<String> {
         a.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn control_path_is_quoted_and_has_no_spaces() {
+        let Some(cp) = control_path() else { return };
+        assert!(!cp.contains(' '), "{cp}");
+        if !cfg!(windows) {
+            assert!(ssh_master_opts().contains(&format!("ControlPath=\"{cp}\"")));
+        }
     }
 
     #[test]

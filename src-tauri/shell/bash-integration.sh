@@ -34,5 +34,5 @@ fi
 # `command ssh` bypasses this wrapper if ever needed
 if [[ -n "$OPSDECK_SSH_CP" && -z "$__OPSDECK_SSH_WRAP" ]]; then
   __OPSDECK_SSH_WRAP=1
-  ssh() { command ssh -o ControlMaster=auto -o "ControlPath=$OPSDECK_SSH_CP" -o ControlPersist=60 "$@"; }
+  ssh() { command ssh -o ControlMaster=auto -o "ControlPath=\"$OPSDECK_SSH_CP\"" -o ControlPersist=60 "$@"; }
 fi

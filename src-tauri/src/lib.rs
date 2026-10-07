@@ -28,6 +28,9 @@ mod tools;
 mod updater;
 
 pub fn run() {
+    #[cfg(target_os = "macos")]
+    process::fix_macos_path();
+
     tauri::Builder::default()
         .plugin(diag::log_plugin())
         .plugin(tauri_plugin_clipboard_manager::init())
