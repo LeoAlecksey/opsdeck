@@ -28,7 +28,7 @@ export const HELP_EN: Record<string, { title: string; html: string }> = {
       <ul>
         <li>${kbd("Ctrl+Shift+T")} new tab, ${kbd("Ctrl+Shift+W")} close pane/tab</li>
         <li>${kbd("Alt+1")}…${kbd("Alt+9")} go to a tab by number (${kbd("Alt+9")} — the last one), ${kbd("Alt+←/→")} or ${kbd("Ctrl+Tab")} / ${kbd("Ctrl+Shift+Tab")} — previous / next tab</li>
-        <li>${kbd("Ctrl+Shift+D")} / ${kbd("Ctrl+Shift+E")} split right / down, ${kbd("Ctrl+Shift+←/→")} between panes</li>
+        <li>${kbd("Ctrl+Shift+D")} / ${kbd("Ctrl+Shift+E")} split right / down (a WSL pane — into the same distribution), ${kbd("Ctrl+Shift+←/→")} between panes</li>
         <li>${kbd("Ctrl+Shift+↑/↓")} to the previous / next command</li>
         <li>${kbd("Ctrl+=")} / ${kbd("Ctrl+-")} / ${kbd("Ctrl+0")} font size</li>
         <li>${kbd("Ctrl+Shift+C/V")} copy / paste, ${kbd("Ctrl+Shift+A")} selection → AI, ${kbd("Ctrl+Shift+I")} AI panel</li>
@@ -269,7 +269,7 @@ export const HELP_EN: Record<string, { title: string; html: string }> = {
       <li><b>Icon order</b> in the left column is changed by dragging with the mouse and is remembered (⚙ always stays at the bottom).</li>
       <li><b>Terminal</b>: input and output highlighting, inline suggestions, font size and family. Enter the name of an installed monospace font; choose MesloLGS NF or a Nerd Font for Powerlevel10k icons. The choice applies immediately to all terminals and is remembered. An empty field restores the default font.</li>
       <li><b>Colour scheme</b> of the terminal: OpsDeck, Campbell, One Half Dark, Solarized Dark, Dracula or your own — <i>Import JSON…</i> takes Windows Terminal's settings.json, a list of schemes or one scheme. Applies to all terminals at once.</li>
-      <li><b>Windows</b> (shown on Windows only): the shell for new tabs — PowerShell 5.1 or 7, Git Bash, cmd, a WSL distribution — and importing schemes straight from the installed Windows Terminal. The <b>WSL</b> button next to ＋ in the terminal opens a tab of the chosen distribution.</li>
+      <li><b>Windows</b> (shown on Windows only): the shell for new tabs — PowerShell 5.1 or 7, Git Bash, cmd, a WSL distribution — and importing schemes straight from the installed Windows Terminal. The <b>WSL</b> button next to ＋ in the terminal opens a tab of the chosen distribution; it gets TERM, COLORTERM and KUBECONFIG (paths as /mnt/c/…), and the AI command in a WSL tab suggests Linux commands.</li>
       <li><b>KeePass</b>: “Keep the database open until OpsDeck closes” (on by default) or auto-lock after N minutes idle.</li>
       <li>Paths to the KeePass database, the notes folder and WinBox are filled in automatically if found in the home folder (candidates — in the field's dropdown).</li>
       <li><b>Kubernetes</b>: by default OpsDeck works only with its own kubeconfig copies; the checkbox also shows the shared ~/.kube/config.</li>

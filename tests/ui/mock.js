@@ -217,7 +217,7 @@
       if (cmd === "pty_spawn") {
         const id = args.req.id, prog = args.req.program;
         setTimeout(() => emit(`pty-data-${id}`, b64(prog ? L("AI-панель: выберите инструмент сверху\r\n", "AI panel: pick a tool at the top\r\n") : termOut)), 100);
-        return null;
+        return { program: prog ?? "/bin/bash", args: args.req.args ?? [] };
       }
       if (cmd === "mon_probe") {
         if (args.target === "id:h6") throw L("нет входа по ключу — добавьте ключ (ssh-copy-id) или откройте сессию в OpsDeck", "no key login — add a key (ssh-copy-id) or open a session in OpsDeck");

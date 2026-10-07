@@ -10,6 +10,7 @@ import { addSnippet } from "./snippets";
 import { attachPathLinks, mountFiles } from "./files";
 import { esc, overlay, toast } from "./ui";
 import { isWindows } from "./themes";
+import { isWsl, shellName } from "./shellkind";
 
 /** Other modules open a tab via: window.dispatchEvent(new CustomEvent("open-terminal", { detail })) */
 export type OpenTerminalDetail = SpawnOpts & { title?: string; keepOpen?: boolean };
@@ -127,7 +128,8 @@ export function mountTerminal(root: HTMLElement) {
   providerSel.value = load("opsdeck.ai.provider", "Claude Code");
 
   const activePane = () => activeTab?.active ?? null;
-  const cwd = () => activePane()?.pty.blocks.cwd || undefined;
+  // a WSL pane reports Linux paths: they are no use as a Windows working folder
+  const cwd = () => { const p = activePane()?.pty; return p && !isWsl(p.launched) ? p.blocks.cwd || undefined : undefined; };
 
   // ----- session recording -----
 
@@ -230,7 +232,9 @@ export function mountTerminal(root: HTMLElement) {
     if (tab.panes.length > 1 && tab.dir !== dir) return toast("Во вкладке уже есть разделение в другую сторону", "err");
     tab.dir = dir;
     tab.host.style.flexDirection = dir;
-    addPane(tab, { cwd: cwd() });
+    // like Windows Terminal: a WSL pane splits into the same distribution, others into a local shell
+    const l = tab.active?.pty.launched ?? null;
+    addPane(tab, l && isWsl(l) ? { program: l.program, args: l.args } : { cwd: cwd() });
   }
 
   function cyclePane(step: 1 | -1) {
@@ -559,7 +563,7 @@ export function mountTerminal(root: HTMLElement) {
     aaCmd = "";
     try {
       const recent = aaPty.blocks.blocks.slice(-10).map((b) => b.command).filter(Boolean);
-      const r = await invoke<{ command: string; from_notes: string[]; elapsed_ms: number }>("ai_command", { request, cwd: aaPty.blocks.cwd || null, recent, shell: null });
+      const r = await invoke<{ command: string; from_notes: string[]; elapsed_ms: number }>("ai_command", { request, cwd: aaPty.blocks.cwd || null, recent, shell: shellName(aaPty.launched) });
       aaCmd = r.command;
       $(".aa-cmd").textContent = r.command || "(пустой ответ — переформулируйте)";
       $(".aa-meta").textContent = `${(r.elapsed_ms / 1000).toFixed(1)} с${r.from_notes.length ? ` · учтено команд из заметок и истории: ${r.from_notes.length}` : ""}`;

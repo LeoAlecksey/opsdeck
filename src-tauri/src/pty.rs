@@ -2,7 +2,7 @@
 
 use base64::{engine::general_purpose::STANDARD, Engine};
 use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
     io::{Read, Write},
@@ -56,12 +56,39 @@ pub struct SpawnRequest {
     rows: u16,
 }
 
+/// What actually runs in the pane: for a plain tab the backend picks the shell (Settings → Windows),
+/// so the UI learns it here (AI context, splitting a WSL pane).
+#[derive(Serialize)]
+pub struct Launched {
+    program: String,
+    args: Vec<String>,
+}
+
 fn err(e: impl std::fmt::Display) -> String {
     e.to_string()
 }
 
+/// Windows passes its environment to WSL only for the variables listed in WSLENV
+/// (`NAME/flags`, `:`-separated; `/l` = list of paths, translated to /mnt/c/... form).
+/// The user's own WSLENV entries are kept.
+fn wslenv(existing: Option<&str>, names: &[&str]) -> String {
+    let mut out: Vec<String> = existing
+        .unwrap_or_default()
+        .split(':')
+        .filter(|s| !s.is_empty())
+        .map(String::from)
+        .collect();
+    for n in names {
+        let name = n.split('/').next().unwrap_or(n);
+        if !out.iter().any(|e| e.split('/').next() == Some(name)) {
+            out.push(n.to_string());
+        }
+    }
+    out.join(":")
+}
+
 #[tauri::command]
-pub fn pty_spawn(app: AppHandle, state: State<PtyState>, req: SpawnRequest) -> Result<(), String> {
+pub fn pty_spawn(app: AppHandle, state: State<PtyState>, req: SpawnRequest) -> Result<Launched, String> {
     let pair = native_pty_system()
         .openpty(PtySize { rows: req.rows, cols: req.cols, pixel_width: 0, pixel_height: 0 })
         .map_err(err)?;
@@ -84,6 +111,10 @@ pub fn pty_spawn(app: AppHandle, state: State<PtyState>, req: SpawnRequest) -> R
         // lets the resource bar reuse this session's connection (see sysmon.rs)
         cmd.args(crate::sysmon::ssh_master_opts());
     }
+    let launched = Launched {
+        program: program.clone(),
+        args: req.args.clone().unwrap_or_default(),
+    };
     cmd.args(req.args.unwrap_or_default());
     let cwd = req.cwd.map(Into::into).or_else(dirs::home_dir);
     if let Some(cwd) = cwd {
@@ -97,10 +128,32 @@ pub fn pty_spawn(app: AppHandle, state: State<PtyState>, req: SpawnRequest) -> R
         cmd.env("CLAUDE_CODE_SSE_PORT", port.to_string());
         cmd.env("ENABLE_IDE_INTEGRATION", "true");
     }
-    if let Some(kc) = crate::k8s::terminal_kubeconfig() {
+    let kubeconfig = crate::k8s::terminal_kubeconfig();
+    if let Some(kc) = &kubeconfig {
         cmd.env("KUBECONFIG", kc);
     }
-    for (k, v) in req.env.unwrap_or_default() {
+    let env = req.env.unwrap_or_default();
+    if std::path::Path::new(&program)
+        .file_stem()
+        .is_some_and(|n| n.eq_ignore_ascii_case("wsl"))
+    {
+        // the IDE bridge (CLAUDE_CODE_SSE_PORT) is left out: it listens on Windows' 127.0.0.1,
+        // which WSL 2 reaches only in mirrored networking mode
+        let mut names: Vec<&str> = vec!["TERM", "COLORTERM", "TERM_PROGRAM"];
+        if kubeconfig.is_some() || env.contains_key("KUBECONFIG") {
+            names.push("KUBECONFIG/l");
+        }
+        names.extend(
+            env.keys()
+                .map(String::as_str)
+                .filter(|k| *k != "KUBECONFIG"),
+        );
+        cmd.env(
+            "WSLENV",
+            wslenv(std::env::var("WSLENV").ok().as_deref(), &names),
+        );
+    }
+    for (k, v) in env {
         cmd.env(k, v);
     }
 
@@ -152,7 +205,7 @@ pub fn pty_spawn(app: AppHandle, state: State<PtyState>, req: SpawnRequest) -> R
         .lock()
         .unwrap()
         .insert(req.id, Session { master: pair.master, writer, child, recorder });
-    Ok(())
+    Ok(launched)
 }
 
 /// ConPTY keeps the output pipe open after the shell exits (`exit` in PowerShell), so the reader
@@ -383,4 +436,24 @@ fn path_commands() -> Vec<String> {
             }
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn wslenv_adds_names_and_keeps_users_own() {
+        assert_eq!(wslenv(None, &["TERM", "KUBECONFIG/l"]), "TERM:KUBECONFIG/l");
+        assert_eq!(wslenv(Some(""), &["TERM"]), "TERM");
+        assert_eq!(
+            wslenv(Some("GOPATH/l:USERPROFILE/p"), &["TERM"]),
+            "GOPATH/l:USERPROFILE/p:TERM"
+        );
+        // the user's flags win over ours
+        assert_eq!(
+            wslenv(Some("KUBECONFIG/up"), &["TERM", "KUBECONFIG/l"]),
+            "KUBECONFIG/up:TERM"
+        );
+    }
 }
