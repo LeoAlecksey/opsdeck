@@ -103,6 +103,29 @@ test.describe("Windows block", () => {
     await expect(page.locator(".tabs .tab .label").last()).toHaveText("Debian");
   });
 
+  test("splitting a WSL pane opens the same distribution", async ({ app, page }) => {
+    await app.view("terminal");
+    await page.click("[data-act=wsl]");
+    await page.locator(".wsl-menu button", { hasText: "Debian" }).click();
+    await expect(page.locator(".tabs .tab .label").last()).toHaveText("Debian");
+    await page.click("[data-act=split-r]");
+    await expect(page.locator(".term-host:not([hidden]) .pane")).toHaveCount(2);
+    const wsl = (await app.calls("pty_spawn")).map((c) => (c.args as any).req).filter((r) => r.program?.endsWith("wsl.exe"));
+    expect(wsl.map((r) => r.args)).toEqual([["-d", "Debian", "--cd", "~"], ["-d", "Debian", "--cd", "~"]]);
+  });
+
+  test("AI command in a WSL pane is asked for Linux", async ({ app, page }) => {
+    await app.view("terminal");
+    await page.click("[data-act=wsl]");
+    await page.locator(".wsl-menu button", { hasText: "Ubuntu-24.04" }).click();
+    await expect(page.locator(".tabs .tab .label").last()).toHaveText("Ubuntu-24.04");
+    await page.locator(".term-host:not([hidden]) .xterm").first().click();
+    await page.keyboard.press("Control+Shift+KeyK");
+    await page.locator(".aa-in").fill("место на диске");
+    await page.locator(".aa-in").press("Enter");
+    expect((await app.called("ai_command")).args.shell).toBe("wsl:Ubuntu-24.04");
+  });
+
   test("Escape closes the WSL menu", async ({ app, page }) => {
     await app.view("terminal");
     await page.click("[data-act=wsl]");

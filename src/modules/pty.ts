@@ -7,6 +7,7 @@ import { FitAddon } from "@xterm/addon-fit";
 import { ShellBlocks } from "./blocks";
 import { hlPrefs, InputHighlighter, OutputHighlighter, type HlPrefs } from "./highlight";
 import { AutoSuggest } from "./suggest";
+import type { Launched } from "./shellkind";
 
 let seq = 0;
 
@@ -115,6 +116,8 @@ export class PtyTerminal {
   private unlisten: UnlistenFn[] = [];
   private ro: ResizeObserver;
   onExit?: () => void;
+  /** What the backend actually started (a plain tab gets the shell chosen in Settings). */
+  launched: Launched | null = null;
 
   constructor(readonly host: HTMLElement, readonly spawn: SpawnOpts = {}) {
     const opts = spawn;
@@ -181,7 +184,7 @@ export class PtyTerminal {
     }));
     this.safeFit();
     try {
-      await invoke("pty_spawn", { req: { id: this.id, ...opts, cols: this.term.cols, rows: this.term.rows } });
+      this.launched = await invoke<Launched>("pty_spawn", { req: { id: this.id, ...opts, cols: this.term.cols, rows: this.term.rows } });
     } catch (e) {
       this.term.write(`\x1b[31m${t("Не удалось запустить")} ${opts.program ?? "shell"}: ${t(String(e))}\x1b[0m\r\n`);
     }
