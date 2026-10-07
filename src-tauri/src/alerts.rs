@@ -410,12 +410,32 @@ fn parse_zabbix(problems: &Value, events: &Value, base: &str, source: &str) -> V
 /// Where a server takes the token: the Authorization header since 6.4, the "auth" field before.
 /// Both at once no longer works — 7.2 removed the field and rejects a request that has it.
 fn zabbix_token_in_header(version: &str) -> bool {
+    // not a version we can read: the current way
+    zabbix_version(version).is_none_or(|v| v >= (6, 4))
+}
+
+/// (major, minor) of a version string like "7.0.31".
+fn zabbix_version(version: &str) -> Option<(u32, u32)> {
     let mut parts = version.split('.').map(|p| p.parse::<u32>().ok());
-    match (parts.next().flatten(), parts.next().flatten()) {
-        (Some(major), Some(minor)) => (major, minor) >= (6, 4),
-        // not a version we can read: the current way
-        _ => true,
-    }
+    Some((parts.next()??, parts.next()??))
+}
+
+/// Problems whose trigger is in `triggers` (trigger.get with monitored + skipDependent): what the
+/// Problems page of Zabbix shows.
+fn zabbix_shown(problems: &Value, triggers: &Value) -> Value {
+    let keep: HashSet<String> = triggers
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|t| s(&t["triggerid"]))
+        .collect();
+    problems
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|p| keep.contains(&s(&p["objectid"])))
+        .cloned()
+        .collect()
 }
 
 async fn zabbix_call(
@@ -512,10 +532,14 @@ async fn fetch_zabbix(client: &reqwest::Client, c: &connectors::Connector, user:
         (false, Some(session)) => session.clone(),
         (false, None) => zabbix_login(client, &url, header, user, pass).await?,
     };
-    let query = serde_json::json!({
+    let mut query = serde_json::json!({
         "output": ["eventid", "objectid", "name", "severity", "clock", "suppressed"],
         "selectTags": "extend", "recent": false, "sortfield": ["eventid"], "sortorder": "DESC", "limit": 1000
     });
+    // the Problems page hides symptoms (problems attached to a cause problem; 7.0+)
+    if zabbix_version(&s(&version)).is_some_and(|v| v >= (7, 0)) {
+        query["symptom"] = Value::Bool(false);
+    }
     let problems = match zabbix_call(client, &url, &token, header, "problem.get", query.clone())
         .await
     {
@@ -528,6 +552,30 @@ async fn fetch_zabbix(client: &reqwest::Client, c: &connectors::Connector, user:
             zabbix_call(client, &url, &token, header, "problem.get", query).await?
         }
         r => r?,
+    };
+    // the Problems page also drops problems of disabled triggers, hosts and items (they stay open in
+    // the database, sometimes for years) and of triggers that depend on another one in a problem state
+    let mut triggerids: Vec<String> = problems
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|p| s(&p["objectid"]))
+        .collect();
+    triggerids.sort();
+    triggerids.dedup();
+    let problems = if triggerids.is_empty() {
+        problems
+    } else {
+        let triggers = zabbix_call(
+            client,
+            &url,
+            &token,
+            header,
+            "trigger.get",
+            serde_json::json!({ "output": ["triggerid"], "triggerids": triggerids, "monitored": true, "skipDependent": true }),
+        )
+        .await?;
+        zabbix_shown(&problems, &triggers)
     };
     let ids: Vec<String> = problems.as_array().into_iter().flatten().map(|p| s(&p["eventid"])).collect();
     let events = if ids.is_empty() {
@@ -971,6 +1019,27 @@ mod tests {
             );
         }
         assert!(zabbix_token_in_header(""));
+    }
+
+    #[test]
+    fn zabbix_problems_page() {
+        assert_eq!(zabbix_version("7.0.31"), Some((7, 0)));
+        assert_eq!(zabbix_version("8.0.0rc2"), Some((8, 0)));
+        assert_eq!(zabbix_version("x"), None);
+        let problems = json!([
+            { "eventid": "1", "objectid": "10" },
+            { "eventid": "2", "objectid": "20" },
+            { "eventid": "3", "objectid": "10" },
+        ]);
+        // trigger 20 is disabled or depends on a trigger in a problem state
+        let shown = zabbix_shown(&problems, &json!([{ "triggerid": "10" }]));
+        let ids: Vec<&str> = shown
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|p| p["eventid"].as_str().unwrap())
+            .collect();
+        assert_eq!(ids, ["1", "3"]);
     }
 
     #[test]
