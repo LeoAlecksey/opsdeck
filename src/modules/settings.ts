@@ -7,6 +7,7 @@ import { mountUpdates } from "./updates";
 import { hlPrefs, setHlPrefs } from "./highlight";
 import { setTermFontSize, termFontSize, setTermFontFamily, termFontFamily, TERM_FONTS, fontInstalled } from "./pty";
 import { setSuggestEnabled, suggestEnabled } from "./suggest";
+import { AI_PROVIDERS, aiAgent, setAiAgent } from "./ai-agents";
 import { addThemes, allThemes, currentThemeName, isWindows, parseSchemes, setTheme } from "./themes";
 import { listen } from "@tauri-apps/api/event";
 
@@ -178,6 +179,10 @@ export function mountSettings(root: HTMLElement) {
           <p class="muted hint">Найдены установленные: PowerShell 5.1 и 7, Git Bash, cmd и дистрибутивы WSL. Применяется к новым вкладкам после «Сохранить». WSL можно открыть и разово — кнопка WSL рядом с ＋ в терминале.</p>
           <div class="row"><button type="button" class="ghost" data-wt-import>Импорт схем из Windows Terminal</button></div>
         </fieldset>
+        <fieldset class="agent-field"><legend>AI-агент</legend>
+          <label>Агент по умолчанию <select class="ai-agent-sel"></select></label>
+          <p class="muted hint">Открывается в AI-панели терминала (Ctrl+Shift+I), получает выделенный текст (Ctrl+Shift+A), логи и алерты (⇢ AI) и ссылки на заметки (кнопка «@» в заметках). Сам агент (claude, codex, gemini, aider, opencode) ставится отдельно.</p>
+        </fieldset>
         <fieldset class="ai-field"><legend>Локальный ИИ</legend>
           <div class="ai-root"></div>
           <p class="muted hint">Модель и движок llama.cpp скачиваются отдельно (по умолчанию — лёгкая Qwen2.5-Coder 1.5B, ≈1,1 ГБ; для мощных ПК есть модели крупнее, можно указать и свой файл .gguf) и работают только на этом компьютере — запросы никуда не уходят. В терминале ${"Ctrl+Shift+K"} или кнопка «✦ ИИ»: опишите словами, что сделать, — ИИ предложит команду с учётом ваших заметок и истории. Модель запускается при первом запросе и выгружается из памяти через 15 минут без дела.</p>
@@ -256,6 +261,11 @@ export function mountSettings(root: HTMLElement) {
   const sugg = root.querySelector<HTMLInputElement>(".term-sugg")!;
   sugg.checked = suggestEnabled();
   sugg.onchange = () => setSuggestEnabled(sugg.checked);
+  const agentSel = root.querySelector<HTMLSelectElement>(".ai-agent-sel")!;
+  for (const name of Object.keys(AI_PROVIDERS)) agentSel.add(new Option(name, name));
+  agentSel.value = aiAgent();
+  agentSel.onchange = () => setAiAgent(agentSel.value);
+  window.addEventListener("ai-agent", () => { agentSel.value = aiAgent(); });
   mountAi(root.querySelector<HTMLElement>(".ai-root")!);
   // внешний ИИ-сервер: «Проверить» → список моделей в выпадающий список поля «Модель»
   // (комбо-поле: можно и выбрать из списка, и ввести любую свою модель)
