@@ -1009,3 +1009,6 @@ body.no-select, body.no-select * { user-select: none; -webkit-user-select: none;
 .web-pick-menu button .muted { margin-left: auto; font-size: 12px; }
 .web-pick-menu .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); flex: none; }
 .web-pick-menu .dot.kind-grafana { background: #f2a54a; } .web-pick-menu .dot.kind-argocd { background: #ef7b4d; } .web-pick-menu .dot.kind-gitlab { background: #e2432a; }
+
+/* notes: unsaved changes — a turquoise frame around the note until it is saved */
+.note-dirty .notes-main { box-shadow: inset 0 0 0 2px var(--accent); border-radius: 4px; }

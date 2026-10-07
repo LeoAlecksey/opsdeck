@@ -65,7 +65,8 @@ export function mountNotes(root: HTMLElement) {
   let mode: "edit" | "view" = (localStorage.getItem("opsdeck.notes.mode") as "edit" | "view") ?? "view";
 
   const dirty = () => current !== null && editor.value !== saved;
-  const markDirty = () => { dirtyEl.hidden = !dirty(); saveBtn.disabled = !dirty(); };
+  // unsaved changes: ● next to the name and a turquoise frame around the note, gone after saving
+  const markDirty = () => { const d = dirty(); dirtyEl.hidden = !d; saveBtn.disabled = !d; root.classList.toggle("note-dirty", d); };
 
   let allTags: TagInfo[] = [];
   let tagFilter = "";

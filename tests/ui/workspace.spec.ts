@@ -24,8 +24,10 @@ test.describe("notes", () => {
     await expect(editor).toBeVisible();
     await editor.press("End");
     await editor.pressSequentially("\nНовая строка");
+    await expect(page.locator("section.view.note-dirty"), "turquoise frame while unsaved").toHaveCount(1);
     await page.keyboard.press("Control+KeyS");
     expect((await app.called("note_write")).args.content as string).toContain("Новая строка");
+    await expect(page.locator("section.view.note-dirty"), "the frame goes away after saving").toHaveCount(0);
   });
 
   test("a note with Windows line endings is not 'unsaved' after just viewing it, and keeps them", async ({ app, page }) => {
