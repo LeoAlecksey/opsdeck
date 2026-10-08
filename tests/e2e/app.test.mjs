@@ -72,8 +72,11 @@ describe("OpsDeck (real app)", () => {
     await (await b.$(".term-host:not([hidden]) .xterm")).click();
     await typeKeys(typed);
     // grey inline suggestion after the cursor: needs the OSC 133 marks of the shell integration
-    await until(async () => b.execute(() => [...document.querySelectorAll(".term-ghost")].map((e) => e.textContent).join("")), "an inline suggestion", 10_000)
-      .then((ghost) => assert.ok(ghost.startsWith(WIN ? "+2)" : "0+2))"), `suggestion: ${ghost}`));
+    // the suggestion follows each key: wait for the one after the last key (it may still show
+    // the previous one for a moment, e.g. "40+2))" before the "4" is echoed)
+    const ghost = () => b.execute(() => [...document.querySelectorAll(".term-ghost")].map((e) => e.textContent).join(""));
+    const want = WIN ? "+2)" : "0+2))";
+    await until(async () => (await ghost()).startsWith(want), `the inline suggestion "${want}…"`, 10_000, async () => `suggestion: ${await ghost()}\n${await termText()}`);
     await b.keys(["Control", "c"]);
     await b.keys(["Control"]);
   });
