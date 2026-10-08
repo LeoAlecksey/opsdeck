@@ -3,7 +3,7 @@
 use crate::process;
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, process::Stdio, sync::Mutex};
-use tauri::{AppHandle, Emitter, State};
+use tauri::{async_runtime::JoinHandle, AppHandle, Emitter, Manager, State};
 use tokio::{
     io::{AsyncBufReadExt, AsyncRead, BufReader},
     process::Command,
@@ -82,7 +82,7 @@ fn build(req: &ToolRequest) -> Result<(&'static str, Vec<String>), String> {
 }
 
 #[cfg(windows)]
-fn pump<R: AsyncRead + Unpin + Send + 'static>(app: AppHandle, event: String, stream: &'static str, r: R) {
+fn pump<R: AsyncRead + Unpin + Send + 'static>(app: AppHandle, event: String, stream: &'static str, r: R) -> JoinHandle<()> {
     tauri::async_runtime::spawn(async move {
         // ping/tracert/nslookup write OEM (e.g. CP866), not UTF-8 — lines() would error
         // on the first byte and emit nothing; read raw and decode via CP_OEMCP.
@@ -102,7 +102,7 @@ fn pump<R: AsyncRead + Unpin + Send + 'static>(app: AppHandle, event: String, st
                 Err(_) => break,
             }
         }
-    });
+    })
 }
 
 #[cfg(windows)]
@@ -127,13 +127,13 @@ fn decode_oem(bytes: &[u8]) -> String {
 }
 
 #[cfg(not(windows))]
-fn pump<R: AsyncRead + Unpin + Send + 'static>(app: AppHandle, event: String, stream: &'static str, r: R) {
+fn pump<R: AsyncRead + Unpin + Send + 'static>(app: AppHandle, event: String, stream: &'static str, r: R) -> JoinHandle<()> {
     tauri::async_runtime::spawn(async move {
         let mut lines = BufReader::new(r).lines();
         while let Ok(Some(text)) = lines.next_line().await {
             let _ = app.emit(&event, Line { stream, text });
         }
-    });
+    })
 }
 
 #[tauri::command]
@@ -162,8 +162,8 @@ pub async fn tool_run(
     };
 
     let line_event = format!("tool-line-{run_id}");
-    pump(app.clone(), line_event.clone(), "out", child.stdout.take().unwrap());
-    pump(app.clone(), line_event, "err", child.stderr.take().unwrap());
+    let out = pump(app.clone(), line_event.clone(), "out", child.stdout.take().unwrap());
+    let err = pump(app.clone(), line_event, "err", child.stderr.take().unwrap());
 
     let (tx, rx) = oneshot::channel();
     state.running.lock().unwrap().insert(run_id.clone(), tx);
@@ -173,6 +173,14 @@ pub async fn tool_run(
             status = child.wait() => status.ok().and_then(|s| s.code()),
             _ = rx => { let _ = child.kill().await; None }
         };
+        // the last lines are still being read when the process exits: "done" goes after them
+        // (the UI stops listening on it). A grandchild may keep the pipe open — don't wait forever.
+        let _ = tokio::time::timeout(std::time::Duration::from_secs(2), async {
+            let _ = out.await;
+            let _ = err.await;
+        })
+        .await;
+        app.state::<ToolState>().running.lock().unwrap().remove(&run_id);
         let _ = app.emit(&format!("tool-exit-{run_id}"), code);
     });
     Ok(cmdline)

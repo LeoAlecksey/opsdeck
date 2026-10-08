@@ -237,6 +237,26 @@ test.describe("other sections", () => {
     expect((run.args as any).req).toMatchObject({ tool: "ping", target: "example.com", count: 4 });
   });
 
+  test("fast tools: output that arrives before the command line is not lost (found by e2e)", async ({ app, page }) => {
+    // ping -c 1 127.0.0.1 finishes before tool_run returns: lines and exit come first
+    await page.evaluate(() => {
+      (window as any).__DEMO_OVERRIDES.tool_run = (a: any) => {
+        (window as any).__demoEmit(`tool-line-${a.runId}`, { stream: "out", text: "64 bytes from 127.0.0.1: icmp_seq=1 ttl=64 time=0.03 ms" });
+        (window as any).__demoEmit(`tool-exit-${a.runId}`, 0);
+        return "ping -c 1 127.0.0.1";
+      };
+    });
+    await app.view("net");
+    await page.locator("input[name=target]").fill("127.0.0.1");
+    await page.locator("[data-pane=tools] button[type=submit]").click();
+    const out = page.locator("[data-pane=tools] .output");
+    await expect(out).toContainText("64 bytes from 127.0.0.1");
+    const text = await out.innerText();
+    expect(text.indexOf("$ ping"), text).toBeLessThan(text.indexOf("64 bytes"));
+    expect(text.indexOf("64 bytes"), text).toBeLessThan(text.indexOf("завершено"));
+    await expect(page.locator("[data-pane=tools] button[type=submit]")).toBeEnabled();
+  });
+
   test("MikroTik: WinBox in one click", async ({ app, page }) => {
     await app.view("winbox");
     await page.locator("[data-a=winbox]").click();
