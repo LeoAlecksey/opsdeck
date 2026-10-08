@@ -133,7 +133,8 @@ export const HELP_EN: Record<string, { title: string; html: string }> = {
       <h4>How to turn it on</h4>
       <ul><li>The module is turned on with a checkbox in the ⊞ menu at the bottom of the left column.</li>
       <li><b>＋ Hosts</b> — choose profiles from the SSH section and hosts from ~/.ssh/config; the choice is remembered. Host groups become sections of the board.</li>
-      <li>“Refresh” — how often to poll (or by hand with ⟳). While the section is not open, hosts are not polled.</li></ul>
+      <li>“Refresh” — how often to poll (or by hand with ⟳). While the section is not open, hosts are not polled.</li>
+      <li>A group can be folded (▾): a summary by colour stays and its hosts are not polled. × on a card or a group takes it off the board — SSH profiles stay.</li></ul>
       <h4>How metrics are collected</h4>
       <p>Over ssh without a password: a key login (ssh-agent, IdentityFile) or a session already open in OpsDeck is needed. The connection is kept for 2 minutes and reused, so the next poll is cheap. /proc and df are read — Linux only. If a host has never been connected to, accept its key: connect once from the terminal.</p>`,
   },

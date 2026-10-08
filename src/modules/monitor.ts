@@ -6,7 +6,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { helpBtn } from "./help";
 import { icon } from "./icons";
-import { esc } from "./ui";
+import { ask, esc } from "./ui";
 
 type SshHost = { id: string; name: string; group: string; host: string; user: string };
 type ConfigHost = { alias: string; group: string; hostname: string; user: string };
@@ -19,7 +19,7 @@ type Stats = {
 export type Target = { key: string; name: string; group: string; addr: string };
 type State = { stats?: Stats; error?: string; at?: number; busy?: boolean };
 
-const KEY_HOSTS = "opsdeck.mon.hosts", KEY_EVERY = "opsdeck.mon.every";
+const KEY_HOSTS = "opsdeck.mon.hosts", KEY_EVERY = "opsdeck.mon.every", KEY_FOLDED = "opsdeck.mon.folded";
 const PARALLEL = 6;
 const get = (k: string) => { try { return localStorage.getItem(k); } catch { return null; } };
 const set = (k: string, v: string) => { try { localStorage.setItem(k, v); } catch { /* ignore */ } };
@@ -86,11 +86,15 @@ export function mountMonitor(root: HTMLElement) {
   }
 
   const shown = () => chosen.map((k) => all.find((t) => t.key === k)).filter((t): t is Target => !!t);
+  // folded groups: only a summary, and their hosts are not polled
+  const folded = new Set<string>((() => { try { return JSON.parse(get(KEY_FOLDED) ?? "[]") as string[]; } catch { return []; } })());
+  const polled = () => shown().filter((t) => !folded.has(t.group));
+  const saveChosen = () => set(KEY_HOSTS, JSON.stringify(chosen));
 
   function card(t: Target) {
     const st = state.get(t.key) ?? {};
     const s = st.stats;
-    const head = `<div class="mon-head"><span class="mon-dot ${st.error ? "bad" : s ? worst(s) : "idle"}"></span><b>${esc(t.name)}</b><span class="muted mon-addr">${esc(s?.host && s.host !== t.name ? s.host : t.addr)}</span>${st.busy ? `<span class="muted mon-busy">…</span>` : ""}</div>`;
+    const head = `<div class="mon-head"><span class="mon-dot ${st.error ? "bad" : s ? worst(s) : "idle"}"></span><b>${esc(t.name)}</b><span class="muted mon-addr">${esc(s?.host && s.host !== t.name ? s.host : t.addr)}</span>${st.busy ? `<span class="muted mon-busy">…</span>` : ""}<button class="icon mon-x" data-rm="${esc(t.key)}" title="Убрать с доски (профиль SSH остаётся)">${icon("close", 12)}</button></div>`;
     if (st.error) return `<div class="mon-card bad" data-k="${esc(t.key)}">${head}<p class="mon-err">${esc(st.error)}</p></div>`;
     if (!s) return `<div class="mon-card" data-k="${esc(t.key)}">${head}<p class="muted">опрашиваю…</p></div>`;
     const bar = (label: string, p: number, text: string) =>
@@ -113,8 +117,18 @@ export function mountMonitor(root: HTMLElement) {
     }
     const groups = new Map<string, Target[]>();
     for (const t of list) groups.set(t.group, [...(groups.get(t.group) ?? []), t]);
-    board.innerHTML = [...groups.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([g, ts]) =>
-      `<section class="mon-group">${g ? `<div class="side-head small">${esc(g)}</div>` : ""}<div class="mon-grid">${ts.map(card).join("")}</div></section>`).join("");
+    board.innerHTML = [...groups.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([g, ts]) => {
+      const fold = folded.has(g);
+      // a folded group still says how it was last time: count of hosts by colour
+      const tally = { bad: 0, warn: 0, ok: 0 };
+      for (const t of ts) { const st = state.get(t.key); const l = st?.error ? "bad" : st?.stats ? worst(st.stats) : null; if (l) tally[l]++; }
+      const sum = (["bad", "warn", "ok"] as const).filter((l) => tally[l]).map((l) => `<span class="mon-tally"><span class="mon-dot ${l}"></span>${tally[l]}</span>`).join("");
+      return `<section class="mon-group${fold ? " folded" : ""}" data-g="${esc(g)}">
+        <div class="mon-ghead"><button class="ghost mon-fold" data-fold title="${fold ? "Развернуть" : "Свернуть"}">${fold ? "▸" : "▾"}</button>
+          <span class="side-head small">${esc(g || "Без группы")}</span><span class="muted">${ts.length}</span>${fold ? sum : ""}
+          <span class="spacer"></span><button class="icon mon-x" data-rmg title="Убрать группу с доски (профили SSH остаются)">${icon("close", 12)}</button></div>
+        ${fold ? "" : `<div class="mon-grid">${ts.map(card).join("")}</div>`}</section>`;
+    }).join("");
   }
 
   async function probe(t: Target) {
@@ -133,7 +147,7 @@ export function mountMonitor(root: HTMLElement) {
   /** All hosts, a few at a time. */
   async function refresh() {
     if (root.hidden || document.hidden) return;
-    const queue = shown();
+    const queue = polled();
     draw();
     await Promise.all(Array.from({ length: Math.min(PARALLEL, queue.length) }, async () => {
       for (let t = queue.shift(); t; t = queue.shift()) await probe(t);
@@ -170,10 +184,38 @@ export function mountMonitor(root: HTMLElement) {
   };
   pick.addEventListener("close", () => {
     if (pick.returnValue !== "ok") { chosen = before; return; }
-    set(KEY_HOSTS, JSON.stringify(chosen));
+    saveChosen();
     refresh();
   });
   root.querySelector<HTMLElement>("[data-a=refresh]")!.onclick = () => refresh();
+
+  board.addEventListener("click", async (e) => {
+    const el = e.target as HTMLElement;
+    const sec = el.closest<HTMLElement>(".mon-group");
+    const g = sec?.dataset.g ?? "";
+    const rm = el.closest<HTMLElement>("[data-rm]")?.dataset.rm;
+    if (rm) {
+      chosen = chosen.filter((k) => k !== rm);
+      state.delete(rm);
+      saveChosen();
+      return draw();
+    }
+    if (el.closest("[data-rmg]") && sec) {
+      const keys = shown().filter((t) => t.group === g).map((t) => t.key);
+      if ((await ask("Убрать группу", `Убрать с доски группу «${g || "Без группы"}» (${keys.length} хост.)? Профили SSH не удаляются.`, { ok: "Убрать", danger: true })) === null) return;
+      chosen = chosen.filter((k) => !keys.includes(k));
+      keys.forEach((k) => state.delete(k));
+      saveChosen();
+      return draw();
+    }
+    if (el.closest("[data-fold]") && sec) {
+      folded.has(g) ? folded.delete(g) : folded.add(g);
+      set(KEY_FOLDED, JSON.stringify([...folded]));
+      draw();
+      // unfolded: its hosts are fresh again at once
+      if (!folded.has(g)) for (const t of shown().filter((x) => x.group === g)) probe(t);
+    }
+  });
 
   window.addEventListener("view-shown", async (e) => {
     if ((e as CustomEvent).detail !== "monitor") return;

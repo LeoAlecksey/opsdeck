@@ -1036,6 +1036,7 @@ body.no-select, body.no-select * { user-select: none; -webkit-user-select: none;
 .mon-head b { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .mon-addr { font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .mon-busy { margin-left: auto; }
+.mon-busy + .mon-x { margin-left: 4px; }
 .mon-dot { width: 9px; height: 9px; border-radius: 50%; flex: none; background: var(--muted, #888); }
 .mon-dot.ok { background: #98d982; } .mon-dot.warn { background: #e6c07b; } .mon-dot.bad { background: var(--danger); }
 .mon-row { display: grid; grid-template-columns: 52px 1fr auto; align-items: center; gap: 8px; font-size: 12px; }
@@ -1049,3 +1050,12 @@ body.no-select, body.no-select * { user-select: none; -webkit-user-select: none;
 .mon-err { color: var(--danger); font-size: 12px; margin: 0; word-break: break-word; }
 .mon-pick-list { display: flex; flex-direction: column; gap: 4px; max-height: 50vh; overflow: auto; margin: 8px 0; }
 .mon-pick .mon-filter { width: 100%; }
+.mon-head .mon-x { margin-left: auto; }
+.mon-x { opacity: 0; width: 22px; height: 22px; padding: 0; flex: none; }
+.mon-card:hover .mon-x, .mon-ghead:hover .mon-x, .mon-x:focus-visible { opacity: .7; }
+.mon-x:hover { opacity: 1; color: var(--danger); }
+.mon-ghead { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.mon-ghead .side-head { margin: 0; }
+.mon-fold { width: 22px; height: 22px; padding: 0; }
+.mon-tally { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; }
+.mon-group.folded .mon-ghead { margin-bottom: 0; }
