@@ -51,6 +51,29 @@ test.describe("local AI in the AI panel (from feedback)", () => {
     await expect(page.locator(".ai-msg")).toHaveCount(0);
   });
 
+  test("a long conversation scrolls; the question box stays on screen (from feedback)", async ({ page }) => {
+    const long = Array.from({ length: 60 }, (_, i) => `alex@noute:~$ line ${i} of a long pasted output`).join("\n");
+    const input = page.locator(".ai-chat textarea");
+    for (let i = 0; i < 3; i++) {
+      await input.fill(long);
+      await input.press("Enter");
+      await expect(page.locator(".ai-msg.assistant").nth(i).locator(".ai-code")).toHaveCount(1);
+      await expect(page.locator(".ai-chat [data-c=send]")).toHaveText("Отправить");
+    }
+    expect(await page.evaluate(() => document.scrollingElement!.scrollTop), "the window itself does not scroll").toBe(0);
+    const log = page.locator(".ai-chat-log");
+    const sizes = await log.evaluate((el) => ({ sh: el.scrollHeight, ch: el.clientHeight, st: el.scrollTop }));
+    expect(sizes.sh, "the log has more than fits").toBeGreaterThan(sizes.ch);
+    expect(sizes.st, "scrolled to the newest message").toBeGreaterThan(0);
+    // the box and the send button are inside the window
+    const vh = page.viewportSize()!.height;
+    const box = (await input.boundingBox())!;
+    expect(box.y + box.height).toBeLessThanOrEqual(vh);
+    await expect(page.locator(".ai-chat [data-c=send]")).toBeInViewport();
+    await input.fill("ещё вопрос");
+    await expect(input).toHaveValue("ещё вопрос");
+  });
+
   test("«⇢ в AI» puts the selection into the question box", async ({ page }) => {
     await page.evaluate(() => window.dispatchEvent(new CustomEvent("send-to-ai", { detail: "Error: ImagePullBackOff" })));
     await expect(page.locator(".ai-chat textarea")).toHaveValue("Error: ImagePullBackOff");
