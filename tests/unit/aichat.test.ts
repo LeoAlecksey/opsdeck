@@ -11,6 +11,8 @@ describe("local AI chat answers", () => {
     const p = parts("Вот так:\n\n```bash\nkubectl get pods\n```\n\nи всё");
     expect(p.map((x) => x.kind)).toEqual(["text", "code", "text"]);
     expect(p[1]).toMatchObject({ lang: "bash", body: "kubectl get pods" });
+    expect(p[0].body).toBe("Вот так:");
+    expect(p[2].body, "no blank lines around the block").toBe("и всё");
   });
   it("an unfinished block while streaming is still a block", () => {
     const p = parts("```bash\nkubectl get");

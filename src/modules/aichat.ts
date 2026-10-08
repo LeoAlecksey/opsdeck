@@ -23,7 +23,8 @@ export function parts(text: string): { kind: "text" | "code"; lang: string; body
     if (!m[3]) break; // an unfinished block while streaming
   }
   if (last < clean.length) out.push({ kind: "text", lang: "", body: clean.slice(last) });
-  return out.filter((p) => p.kind === "code" || p.body.trim());
+  // blank lines around a code block are layout, not text
+  return out.filter((p) => p.kind === "code" || p.body.trim()).map((p) => (p.kind === "text" ? { ...p, body: p.body.replace(/^\n+|\n+$/g, "") } : p));
 }
 
 /** Text with **bold** and `code`; everything escaped first. */

@@ -32,7 +32,7 @@
 <div class="hero wrap">
   <div class="badge">Free · open source · MIT</div>
   <h1>A DevOps engineer's workspace <span>in one window</span></h1>
-  <p class="lead">A terminal with local AI, Kubernetes, SSH, databases, an IDE with git, alerts, notes with tasks and KeePass — together, and aware of each other. Turn on only the sections you need.</p>
+  <p class="lead">A terminal with local AI, Kubernetes, SSH and host monitoring, databases, an IDE with git, alerts, notes with tasks, KeePass and MikroTik — together, and aware of each other. Turn on only the sections you need.</p>
   <div class="actions">
     <a class="btn primary" href="https://github.com/LeoAlecksey/opsdeck/releases/latest">Download</a>
     <a class="btn" href="https://github.com/LeoAlecksey/opsdeck">Source on GitHub</a>
@@ -90,18 +90,19 @@
       <table>
         <thead><tr><th>Module</th><th>What for</th><th>On a fresh install</th></tr></thead>
         <tbody>
-          <tr><td>Terminal + AI</td><td>Tabs and splits with bash/zsh/PowerShell, local AI, an AI panel with Claude Code, Codex, Gemini, Aider, OpenCode</td><td><span class="tag on">on</span></td></tr>
-          <tr><td>Kubernetes</td><td>Clusters, pods, logs, YAML, shell, port-forward, Helm, Argo CD</td><td><span class="tag on">on</span></td></tr>
+          <tr><td>Terminal + AI</td><td>Tabs and splits with bash/zsh/PowerShell/WSL, colour schemes, local AI, an AI panel with Claude Code, Codex, Gemini, Aider, OpenCode and a chat with the built-in model</td><td><span class="tag on">on</span></td></tr>
+          <tr><td>Kubernetes</td><td>Clusters, pods, logs, YAML, shell, port-forward, Helm, Argo CD, label filter, live node load</td><td><span class="tag on">on</span></td></tr>
           <tr><td>SSH</td><td>Your own profiles and hosts from <code>~/.ssh/config</code>, groups, jump hosts</td><td><span class="tag on">on</span></td></tr>
           <tr><td>KeePass</td><td>Passwords from a .kdbx database for every section</td><td><span class="tag on">on</span></td></tr>
           <tr><td>Notes</td><td>Obsidian-compatible Markdown vaults, tags, tasks</td><td><span class="tag on">on</span></td></tr>
           <tr><td>Grafana · ArgoCD · GitLab</td><td>Web panels in tabs with auto-login</td><td><span class="tag">checkbox</span></td></tr>
-          <tr><td>Alerts</td><td>Grafana Alerting, Alertmanager and your own log analyzers</td><td><span class="tag">checkbox</span></td></tr>
+          <tr><td>Alerts</td><td>Grafana Alerting, Alertmanager, Zabbix and your own log analyzers</td><td><span class="tag">checkbox</span></td></tr>
           <tr><td>Network &amp; DNS</td><td>ping, mtr, traceroute, dig, port scan</td><td><span class="tag">checkbox</span></td></tr>
           <tr><td>IDE: code &amp; git</td><td>Highlighting editor, YAML/Terraform checks, commit graph, branches</td><td><span class="tag">checkbox</span></td></tr>
           <tr><td>Databases</td><td>PostgreSQL, MySQL/MariaDB, ClickHouse, Redis, MongoDB</td><td><span class="tag">checkbox</span></td></tr>
           <tr><td>Tasks &amp; reminders</td><td>Tasks from notes by due date, calendar, notifications</td><td><span class="tag">checkbox</span></td></tr>
-          <tr><td>MikroTik / WinBox</td><td>WinBox and SSH to routers in one click</td><td><span class="tag">checkbox</span></td></tr>
+          <tr><td>MikroTik / WinBox</td><td>WinBox and SSH to routers in one click, import of the router list from WinBox</td><td><span class="tag">checkbox</span></td></tr>
+          <tr><td>Host monitoring</td><td>A board of SSH hosts: CPU, load, RAM, disk, uptime</td><td><span class="tag">checkbox</span></td></tr>
         </tbody>
       </table>
     </div>
@@ -124,7 +125,7 @@
           <li><kbd>Ctrl</kbd>+click on a path like <code>src/main.rs:42</code> opens the file at that line.</li>
           <li>⏺ records the session to a text file; the bottom bar shows CPU, RAM and disk — of this machine or of the remote one in SSH.</li>
         </ul>
-        <div class="where"><b>Settings:</b> ⚙ → Terminal — highlighting, suggestions, font size and family (MesloLGS NF and Nerd Fonts for Powerlevel10k included).</div>
+        <div class="where"><b>Settings:</b> ⚙ → Terminal — highlighting, suggestions, font size and family (MesloLGS NF and Nerd Fonts for Powerlevel10k included), colour scheme (OpsDeck, Campbell, One Half Dark, Solarized, Dracula or your own from JSON). On Windows there is also a “Windows” block: the shell for new tabs — PowerShell 5.1/7, Git Bash, cmd or WSL, and importing schemes from Windows Terminal; the <b>WSL</b> button next to ＋ opens a tab of a distribution.</div>
       </div>
       <img class="shot" src="../img/en/terminal.jpg" alt="Terminal with command blocks" loading="lazy" width="2160" height="1350">
     </div>
@@ -136,14 +137,28 @@
         <ul>
           <li><b>Paste</b> (<kbd>Enter</kbd>) puts the command on the line without running it, <b>Run</b> (<kbd>Ctrl+Enter</kbd>) runs it.</li>
           <li>The model runs only on your computer; requests go nowhere.</li>
-          <li>Need a bigger AI — <b>AI ▸</b> on the right opens a panel with Claude Code, Codex, Gemini, Aider or OpenCode.</li>
+          <li>Need a bigger AI — <b>AI ▸</b> on the right opens a panel with Claude Code, Codex, Gemini, Aider or OpenCode. “OpsDeck AI (local)” there is a chat with the same built-in model, see below.</li>
         </ul>
         <div class="where"><b>How to turn on:</b> ⚙ → Local AI → choose a model → “Install”. Models: the light Qwen2.5-Coder 1.5B (≈1.1 GB), Qwen3.5 4B and 9B, Qwen3.6 35B-A3B or your own <code>.gguf</code> file. There is also “Acceleration: GPU (Vulkan)” — without a GPU the AI switches to the CPU by itself. Already run Ollama, vLLM or LM Studio? Set it in the “External AI server” block.</div>
       </div>
       <img class="shot" src="../img/en/ai.jpg" alt="Local AI suggests a command from a description" loading="lazy" width="2160" height="1350">
     </div>
 
-    <div class="feature" id="settings-ai">
+    <div class="feature" id="ai-chat">
+      <div class="text">
+        <h3>Chat with the local AI</h3>
+        <p>In the AI panel (<b>AI ▸</b>) choose “OpsDeck AI (local)” and work with the built-in model as a full assistant next to the terminal.</p>
+        <ul>
+          <li>The answer is printed as it is generated, <b>Stop</b> ends it. The model knows the OS, the shell and the terminal's current folder.</li>
+          <li>Commands from an answer: <b>▸ To terminal</b> inserts into the active tab without Enter — nothing runs by itself; <b>Copy</b>.</li>
+          <li><kbd>Ctrl+Shift+A</kbd>, pod logs and alerts (⇢ AI) land in the question box; the “@” button in notes sends the note's text.</li>
+          <li>The default agent is chosen in ⚙ → AI agent — it opens in the panel and gets everything you send to AI.</li>
+        </ul>
+      </div>
+      <img class="shot" src="../img/en/ai-chat.jpg" alt="Chat with the local AI next to the terminal" loading="lazy" width="2160" height="1350">
+    </div>
+
+    <div class="feature flip" id="settings-ai">
       <div class="text">
         <h3>AI settings</h3>
         <ul>
@@ -156,7 +171,7 @@
       <img class="shot" src="../img/en/settings-ai.jpg" alt="Local AI settings: model, acceleration, external server" loading="lazy" width="2160" height="1350">
     </div>
 
-    <div class="feature flip" id="k8s">
+    <div class="feature" id="k8s">
       <div class="text">
         <h3>Kubernetes</h3>
         <p>Live resource tables in the spirit of Lens: they update by themselves, with CPU and RAM from metrics-server.</p>
@@ -165,19 +180,20 @@
           <li>Click a row for the bottom panel: logs (for a deployment — from all pods at once), details with links, YAML with apply.</li>
           <li>Shell, port-forward, scale, restart, Helm rollback, Argo CD sync — buttons on the right.</li>
           <li>🔒 on a context makes it read-only: changes are blocked by the app itself, a stray click breaks nothing.</li>
+          <li>A label filter like <code>kubectl -l</code>: <code>app=api</code>, <code>env in (prod,stage)</code>, <code>!canary</code>. Node CPU and RAM refresh every 5 seconds — with a usage bar and a chart.</li>
         </ul>
         <div class="where"><b>Settings:</b> ⚙ → Kubernetes — whether to show contexts from the shared <code>~/.kube/config</code>. ⎈ Terminal in the section opens a shell with kubectl, helm and k9s in the selected context.</div>
       </div>
       <img class="shot" src="../img/en/k8s.jpg" alt="Pods list with CPU and RAM" loading="lazy" width="2160" height="1350">
     </div>
 
-    <div class="feature" id="alerts">
+    <div class="feature flip" id="alerts">
       <div class="text">
         <h3>Alerts</h3>
         <p>OpsDeck polls the sources itself — nothing has to reach your computer, IP and NAT don't matter.</p>
         <ul>
-          <li>Sources: Grafana Alerting, Prometheus Alertmanager and JSON feeds of your log analyzers.</li>
-          <li>Identical alerts are grouped into one card with a counter, sections by age.</li>
+          <li>Sources: Grafana Alerting, Prometheus Alertmanager, Zabbix 6.0+ (the same as its Problems page; a token or login/password, also behind HTTP Basic) and JSON feeds of your log analyzers.</li>
+          <li>Identical alerts are grouped into one card with a counter, sections by age. A card shows the alert itself; labels and rule details open with “Details”.</li>
           <li>Card buttons: dashboard and rule in a built-in Grafana tab, <b>→ AI</b> to analyze the alert, <b>✓ Seen</b>, <b>🔕 Hide these</b>.</li>
         </ul>
         <div class="where"><b>How to turn on:</b> the “Alerts” module in ⊞. A source is added in Grafana · ArgoCD · GitLab: ＋ Add → type Grafana, Alertmanager or AI analyzer → “Save and test”. For Grafana a service account token with the Viewer role is enough. Poll interval — ⚙ in the alerts section.</div>
@@ -185,7 +201,7 @@
       <img class="shot" src="../img/en/alerts.jpg" alt="Alert cards with actions" loading="lazy" width="2160" height="1350">
     </div>
 
-    <div class="feature flip" id="ssh">
+    <div class="feature" id="ssh">
       <div class="text">
         <h3>SSH</h3>
         <ul>
@@ -198,13 +214,27 @@
       <img class="shot" src="../img/en/ssh.jpg" alt="SSH hosts in groups" loading="lazy" width="2160" height="1350">
     </div>
 
+    <div class="feature flip" id="monitor">
+      <div class="text">
+        <h3>Host monitoring</h3>
+        <p>A board of SSH host cards: CPU, load, memory, disk and uptime. The card colour follows the worst value: yellow from 75%, red from 90%.</p>
+        <ul>
+          <li><b>＋ Hosts</b> — profiles from the SSH section and hosts from <code>~/.ssh/config</code>; groups become sections of the board.</li>
+          <li>Metrics are read over ssh with a key or over a session already open — the board never asks for a password. The connection is reused, so polling is cheap.</li>
+          <li>Groups fold (a summary by colour stays, hosts are not polled), × takes a host or a group off the board.</li>
+        </ul>
+        <div class="where"><b>How to turn on:</b> the “Host monitoring” module in ⊞. The poll interval is at the top of the section.</div>
+      </div>
+      <img class="shot" src="../img/en/monitor.jpg" alt="Monitoring board of SSH hosts" loading="lazy" width="2160" height="1350">
+    </div>
+
     <div class="feature" id="code">
       <div class="text">
         <h3>IDE: code &amp; git</h3>
         <ul>
           <li>📂 opens a project folder; the tree on the left colors git changes.</li>
           <li>Highlighting for Terraform, YAML, JSON, Go, Python, Rust, SQL, Dockerfile and more. YAML and Terraform errors are underlined right away, <code>.tf</code> is formatted like <code>terraform fmt</code> on save.</li>
-          <li><b>⎇ git</b> at the bottom right — changes, commit, a graph of all branches, switching and creating branches, fetch/pull/push.</li>
+          <li><b>⎇ git</b> at the bottom right — changes, commit, a graph of all branches, switching and creating branches, fetch/pull/push. Switched the branch in a terminal — the graph updates by itself.</li>
           <li><b>▭ console</b> (<kbd>Ctrl+`</kbd>) — a terminal right in the project folder.</li>
         </ul>
         <div class="where"><b>How to turn on:</b> the “IDE: code &amp; git” module in ⊞. To open files from the terminal here, choose “OpsDeck IDE” in the terminal's 📁 Files panel.</div>
@@ -274,7 +304,7 @@
       </div>
       <div class="card">
         <h3>Network &amp; DNS · MikroTik</h3>
-        <p>ping, mtr, traceroute, dig, nslookup and a port scan with service banners. For MikroTik — WinBox and SSH in one click with the password from KeePass; the WinBox path is in ⚙.</p>
+        <p>ping, mtr, traceroute, dig, nslookup and a port scan with service banners. For MikroTik — WinBox and SSH in one click with the password from KeePass; the WinBox path is in ⚙. “Import from WinBox” brings over the routers saved in its address list, with groups and (if ticked) passwords.</p>
       </div>
     </div>
   </div>
@@ -325,6 +355,10 @@
       <p>It isn't — that's how macOS marks downloaded apps without a paid Apple signature. Drag OpsDeck to Applications and run <code>xattr -cr /Applications/OpsDeck.app</code>. If you then see “cannot verify the developer” — System Settings → Privacy &amp; Security → “Open Anyway”.</p>
     </details>
     <details>
+      <summary>How do I move OpsDeck to another computer?</summary>
+      <p>⚙ → “Moving to another computer” → “Export…”: tick what to take — settings and interface, SSH, web panels, databases, MikroTik, snippets, kubeconfig, the notes folder. On the new computer — “Import…” with that archive. Passwords are not in the archive (they live in the OS keyring); enter them again.</p>
+    </details>
+    <details>
       <summary>The local AI is slow</summary>
       <p>Big models take a few seconds on the CPU. Turn on ⚙ → Local AI → Acceleration → “GPU (Vulkan)” or pick a smaller model. Integrated Intel or AMD graphics work too.</p>
     </details>
@@ -344,7 +378,7 @@
     </div>
     <div>
       <div>Author: <a href="https://github.com/LeoAlecksey">LeoAlecksey</a> · <a href="https://t.me/sys_admin_expert">Telegram channel</a> (in Russian)</div>
-      <div>Thanks to the contributors: <a href="https://github.com/UnQuaiz">UnQuaiz</a>, <a href="https://github.com/Duke1715">Duke1715</a>, <a href="https://github.com/artp1ay">artp1ay</a>, <a href="https://github.com/Ranger-X">Ranger-X</a></div>
+      <div>Thanks to the contributors: <a href="https://github.com/UnQuaiz">UnQuaiz</a>, <a href="https://github.com/Duke1715">Duke1715</a>, <a href="https://github.com/artp1ay">artp1ay</a>, <a href="https://github.com/Ranger-X">Ranger-X</a>, <a href="https://github.com/LockerWarUA">LockerWarUA</a></div>
       <div class="muted">Like the project? Give it a ⭐ on GitHub.</div>
     </div>
   </div>
