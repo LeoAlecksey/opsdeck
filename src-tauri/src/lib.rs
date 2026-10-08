@@ -26,6 +26,7 @@ mod sysmon;
 mod store;
 mod tasks;
 mod tools;
+mod transfer;
 mod updater;
 mod winbox_import;
 mod winshell;
@@ -180,6 +181,12 @@ pub fn run() {
             ai::ai_test,
             winshell::win_shells,
             aichat::ai_chat,
+            transfer::transfer_parts,
+            transfer::transfer_export,
+            transfer::transfer_pick,
+            transfer::transfer_inspect,
+            transfer::transfer_import,
+            transfer::app_restart,
             aichat::ai_chat_stop,
             winshell::wt_settings,
             winbox_import::mt_import_scan,

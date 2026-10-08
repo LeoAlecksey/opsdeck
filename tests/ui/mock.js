@@ -173,6 +173,19 @@
   const settings = { keepass_path: "/home/demo/Passwords.kdbx", keepass_keyfile: "", keepass_lock_minutes: 0, keepass_keep_open: true, obsidian_vault: "/home/demo/notes", winbox_path: "", k8s_include_system: false, update_auto_check: true, ai_host: "", ai_port: "", ai_model: "", ai_key_saved: false, term_shell: "" };
 
   const R = {
+    transfer_parts: [
+      { id: "settings", label: "Настройки и интерфейс", files: 5, bytes: 9000, default: true, warn: "" },
+      { id: "ssh", label: "SSH-хосты и группы", files: 2, bytes: 3000, default: true, warn: "" },
+      { id: "kubeconfigs", label: "Kubernetes-кластеры (kubeconfig)", files: 3, bytes: 12000, default: false, warn: "В kubeconfig лежат ключи и токены доступа к кластерам — храните архив как пароль" },
+      { id: "databases", label: "Базы данных", files: 0, bytes: 0, default: true, warn: "" },
+      { id: "notes", label: "Заметки (папка целиком)", files: 1840, bytes: 52000000, default: true, warn: "" },
+    ],
+    transfer_export: { file: "/home/demo/opsdeck-2026-10-08.zip", files: 1847, bytes: 9800000 },
+    transfer_pick: "/home/demo/Downloads/opsdeck-2026-10-08.zip",
+    transfer_inspect: { manifest: { app_version: "0.6.0", created: "2026-10-08T10:00:00+03:00", os: "windows", notes_root: "C:\\Users\\demo\\notes",
+      parts: [{ id: "settings", label: "Настройки и интерфейс", files: 5, bytes: 9000, default: true, warn: "" }, { id: "notes", label: "Заметки (папка целиком)", files: 1840, bytes: 52000000, default: true, warn: "" }] },
+      notes_here: "/home/demo/notes" },
+    transfer_import: { files: 1845, backup: "/home/demo/.config/opsdeck/backup-20261008-101500", ui: JSON.stringify({ "opsdeck.term.theme": "Dracula" }) },
     win_shells: [], wt_settings: JSON.stringify({ profiles: {}, schemes: [{ name: "Demo WT", background: "#101820", foreground: "#e0e0e0", purple: "#aa66ff", cursorColor: "#ffcc00" }] }),
     app_version: "0.5.0", set_lang: null, log_ui: null, settings_get: settings, settings_detect: { keepass: [], obsidian: [], winbox: [] }, logs_path: "/home/demo/.local/share/opsdeck/logs",
     k8s_contexts: [ctx, ctx2], k8s_system_contexts: [], k8s_prefs_get: { hidden: [], readonly: [`${ctx.file}|prod-eu`] }, k8s_crds: [], k8s_metrics: usage, k8s_helm_releases: [], k8s_object_events: [],
