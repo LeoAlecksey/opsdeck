@@ -39,6 +39,9 @@ tauri-plugin-log = "2"
 log = "0.4"
 dirs = "6"
 keepass = "0.15"
+# Passbolt: OpenPGP (rPGP, pure Rust, no system GnuPG) and the RNG version it takes
+pgp = "0.21"
+rand = "0.8"
 tauri-plugin-clipboard-manager = "2"
 zeroize = "1"
 uuid = { version = "1", features = ["v4"] }

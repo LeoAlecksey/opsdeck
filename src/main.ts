@@ -5,6 +5,7 @@ import { mountNetwork } from "./modules/network";
 import { mountConnectors } from "./modules/connectors";
 import { mountK8s } from "./modules/k8s";
 import { mountKeepass } from "./modules/keepass";
+import { mountPassbolt } from "./modules/passbolt";
 import { mountNotes } from "./modules/notes";
 import { mountDb } from "./modules/db";
 import { mountCode } from "./modules/code";
@@ -42,6 +43,7 @@ const views: View[] = [
   { id: "notes", svg: icon("notes", 20), title: "Заметки", mount: mountNotes },
   { id: "tasks", svg: icon("tasks", 20), title: "Задачи и напоминания", mount: mountTasks },
   { id: "vault", svg: icon("key", 20), title: "KeePass", mount: mountKeepass },
+  { id: "passbolt", svg: icon("lock", 20), title: "Passbolt", mount: mountPassbolt },
   { id: "winbox", svg: icon("router", 20), title: "MikroTik / WinBox", mount: mountMikrotik },
   { id: "settings", svg: icon("settings", 20), title: "Настройки", mount: mountSettings, bottom: true },
 ];

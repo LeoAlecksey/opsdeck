@@ -255,6 +255,21 @@ export const HELP_EN: Record<string, { title: string; html: string }> = {
       <li>KeePass entries can be bound to web panels, SSH hosts and MikroTik routers — then passwords are taken from here.</li>
       <li>While the database is open, passwords are in the palette ${kbd("Ctrl+Shift+P")} → “Password: …”.</li></ul>`,
   },
+  passbolt: {
+    title: "Passbolt",
+    html: `
+      <h4>How it works</h4>
+      <p>OpsDeck connects to Passbolt as another device of the user and only reads entries. The key is kept on this computer, protected by its passphrase; decrypted entries live only in memory and are wiped on lock.</p>
+      <h4>Connecting</h4>
+      <ul><li>In Passbolt: profile → <b>Desktop app setup</b> → download <code>account-kit.passbolt</code>. Here: <b>Choose account kit…</b>. OpsDeck checks the server key against the one in the file.</li>
+      <li>Second factor: an authenticator app code (TOTP) or a Yubikey. “Remember for 30 days” works if the server allows it.</li></ul>
+      <h4>What's where</h4>
+      <ul><li>👤 / 🔑 in a row — copy the login / password; the password is wiped from the clipboard after 30 seconds.</li>
+      <li>Click a row — details: 👁 show the password for 10 seconds, <b>Show description</b>.</li>
+      <li>The password and description are fetched from the server on first use — Passbolt logs every such access, so nothing is downloaded in advance.</li>
+      <li>⟳ — re-read the list from the server (new and changed entries).</li>
+      <li>While Passbolt is unlocked, passwords are in the palette ${kbd("Ctrl+Shift+P")} → “Password: …”.</li></ul>`,
+  },
   winbox: {
     title: "MikroTik",
     html: `

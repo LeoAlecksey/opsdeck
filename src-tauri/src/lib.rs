@@ -17,6 +17,7 @@ mod k8s_events;
 mod keepass;
 mod mikrotik;
 mod notes;
+mod passbolt;
 mod ports;
 mod process;
 mod pty;
@@ -62,6 +63,7 @@ pub fn run() {
         .manage(tools::ToolState::default())
         .manage(k8s::K8sState::default())
         .manage(keepass::KeepassState::default())
+        .manage(passbolt::PassboltState::default())
         .manage(ide::IdeState::default())
         .manage(alerts::AlertsState::default())
         .manage(sysmon::SysState::default())
@@ -74,6 +76,7 @@ pub fn run() {
             diag::start_watchdog(app.handle().clone());
             log::info!("OpsDeck {} started", app.package_info().version);
             keepass::spawn_autolock(app.handle().clone());
+            passbolt::spawn_autolock(app.handle().clone());
             tasks::spawn_reminders(app.handle().clone());
             ai::spawn_idle_stop(app.handle().clone());
             k8s_events::spawn(app.handle().clone());
@@ -159,6 +162,19 @@ pub fn run() {
             keepass::kp_open_external,
             keepass::clip_write,
             keepass::clip_read,
+            passbolt::pb_status,
+            passbolt::pb_import_kit,
+            passbolt::pb_forget,
+            passbolt::pb_unlock,
+            passbolt::pb_mfa,
+            passbolt::pb_lock,
+            passbolt::pb_reload,
+            passbolt::pb_entries,
+            passbolt::pb_copy,
+            passbolt::pb_reveal,
+            passbolt::pb_notes,
+            passbolt::pb_open_external,
+            passbolt::pb_pick_file,
             code::code_read,
             code::code_write,
             code::code_create,
