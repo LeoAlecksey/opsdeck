@@ -1,6 +1,7 @@
 use tauri::Manager;
 
 mod ai;
+mod aichat;
 mod alerts;
 mod cmdindex;
 mod code;
@@ -25,6 +26,7 @@ mod sysmon;
 mod store;
 mod tasks;
 mod tools;
+mod transfer;
 mod updater;
 mod winbox_import;
 mod winshell;
@@ -63,6 +65,7 @@ pub fn run() {
         .manage(alerts::AlertsState::default())
         .manage(sysmon::SysState::default())
         .manage(ai::AiState::default())
+        .manage(aichat::ChatState::default())
         .setup(|app| {
             diag::install_panic_hook();
             main_window(app)?;
@@ -158,6 +161,7 @@ pub fn run() {
             code::code_create,
             code::code_tf_fmt,
             code::code_git_log,
+            code::code_git_stamp,
             code::code_git_diff,
             code::code_git_show,
             code::code_git_branches,
@@ -176,6 +180,14 @@ pub fn run() {
             ai::ai_command,
             ai::ai_test,
             winshell::win_shells,
+            aichat::ai_chat,
+            transfer::transfer_parts,
+            transfer::transfer_export,
+            transfer::transfer_pick,
+            transfer::transfer_inspect,
+            transfer::transfer_import,
+            transfer::app_restart,
+            aichat::ai_chat_stop,
             winshell::wt_settings,
             winbox_import::mt_import_scan,
             winbox_import::mt_import,

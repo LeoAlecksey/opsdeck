@@ -6,7 +6,7 @@ export const HELP_EN: Record<string, { title: string; html: string }> = {
     title: "Terminal & AI",
     html: `
       <h4>How it works</h4>
-      <p>Every tab is a real shell (bash/zsh) with OpsDeck integration: each command becomes a <b>block</b> with its exit code and duration. On the right is the AI panel: Claude Code (or Codex/Gemini/Aider/OpenCode) runs there in its own terminal.</p>
+      <p>Every tab is a real shell (bash/zsh) with OpsDeck integration: each command becomes a <b>block</b> with its exit code and duration. On the right is the AI panel: Claude Code (or Codex/Gemini/Aider/OpenCode) runs there in its own terminal, or <b>OpsDeck AI (local)</b> — a chat with the built-in model (or your AI server from ⚙ Settings). The answer is printed as it is generated; commands from it go into the active tab by «▸ To terminal» — without Enter, nothing runs by itself.</p>
       <h4>What's where</h4>
       <ul>
         <li><b>＋</b> — new tab (opens in the same folder), <b>◫ / ⊟</b> — split right / down. When there are more tabs than fit, scroll the tab bar with the mouse wheel.</li>
@@ -32,6 +32,7 @@ export const HELP_EN: Record<string, { title: string; html: string }> = {
         <li>${kbd("Ctrl+Shift+↑/↓")} to the previous / next command</li>
         <li>${kbd("Ctrl+=")} / ${kbd("Ctrl+-")} / ${kbd("Ctrl+0")} font size</li>
         <li>${kbd("Ctrl+Shift+C/V")} copy / paste, ${kbd("Ctrl+Shift+A")} selection → AI, ${kbd("Ctrl+Shift+I")} AI panel</li>
+        <li>${kbd("Ctrl+Shift+R")} reconnect: an SSH/kubectl exec tab whose session dropped stays open — «⟳ Reconnect» (or ${kbd("Enter")}); a failed <code>ssh</code> typed in a shell — «⟳ Retry»</li>
         <li>${kbd("Ctrl+Shift+K")} local AI: a command from a description in words</li>
         <li>${kbd("Ctrl+Shift+P")} command palette — search across OpsDeck (clusters, hosts, notes, snippets, command history)</li>
       </ul>
@@ -46,6 +47,7 @@ export const HELP_EN: Record<string, { title: string; html: string }> = {
       <p>OpsDeck keeps its own kubeconfig copies (a file per context) and doesn't touch your ~/.kube/config. Tables update live (watch).</p>
       <h4>What's where</h4>
       <ul>
+        <li>The <b>label filter</b> next to the plain one works like <code>kubectl -l</code>: <code>app=api</code>, <code>tier!=db</code>, <code>env in (prod,stage)</code>, <code>!canary</code>; terms separated by commas. <b>Nodes</b>: CPU and RAM refresh every 5 s — a usage bar and a chart of the last samples (metrics-server needed).</li>
         <li><b>＋</b> top left — add a cluster: tick contexts from ~/.kube/config, paste YAML or just drop a file into the window.</li>
         <li>Hover a context: <b>🔒</b> read-only (blocks apply/delete/scale/restart/exec), <b>🙈</b> hide, <b>🗑</b> delete the copy.</li>
         <li>On the left — resource types; at the bottom “Custom resources” — all the cluster's CRDs (with a filter).</li>
@@ -85,7 +87,7 @@ export const HELP_EN: Record<string, { title: string; html: string }> = {
       <ul>
         <li><b>Grafana</b> — Grafana Alerting alerts (login/password, a service account token with the Viewer role, or KeePass);</li>
         <li><b>Alertmanager</b> — Prometheus Alertmanager;</li>
-        <li><b>Zabbix</b> — Zabbix 6.0+ problems over the API, the same as on its Problems page (no disabled hosts and triggers, dependent ones or symptoms): an API token (Users → API tokens) or a login/password;</li>
+        <li><b>Zabbix</b> — Zabbix 6.0+ problems over the API, the same as on its Problems page (no disabled hosts and triggers, dependent ones or symptoms): an API token (Users → API tokens) or a login/password; if the web server in front of Zabbix asks for a password (HTTP Basic), fill in “Basic auth” in the connector (on 7.2+ behind Basic — login/password only, through the session of the web UI sign-in: a workaround);</li>
         <li><b>AI / analyzer</b> — findings of your log/alert analyzer: a local one posts them to 127.0.0.1 with its token, a remote one serves a JSON feed at a URL.</li>
       </ul>
       <h4>Connecting Grafana — step by step</h4>
@@ -133,7 +135,8 @@ export const HELP_EN: Record<string, { title: string; html: string }> = {
       <h4>How to turn it on</h4>
       <ul><li>The module is turned on with a checkbox in the ⊞ menu at the bottom of the left column.</li>
       <li><b>＋ Hosts</b> — choose profiles from the SSH section and hosts from ~/.ssh/config; the choice is remembered. Host groups become sections of the board.</li>
-      <li>“Refresh” — how often to poll (or by hand with ⟳). While the section is not open, hosts are not polled.</li></ul>
+      <li>“Refresh” — how often to poll (or by hand with ⟳). While the section is not open, hosts are not polled.</li>
+      <li>A group can be folded (▾): a summary by colour stays and its hosts are not polled. × on a card or a group takes it off the board — SSH profiles stay.</li></ul>
       <h4>How metrics are collected</h4>
       <p>Over ssh without a password: a key login (ssh-agent, IdentityFile) or a session already open in OpsDeck is needed. The connection is kept for 2 minutes and reused, so the next poll is cheap. /proc and df are read — Linux only. If a host has never been connected to, accept its key: connect once from the terminal.</p>`,
   },
@@ -268,6 +271,7 @@ export const HELP_EN: Record<string, { title: string; html: string }> = {
       <li><b>Modules</b>: the ⊞ button at the bottom of the left column turns sections on and off with checkboxes. A fresh install starts with Terminal, Kubernetes, SSH, KeePass and Notes. If another section needs one (e.g. SSH opens a terminal tab), it is turned on automatically.</li>
       <li><b>Icon order</b> in the left column is changed by dragging with the mouse and is remembered (⚙ always stays at the bottom).</li>
       <li><b>Terminal</b>: input and output highlighting, inline suggestions, font size and family. Enter the name of an installed monospace font; choose MesloLGS NF or a Nerd Font for Powerlevel10k icons. The choice applies immediately to all terminals and is remembered. An empty field restores the default font.</li>
+      <li><b>Moving to another computer</b>: «Export…» packs the ticked parts (settings and interface, SSH, web panels, databases, MikroTik, snippets, kubeconfig, the notes folder) by several threads; «Import…» shows what the archive holds and restores the chosen ones. Replaced files are first copied to a backup-… folder. Passwords are not in the archive — enter them again. kubeconfig is not ticked by default: it holds access keys to the clusters.</li>
       <li><b>Colour scheme</b> of the terminal: OpsDeck, Campbell, One Half Dark, Solarized Dark, Dracula or your own — <i>Import JSON…</i> takes Windows Terminal's settings.json, a list of schemes or one scheme. Applies to all terminals at once.</li>
       <li><b>Windows</b> (shown on Windows only): the shell for new tabs — PowerShell 5.1 or 7, Git Bash, cmd, a WSL distribution — and importing schemes straight from the installed Windows Terminal. The <b>WSL</b> button next to ＋ in the terminal opens a tab of the chosen distribution; it gets TERM, COLORTERM and KUBECONFIG (paths as /mnt/c/…), and the AI command in a WSL tab suggests Linux commands.</li>
       <li><b>KeePass</b>: “Keep the database open until OpsDeck closes” (on by default) or auto-lock after N minutes idle.</li>

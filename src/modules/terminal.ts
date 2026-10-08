@@ -9,14 +9,21 @@ import { hlPrefs, setHlPrefs } from "./highlight";
 import { addSnippet } from "./snippets";
 import { attachPathLinks, mountFiles } from "./files";
 import { esc, overlay, toast } from "./ui";
+import { t } from "../i18n";
 import { isWindows } from "./themes";
 import { AI_PROVIDERS, aiAgent, setAiAgent } from "./ai-agents";
+import { LocalChat } from "./aichat";
 import { isWsl, shellName } from "./shellkind";
 
 /** Other modules open a tab via: window.dispatchEvent(new CustomEvent("open-terminal", { detail })) */
 export type OpenTerminalDetail = SpawnOpts & { title?: string; keepOpen?: boolean };
 
-type Pane = { pty: PtyTerminal; el: HTMLElement; tab: Tab; keepOpen: boolean; recording?: string };
+/** `spawn`: what runs in the pane (started again on reconnect); `exited`: a kept-open pane whose
+ *  process ended; `lastConn`: the last failed connection command typed in a shell (ssh, kubectl exec…) */
+type Pane = { pty: PtyTerminal; el: HTMLElement; tab: Tab; keepOpen: boolean; recording?: string; spawn: SpawnOpts; exited?: boolean; lastConn?: string };
+
+/** Commands that connect somewhere: when one fails, «⟳ Повторить» / Ctrl+Shift+R run it again. */
+export const CONNECT_CMD = /^\s*(sudo\s+)?(ssh|mosh|telnet|sftp|autossh|kubectl\s+(exec|attach|port-forward|logs\s+-f)|docker\s+(exec|attach)|podman\s+exec|wsl)\b/;
 type Tab = { btn: HTMLElement; host: HTMLElement; label: HTMLElement; panes: Pane[]; active: Pane | null; dir: "row" | "column" };
 
 const MAX_PANES = 4;
@@ -116,7 +123,9 @@ export function mountTerminal(root: HTMLElement) {
   const tabs: Tab[] = [];
   let activeTab: Tab | null = null;
   const filesPanel = $(".files-panel");
-  let ai: PtyTerminal | null = null;
+  /** what the AI panel holds: an agent's CLI in a terminal, or the local AI chat */
+  type AiPane = { dispose(): void; resize(): void; paste(text: string): void; focus(): void };
+  let ai: AiPane | null = null;
 
   for (const name of Object.keys(AI_PROVIDERS)) providerSel.add(new Option(name, name));
   providerSel.value = aiAgent();
@@ -190,27 +199,74 @@ export function mountTerminal(root: HTMLElement) {
         <button data-b="ai" title="Отправить команду и вывод в AI">⇢ AI</button>
       </div>
       <div class="fail-chip" hidden><span class="fail-text"></span>
-        <button data-f="ai" class="primary">⇢ спросить AI</button><button data-f="x" class="icon">${icon("close", 14)}</button></div>`;
+        <button data-f="retry" class="primary" hidden title="Ctrl+Shift+R">⟳ Повторить</button>
+        <button data-f="ai" class="primary">⇢ спросить AI</button><button data-f="x" class="icon">${icon("close", 14)}</button></div>
+      <div class="reconnect-bar" hidden><span class="reconnect-text">Соединение закрыто</span>
+        <button data-rc="go" class="primary" title="Enter или Ctrl+Shift+R">⟳ Переподключить</button>
+        <button data-rc="close" class="ghost" title="Ctrl+Shift+W">Закрыть</button></div>`;
     tab.host.appendChild(el);
 
-    const pty = new PtyTerminal(el.querySelector<HTMLElement>(".pane-term")!, spawn);
-    attachPathLinks(pty);
-    const pane: Pane = { pty, el, tab, keepOpen: !!keepOpen };
+    const pane: Pane = { pty: null as unknown as PtyTerminal, el, tab, keepOpen: !!keepOpen, spawn };
     tab.panes.push(pane);
     if (title) tab.label.textContent = title;
-    pty.term.onTitleChange((t) => { if (tab.active === pane && t) tab.label.textContent = t; });
+    mountPty(pane);
+    wireBlocks(pane);
+    el.querySelector<HTMLElement>(".reconnect-bar")!.addEventListener("click", (e) => {
+      const a = (e.target as HTMLElement).closest<HTMLElement>("[data-rc]")?.dataset.rc;
+      if (a === "go") reconnect(pane);
+      if (a === "close") closePane(pane);
+    });
+    // Enter in a pane whose connection closed: connect again
+    el.addEventListener("keydown", (e) => {
+      if (pane.exited && e.key === "Enter" && !e.ctrlKey && !e.altKey && !e.shiftKey) { e.preventDefault(); e.stopPropagation(); reconnect(pane); }
+    }, true);
+    focusPane(pane);
+    requestAnimationFrame(() => { tab.panes.forEach((p) => p.pty.resize()); pane.pty.term.focus(); });
+    return pane;
+  }
+
+  /** (Re)starts the pane's process in its terminal area. */
+  function mountPty(pane: Pane) {
+    const area = pane.el.querySelector<HTMLElement>(".pane-term")!;
+    area.innerHTML = "";
+    const pty = new PtyTerminal(area, pane.spawn);
+    pane.pty = pty;
+    pane.exited = false;
+    attachPathLinks(pty);
+    pty.term.onTitleChange((t) => { if (pane.tab.active === pane && t) pane.tab.label.textContent = t; });
     pty.term.textarea?.addEventListener("focus", () => focusPane(pane));
-    pty.onExit = () => { if (!pane.keepOpen) closePane(pane); };
+    // a connection tab stays open when it ends: the reason is on screen, and it can be reconnected
+    pty.onExit = () => {
+      if (!pane.keepOpen) return closePane(pane);
+      pane.exited = true;
+      const bar = pane.el.querySelector<HTMLElement>(".reconnect-bar")!;
+      bar.querySelector(".reconnect-text")!.textContent = pane.spawn.program ? `${t("Соединение закрыто")}: ${[pane.spawn.program, ...(pane.spawn.args ?? [])].join(" ").slice(0, 80)}` : t("Сессия завершена");
+      bar.hidden = false;
+    };
     listen<string>(`pty-record-${pty.id}`, (e) => {
       if (!pane.recording) return;
       pane.recording = undefined;
       toast(`Сессия завершилась, запись сохранена: ${e.payload}`);
       syncRec();
     });
-    wireBlocks(pane);
-    focusPane(pane);
-    requestAnimationFrame(() => { tab.panes.forEach((p) => p.pty.resize()); pty.term.focus(); });
-    return pane;
+    wireFailChip(pane);
+  }
+
+  function reconnect(pane: Pane) {
+    pane.el.querySelector<HTMLElement>(".reconnect-bar")!.hidden = true;
+    pane.el.querySelector<HTMLElement>(".fail-chip")!.hidden = true;
+    pane.pty.dispose();
+    mountPty(pane);
+    requestAnimationFrame(() => { pane.pty.resize(); pane.pty.term.focus(); });
+  }
+
+  /** Ctrl+Shift+R: a closed connection tab reconnects; in a shell, the failed ssh/kubectl exec runs again. */
+  function retry(pane: Pane) {
+    if (pane.exited) return reconnect(pane);
+    if (!pane.lastConn) return toast(t("Нечего переподключать: нет оборвавшегося соединения"));
+    pane.el.querySelector<HTMLElement>(".fail-chip")!.hidden = true;
+    pane.pty.send(pane.lastConn + "\r");
+    pane.pty.term.focus();
   }
 
   function closePane(p: Pane) {
@@ -294,8 +350,6 @@ export function mountTerminal(root: HTMLElement) {
     const chip = p.el.querySelector<HTMLElement>(".fail-chip")!;
     const termEl = p.el.querySelector<HTMLElement>(".pane-term")!;
     let hovered: Block | undefined;
-    let chipBlock: Block | undefined;
-    let chipTimer = 0;
 
     termEl.addEventListener("mousemove", (e) => {
       const screen = termEl.querySelector<HTMLElement>(".xterm-screen");
@@ -326,20 +380,32 @@ export function mountTerminal(root: HTMLElement) {
       if (act === "ai") askAi(p, b);
     });
 
+    chip.addEventListener("click", (e) => {
+      const act = (e.target as HTMLElement).closest<HTMLElement>("[data-f]")?.dataset.f;
+      if (act === "ai" && failed.get(p)) askAi(p, failed.get(p)!);
+      if (act === "retry") return retry(p);
+      if (act) chip.hidden = true;
+    });
+  }
+
+  const failed = new WeakMap<Pane, Block>();
+  /** The «✗ command — code N» chip of the pane's current terminal. */
+  function wireFailChip(p: Pane) {
+    const chip = p.el.querySelector<HTMLElement>(".fail-chip")!;
+    let chipTimer = 0;
     p.pty.blocks.onFinished = (b) => {
       // 130 = Ctrl+C, 148 = Ctrl+Z: the user stopped it on purpose
       if (b.exit === 0 || b.exit === 130 || b.exit === 148) { chip.hidden = true; return; }
-      chipBlock = b;
+      failed.set(p, b);
+      const conn = CONNECT_CMD.test(b.command);
+      p.lastConn = conn ? b.command : p.lastConn;
       chip.querySelector(".fail-text")!.textContent = `✗ «${b.command.length > 40 ? b.command.slice(0, 40) + "…" : b.command}» — код ${b.exit}`;
+      chip.querySelector<HTMLElement>("[data-f=retry]")!.hidden = !conn;
       chip.hidden = false;
       clearTimeout(chipTimer);
-      chipTimer = window.setTimeout(() => (chip.hidden = true), 12000);
+      // a dropped connection keeps its chip: there is something to do about it
+      if (!conn) chipTimer = window.setTimeout(() => (chip.hidden = true), 12000);
     };
-    chip.addEventListener("click", (e) => {
-      const act = (e.target as HTMLElement).closest<HTMLElement>("[data-f]")?.dataset.f;
-      if (act === "ai" && chipBlock) askAi(p, chipBlock);
-      if (act) chip.hidden = true;
-    });
   }
 
   // ----- files panel -----
@@ -364,7 +430,16 @@ export function mountTerminal(root: HTMLElement) {
     ai?.dispose();
     aiHost.innerHTML = "";
     const p = AI_PROVIDERS[providerSel.value];
-    ai = new PtyTerminal(aiHost, { program: p.program, args: p.args, cwd: cwd() });
+    if (p.local) {
+      ai = new LocalChat(aiHost, {
+        context: () => ({ cwd: cwd(), shell: shellName(activePane()?.pty.launched ?? null) }),
+        // into the active pane, as a bracketed paste: multi-line stays one input, no Enter
+        insert: (cmd) => { const pane = activePane(); if (!pane) return; pane.pty.send(`\x1b[200~${cmd}\x1b[201~`); pane.pty.term.focus(); },
+      });
+      return;
+    }
+    const pty = new PtyTerminal(aiHost, { program: p.program, args: p.args, cwd: cwd() });
+    ai = { dispose: () => pty.dispose(), resize: () => pty.resize(), focus: () => pty.term.focus(), paste: (text) => { pty.send(`\x1b[200~${text}\x1b[201~`); } };
   }
 
   function toggleAi(force?: boolean) {
@@ -375,7 +450,7 @@ export function mountTerminal(root: HTMLElement) {
     requestAnimationFrame(() => {
       activeTab?.panes.forEach((p) => p.pty.resize());
       ai?.resize();
-      (show ? ai : activePane()?.pty)?.term.focus();
+      if (show) ai?.focus(); else activePane()?.pty.term.focus();
     });
   }
 
@@ -388,8 +463,10 @@ export function mountTerminal(root: HTMLElement) {
     const fresh = !ai;
     toggleAi(true);
     // bracketed paste so multi-line text lands as one message instead of being submitted line by line
-    setTimeout(() => ai?.send(`\x1b[200~${text}\x1b[201~`), fresh ? 1500 : 0);
-    ai?.term.focus();
+    // a CLI agent needs a moment to start before it takes input; the chat takes it at once
+    const local = AI_PROVIDERS[providerSel.value]?.local;
+    setTimeout(() => ai?.paste(text), fresh && !local ? 1500 : 0);
+    ai?.focus();
   }
 
   splitter.addEventListener("pointerdown", (e) => {
@@ -610,6 +687,7 @@ export function mountTerminal(root: HTMLElement) {
     const p = activePane();
     if (k === "T") newTab();
     else if (k === "W" && p) closePane(p);
+    else if (k === "R" && p) retry(p);
     else if (k === "D") split("row");
     else if (k === "E") split("column");
     else if (k === "I") toggleAi();

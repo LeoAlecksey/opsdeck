@@ -9,6 +9,7 @@ import { FitAddon } from "@xterm/addon-fit";
 import { ask, esc, toast } from "./ui";
 import { age, detailsHtml, jsonPath, statusClass } from "./k8s-details";
 import { registerProvider } from "./palette";
+import { matches, parseSelector, type Term } from "./labelsel";
 import type { OpenTerminalDetail } from "./terminal";
 
 type CtxInfo = {
@@ -18,7 +19,7 @@ type CtxInfo = {
 type Ctx = { file: string; context: string };
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Obj = any;
-type Col = { h: string; v: (o: Obj) => string | number; sort?: (o: Obj) => string | number; cls?: (o: Obj) => string };
+type Col = { h: string; v: (o: Obj) => string | number; sort?: (o: Obj) => string | number; cls?: (o: Obj) => string; html?: (o: Obj) => string };
 
 // ---------- column helpers ----------
 
@@ -263,6 +264,7 @@ export function mountK8s(root: HTMLElement) {
         <span class="ro-badge" title="Изменения в этом контексте запрещены">${icon("lock", 14)} только чтение</span>
         <select class="ns-select" title="Namespace"></select>
         <input class="filter" placeholder="фильтр…" spellcheck="false" />
+        <input class="lfilter" placeholder="метки: app=api, env in (prod)" spellcheck="false" title="Фильтр по меткам, как kubectl -l: app=api · tier!=db · env in (prod,stage) · env notin (dev) · canary (есть ключ) · !canary (нет ключа); условия через запятую" />
         <span class="spacer"></span>
         <span class="count muted"></span>
         <label class="muted auto" title="Живое обновление (watch): изменения в кластере появляются сразу"><input type="checkbox" class="auto-cb" checked /> live</label>
@@ -305,6 +307,7 @@ export function mountK8s(root: HTMLElement) {
 
   const $ = <T extends HTMLElement = HTMLElement>(s: string) => root.querySelector<T>(s)!;
   const ctxList = $(".ctx-list"), kindList = $(".kind-list"), nsSel = $<HTMLSelectElement>(".ns-select");
+  const lfilterIn = $<HTMLInputElement>(".lfilter");
   const filterIn = $<HTMLInputElement>(".filter"), errBox = $(".k8s-err"), thead = $("thead"), tbody = $("tbody");
   const drawer = $(".drawer"), drawerBody = $(".drawer-body"), countEl = $(".count"), autoCb = $<HTMLInputElement>(".auto-cb");
 
@@ -663,6 +666,9 @@ export function mountK8s(root: HTMLElement) {
   let usage = new Map<string, Usage>();
   let metricsFor = "";
   let metricsOk = false;
+  const TREND = 30;
+  const trend = new Map<string, { cpu: number[]; mem: number[] }>();
+  let histFor = "";
   async function loadMetrics() {
     if (!ctx || root.hidden || !["pods", "nodes"].includes(kind.id)) return;
     const key = `${ctxKey(ctx)}|${kind.id}|${currentNs()}`;
@@ -670,6 +676,16 @@ export function mountK8s(root: HTMLElement) {
       const list = await invoke<Usage[]>("k8s_metrics", { ctx: ref(), kind: kind.id, namespace: currentNs() || null });
       if (key !== `${ctx && ctxKey(ctx)}|${kind.id}|${currentNs()}`) return;
       usage = new Map(list.map((u) => [`${u.namespace}/${u.name}`, u]));
+      if (kind.id === "nodes") {
+        // a short history per node for the sparklines (cleared when the context changes)
+        if (histFor !== key) { trend.clear(); histFor = key; }
+        for (const u of list) {
+          const h = trend.get(u.name) ?? { cpu: [], mem: [] };
+          h.cpu.push(u.cpu_m); h.mem.push(u.mem);
+          if (h.cpu.length > TREND) { h.cpu.shift(); h.mem.shift(); }
+          trend.set(u.name, h);
+        }
+      }
       metricsFor = key;
       metricsOk = true;
     } catch {
@@ -686,11 +702,24 @@ export function mountK8s(root: HTMLElement) {
     ];
     const pct = (used: number, total: number) => (total ? ` · ${Math.round((used / total) * 100)}%` : "");
     const hot = (used: number, total: number) => (total && used / total > 0.85 ? "bad" : total && used / total > 0.7 ? "warn" : "");
+    // live view of a node: a bar of the share used and a sparkline of the last samples
+    const live = (o: Obj, text: string, used: number, total: number, series: number[]) => {
+      const p = total ? Math.min(100, (used / total) * 100) : 0;
+      const pts = series.length > 1 && total
+        ? series.map((x, i) => `${((i / (TREND - 1)) * 60).toFixed(1)},${(16 - Math.min(1, x / total) * 15).toFixed(1)}`).join(" ")
+        : "";
+      return `<span class="k8s-live"><span class="k8s-bar-u"><i style="width:${p.toFixed(0)}%"></i></span>`
+        + `${pts ? `<svg class="k8s-spark" viewBox="0 0 60 17" preserveAspectRatio="none"><polyline points="${pts}" /></svg>` : ""}`
+        + `<span>${esc(text)}</span></span>`;
+    };
+    const cpuT = (o: Obj) => cpuMilli(o.status?.allocatable?.cpu), memT = (o: Obj) => memBytes(o.status?.allocatable?.memory);
+    const cpuText = (o: Obj) => (u(o) ? `${Math.round(u(o)!.cpu_m)}m${pct(u(o)!.cpu_m, cpuT(o))}` : "");
+    const memText = (o: Obj) => (u(o) ? `${fmtMem(u(o)!.mem)}${pct(u(o)!.mem, memT(o))}` : "");
     return [
-      { h: "CPU", v: (o) => (u(o) ? `${Math.round(u(o)!.cpu_m)}m${pct(u(o)!.cpu_m, cpuMilli(o.status?.allocatable?.cpu))}` : ""),
-        sort: (o) => -(u(o)?.cpu_m ?? -1), cls: (o) => (u(o) ? hot(u(o)!.cpu_m, cpuMilli(o.status?.allocatable?.cpu)) : "") },
-      { h: "RAM", v: (o) => (u(o) ? `${fmtMem(u(o)!.mem)}${pct(u(o)!.mem, memBytes(o.status?.allocatable?.memory))}` : ""),
-        sort: (o) => -(u(o)?.mem ?? -1), cls: (o) => (u(o) ? hot(u(o)!.mem, memBytes(o.status?.allocatable?.memory)) : "") },
+      { h: "CPU", v: cpuText, sort: (o) => -(u(o)?.cpu_m ?? -1), cls: (o) => (u(o) ? hot(u(o)!.cpu_m, cpuT(o)) : ""),
+        html: (o) => (u(o) ? live(o, cpuText(o), u(o)!.cpu_m, cpuT(o), trend.get(o.metadata.name)?.cpu ?? []) : "") },
+      { h: "RAM", v: memText, sort: (o) => -(u(o)?.mem ?? -1), cls: (o) => (u(o) ? hot(u(o)!.mem, memT(o)) : ""),
+        html: (o) => (u(o) ? live(o, memText(o), u(o)!.mem, memT(o), trend.get(o.metadata.name)?.mem ?? []) : "") },
     ];
   };
 
@@ -702,7 +731,18 @@ export function mountK8s(root: HTMLElement) {
     if (sortCol >= cols.length) sortCol = 0;
     thead.innerHTML = `<tr>${cols.map((c, i) => `<th data-i="${i}" class="${i === sortCol ? (sortDir > 0 ? "asc" : "desc") : ""}">${esc(c.h)}</th>`).join("")}</tr>`;
     const q = filterIn.value.trim().toLowerCase();
-    const rows = items.map((o) => ({ o, cells: cols.map((c) => String(c.v(o))) }))
+    let sel: Term[] = [];
+    try {
+      sel = parseSelector(lfilterIn.value);
+      lfilterIn.classList.remove("bad");
+      lfilterIn.removeAttribute("aria-invalid");
+    } catch (e) {
+      lfilterIn.classList.add("bad");
+      lfilterIn.setAttribute("aria-invalid", "true");
+      lfilterIn.dataset.err = (e as Error).message;
+    }
+    const rows = items.filter((o) => !sel.length || matches(sel, o.metadata?.labels))
+      .map((o) => ({ o, cells: cols.map((c) => String(c.v(o))) }))
       .filter((r) => !q || r.cells.join(" ").toLowerCase().includes(q));
     const sc = cols[sortCol];
     const sv = (o: Obj) => (sc.sort ?? sc.v)(o);
@@ -712,7 +752,7 @@ export function mountK8s(root: HTMLElement) {
     });
     tbody.innerHTML = rows.map(({ o, cells }) => {
       const k = keyOf(o);
-      return `<tr data-key="${esc(k)}" class="${k === selected ? "sel" : ""}">${cells.map((v, i) => `<td class="${cols[i].cls?.(o) ?? ""}">${esc(v)}</td>`).join("")}</tr>`;
+      return `<tr data-key="${esc(k)}" class="${k === selected ? "sel" : ""}">${cells.map((v, i) => `<td class="${cols[i].cls?.(o) ?? ""}">${cols[i].html ? cols[i].html!(o) : esc(v)}</td>`).join("")}</tr>`;
     }).join("");
     countEl.textContent = ctx ? `${rows.length}${rows.length !== items.length ? ` из ${items.length}` : ""}` : "";
     openPending();
@@ -733,6 +773,8 @@ export function mountK8s(root: HTMLElement) {
     if (o) openDrawer(o);
   };
   filterIn.oninput = render;
+  lfilterIn.oninput = render;
+  lfilterIn.onblur = () => { if (lfilterIn.classList.contains("bad")) toast(t(lfilterIn.dataset.err ?? ""), "err"); };
 
   // ----- drawer -----
 
@@ -1267,7 +1309,9 @@ export function mountK8s(root: HTMLElement) {
     if (!root.hidden && autoCb.checked && !document.hidden && kind.source === "helm") refresh();
   }, 30000);
   // only while the view is open: an unreachable cluster shouldn't be hammered in the background
-  setInterval(() => { if (!document.hidden && !root.hidden) loadMetrics(); }, 15000);
+  // nodes: every 5 s (live view); pods: every 15 s
+  let metricTick = 0;
+  setInterval(() => { if (!document.hidden && !root.hidden && (kind.id === "nodes" || ++metricTick % 3 === 0)) loadMetrics(); }, 5000);
   window.addEventListener("view-shown", (e) => {
     // leaving the view: stop the live watch (it resumes on return), no reconnect loop in the background
     if ((e as CustomEvent).detail !== "k8s") { stopWatch(); return; }

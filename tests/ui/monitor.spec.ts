@@ -59,6 +59,46 @@ test.describe("monitoring board", () => {
     await expect.poll(async () => (await app.calls("mon_probe")).length).toBeGreaterThan(n);
   });
 
+  test("a host can be taken off the board (from feedback)", async ({ page }) => {
+    await pickHosts(page, ["bastion", "app-1"]);
+    await expect(page.locator(".mon-card")).toHaveCount(2);
+    await page.locator('.mon-card[data-k="id:h1"]').hover();
+    await page.locator('.mon-card[data-k="id:h1"] [data-rm]').click();
+    await expect(page.locator(".mon-card")).toHaveCount(1);
+    expect(JSON.parse((await page.evaluate(() => localStorage.getItem("opsdeck.mon.hosts")))!)).toEqual(["id:h3"]);
+  });
+
+  test("a whole group can be taken off, after a confirmation (from feedback)", async ({ page }) => {
+    await pickHosts(page, ["bastion", "app-1", "stage-1"]);
+    await expect(page.locator(".mon-card")).toHaveCount(3);
+    const prod = page.locator('.mon-group[data-g="prod"]');
+    await prod.locator(".mon-ghead").hover();
+    await prod.locator("[data-rmg]").click();
+    const dlg = page.locator("dialog.ask");
+    await expect(dlg).toContainText("prod");
+    await dlg.locator("button", { hasText: "Убрать" }).click();
+    await expect(page.locator(".mon-card")).toHaveCount(1);
+    await expect(page.locator('.mon-card[data-k="id:h5"]')).toBeVisible();
+  });
+
+  test("groups fold: a summary instead of cards, and they are not polled (from feedback)", async ({ app, page }) => {
+    await pickHosts(page, ["bastion", "db-primary", "stage-1"]);
+    await expect(page.locator('.mon-card[data-k="id:h2"]')).toHaveClass(/\bbad\b/);
+    const prod = page.locator('.mon-group[data-g="prod"]');
+    await prod.locator("[data-fold]").click();
+    await expect(prod.locator(".mon-card")).toHaveCount(0);
+    // last known state: one red (disk 95%), one green
+    await expect(prod.locator(".mon-tally")).toHaveCount(2);
+    expect(JSON.parse((await page.evaluate(() => localStorage.getItem("opsdeck.mon.folded")))!)).toEqual(["prod"]);
+    const before = (await app.calls("mon_probe")).map((c) => (c.args as any).target);
+    await page.click(".mon [data-a=refresh]");
+    await expect.poll(async () => (await app.calls("mon_probe")).length).toBeGreaterThan(before.length);
+    const after = (await app.calls("mon_probe")).slice(before.length).map((c) => (c.args as any).target);
+    expect(after).toEqual(["id:h5"]);
+    await prod.locator("[data-fold]").click();
+    await expect(prod.locator(".mon-card")).toHaveCount(2);
+  });
+
   test("the polling interval is remembered", async ({ page }) => {
     await page.selectOption(".mon-every", "60");
     expect(await page.evaluate(() => localStorage.getItem("opsdeck.mon.every"))).toBe("60");

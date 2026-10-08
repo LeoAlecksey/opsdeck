@@ -173,6 +173,19 @@
   const settings = { keepass_path: "/home/demo/Passwords.kdbx", keepass_keyfile: "", keepass_lock_minutes: 0, keepass_keep_open: true, obsidian_vault: "/home/demo/notes", winbox_path: "", k8s_include_system: false, update_auto_check: true, ai_host: "", ai_port: "", ai_model: "", ai_key_saved: false, term_shell: "" };
 
   const R = {
+    transfer_parts: [
+      { id: "settings", label: "Настройки и интерфейс", files: 5, bytes: 9000, default: true, warn: "" },
+      { id: "ssh", label: "SSH-хосты и группы", files: 2, bytes: 3000, default: true, warn: "" },
+      { id: "kubeconfigs", label: "Kubernetes-кластеры (kubeconfig)", files: 3, bytes: 12000, default: false, warn: "В kubeconfig лежат ключи и токены доступа к кластерам — храните архив как пароль" },
+      { id: "databases", label: "Базы данных", files: 0, bytes: 0, default: true, warn: "" },
+      { id: "notes", label: "Заметки (папка целиком)", files: 1840, bytes: 52000000, default: true, warn: "" },
+    ],
+    transfer_export: { file: "/home/demo/opsdeck-2026-10-08.zip", files: 1847, bytes: 9800000 },
+    transfer_pick: "/home/demo/Downloads/opsdeck-2026-10-08.zip",
+    transfer_inspect: { manifest: { app_version: "0.6.0", created: "2026-10-08T10:00:00+03:00", os: "windows", notes_root: "C:\\Users\\demo\\notes",
+      parts: [{ id: "settings", label: "Настройки и интерфейс", files: 5, bytes: 9000, default: true, warn: "" }, { id: "notes", label: "Заметки (папка целиком)", files: 1840, bytes: 52000000, default: true, warn: "" }] },
+      notes_here: "/home/demo/notes" },
+    transfer_import: { files: 1845, backup: "/home/demo/.config/opsdeck/backup-20261008-101500", ui: JSON.stringify({ "opsdeck.term.theme": "Dracula" }) },
     win_shells: [], wt_settings: JSON.stringify({ profiles: {}, schemes: [{ name: "Demo WT", background: "#101820", foreground: "#e0e0e0", purple: "#aa66ff", cursorColor: "#ffcc00" }] }),
     app_version: "0.5.0", set_lang: null, log_ui: null, settings_get: settings, settings_detect: { keepass: [], obsidian: [], winbox: [] }, logs_path: "/home/demo/.local/share/opsdeck/logs",
     k8s_contexts: [ctx, ctx2], k8s_system_contexts: [], k8s_prefs_get: { hidden: [], readonly: [`${ctx.file}|prod-eu`] }, k8s_crds: [], k8s_metrics: usage, k8s_helm_releases: [], k8s_object_events: [],
@@ -223,7 +236,19 @@
         if (args.target === "id:h6") throw L("нет входа по ключу — добавьте ключ (ssh-copy-id) или откройте сессию в OpsDeck", "no key login — add a key (ssh-copy-id) or open a session in OpsDeck");
         const n = Number(args.target.replace(/\D/g, "")) || 1;
         const disk = args.target === "id:h2" ? 0.95 : 0.4;
-        return { host: args.target.replace(/^\w+:/, "") === "h1" ? "bastion" : args.target.split(":")[1], cpu: 10 * n, cores: 4, load: [0.2 * n, 0.3, 0.25], mem_used: 3e9, mem_total: 8e9, swap_used: 0, swap_total: 0, disk_mount: "/", disk_used: disk * 100e9, disk_total: 100e9, uptime: 90000 * n };
+        return { host: "", cpu: 10 * n, cores: 4, load: [0.2 * n, 0.3, 0.25], mem_used: 3e9, mem_total: 8e9, swap_used: 0, swap_total: 0, disk_mount: "/", disk_used: disk * 100e9, disk_total: 100e9, uptime: 90000 * n };
+      }
+      if (cmd === "ai_chat") {
+        const q = args.messages.at(-1).content;
+        const answer = L("Посмотреть поды, которые перезапускаются:\n\n```bash\nkubectl get pods -A | grep -v Running\n```\n\nПотом `kubectl describe pod` нужного.", "Pods that restart:\n\n```bash\nkubectl get pods -A | grep -v Running\n```\n\nThen `kubectl describe pod` the one you need.");
+        const pieces = q.includes("ошибка") ? [] : answer.match(/[\s\S]{1,12}/g);
+        let i = 0;
+        const tick = () => {
+          if (i < pieces.length) { emit(`ai-chat-${args.id}`, { text: pieces[i++] }); setTimeout(tick, 15); }
+          else emit(`ai-chat-done-${args.id}`, { error: q.includes("ошибка") ? L("локальный ИИ не установлен — ⚙ Настройки → Локальный ИИ", "the local AI is not installed") : null, elapsed_ms: 900 });
+        };
+        setTimeout(tick, 30);
+        return null;
       }
       if (cmd === "k8s_list") return args.kind === "namespaces" ? ["default", "kube-system", "monitoring", "shop"].map((n) => ({ metadata: { name: n, uid: n } })) : pods;
       if (cmd === "k8s_watch_start") { setTimeout(() => emit(`k8s-watch-${args.id}`, { type: "reset", items: args.kind === "pods" ? pods : [] }), 50); return null; }

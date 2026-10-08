@@ -21,6 +21,47 @@ test.describe("kubernetes", () => {
     await expect(rows(page)).toHaveCount(2);
   });
 
+  test("label filter like kubectl -l (from feedback)", async ({ page }) => {
+    await expect(rows(page)).toHaveCount(10);
+    const lf = page.locator(".k8s-bar .lfilter");
+    await lf.fill("app=worker");
+    await expect(rows(page)).toHaveCount(2);
+    await lf.fill("app in (worker, api)");
+    const n = await rows(page).count();
+    expect(n).toBeGreaterThanOrEqual(2);
+    await lf.fill("app!=worker");
+    await expect(rows(page)).toHaveCount(8);
+    await lf.fill("app=worker, =broken");
+    await expect(lf).toHaveClass(/\bbad\b/);
+    await expect(rows(page), "a broken selector does not filter").toHaveCount(10);
+    await lf.fill("");
+    await expect(lf).not.toHaveClass(/\bbad\b/);
+  });
+
+  test("nodes: live CPU/RAM with a bar and a sparkline (from feedback)", async ({ app, page }) => {
+    const node = (name: string) => ({ metadata: { name, uid: name, labels: { "node-role.kubernetes.io/worker": "" }, creationTimestamp: new Date().toISOString() },
+      status: { allocatable: { cpu: "4", memory: "16Gi" }, conditions: [{ type: "Ready", status: "True" }], nodeInfo: { kubeletVersion: "v1.31.2" } } });
+    let cpu = 1000;
+    await page.exposeFunction("__nextCpu", () => (cpu += 400));
+    await page.evaluate(([n1, n2]) => {
+      const o = (window as any).__DEMO_OVERRIDES;
+      const list = o.k8s_list;
+      o.k8s_list = (a: any) => (a.kind === "nodes" ? [n1, n2] : list ? list(a) : undefined);
+      o.k8s_metrics = async (a: any) => a.kind === "nodes"
+        ? [{ namespace: "", name: "node-a", cpu_m: await (window as any).__nextCpu(), mem: 4 * 2 ** 30 }, { namespace: "", name: "node-b", cpu_m: 3600, mem: 15 * 2 ** 30 }]
+        : [];
+      o.k8s_watch_start = (a: any) => { setTimeout(() => (window as any).__demoEmit(`k8s-watch-${a.id}`, { type: "reset", items: a.kind === "nodes" ? [n1, n2] : [] }), 30); return null; };
+    }, [node("node-a"), node("node-b")]);
+    await page.locator(".kind-list button", { hasText: "Nodes" }).click();
+    const a = rows(page).filter({ hasText: "node-a" });
+    await expect(a.locator(".k8s-live").first()).toBeVisible();
+    await expect(a).toContainText("25%");
+    // a hot node is marked
+    await expect(rows(page).filter({ hasText: "node-b" }).locator("td.bad").first()).toBeVisible();
+    // refreshed every 5 s: the sparkline appears after a second sample
+    await expect(a.locator(".k8s-spark polyline").first()).toBeVisible({ timeout: 12000 });
+  });
+
   test("watch events update the table", async ({ app, page }) => {
     const id = (await app.called("k8s_watch_start")).args.id as string;
     await expect(rows(page)).toHaveCount(10);

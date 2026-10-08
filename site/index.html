@@ -32,7 +32,7 @@
 <div class="hero wrap">
   <div class="badge">Бесплатно · open source · MIT</div>
   <h1>Рабочее место DevOps-инженера <span>в одном окне</span></h1>
-  <p class="lead">Терминал с локальным ИИ, Kubernetes, SSH, базы данных, IDE с git, алерты, заметки с задачами и KeePass — вместе и знают друг о друге. Включите только те разделы, которые нужны вам.</p>
+  <p class="lead">Терминал с локальным ИИ, Kubernetes, SSH и мониторинг хостов, базы данных, IDE с git, алерты, заметки с задачами, KeePass и MikroTik — вместе и знают друг о друге. Включите только те разделы, которые нужны вам.</p>
   <div class="actions">
     <a class="btn primary" href="https://github.com/LeoAlecksey/opsdeck/releases/latest">Скачать</a>
     <a class="btn" href="https://github.com/LeoAlecksey/opsdeck">Исходный код на GitHub</a>
@@ -90,18 +90,19 @@
       <table>
         <thead><tr><th>Модуль</th><th>Для чего</th><th>В новой установке</th></tr></thead>
         <tbody>
-          <tr><td>Терминал + AI</td><td>Вкладки и сплиты с bash/zsh/PowerShell, локальный ИИ, AI-панель с Claude Code, Codex, Gemini, Aider, OpenCode</td><td><span class="tag on">включён</span></td></tr>
-          <tr><td>Kubernetes</td><td>Кластеры, поды, логи, YAML, shell, port-forward, Helm, Argo CD</td><td><span class="tag on">включён</span></td></tr>
+          <tr><td>Терминал + AI</td><td>Вкладки и сплиты с bash/zsh/PowerShell/WSL, цветовые схемы, локальный ИИ, AI-панель с Claude Code, Codex, Gemini, Aider, OpenCode и чатом со встроенной моделью</td><td><span class="tag on">включён</span></td></tr>
+          <tr><td>Kubernetes</td><td>Кластеры, поды, логи, YAML, shell, port-forward, Helm, Argo CD, фильтр по меткам, нагрузка нод вживую</td><td><span class="tag on">включён</span></td></tr>
           <tr><td>SSH</td><td>Свои профили и хосты из <code>~/.ssh/config</code>, группы, jump-хосты</td><td><span class="tag on">включён</span></td></tr>
           <tr><td>KeePass</td><td>Пароли из базы .kdbx для всех разделов</td><td><span class="tag on">включён</span></td></tr>
           <tr><td>Заметки</td><td>Markdown-хранилища, совместимые с Obsidian, теги, задачи</td><td><span class="tag on">включён</span></td></tr>
           <tr><td>Grafana · ArgoCD · GitLab</td><td>Веб-панели вкладками с автовходом</td><td><span class="tag">галочкой</span></td></tr>
-          <tr><td>Алерты</td><td>Grafana Alerting, Alertmanager и ваши анализаторы логов</td><td><span class="tag">галочкой</span></td></tr>
+          <tr><td>Алерты</td><td>Grafana Alerting, Alertmanager, Zabbix и ваши анализаторы логов</td><td><span class="tag">галочкой</span></td></tr>
           <tr><td>Сеть и DNS</td><td>ping, mtr, traceroute, dig, скан портов</td><td><span class="tag">галочкой</span></td></tr>
           <tr><td>IDE: код и git</td><td>Редактор с подсветкой, проверка YAML/Terraform, граф коммитов, ветки</td><td><span class="tag">галочкой</span></td></tr>
           <tr><td>Базы данных</td><td>PostgreSQL, MySQL/MariaDB, ClickHouse, Redis, MongoDB</td><td><span class="tag">галочкой</span></td></tr>
           <tr><td>Задачи и напоминания</td><td>Задачи из заметок по срокам, календарь, уведомления</td><td><span class="tag">галочкой</span></td></tr>
-          <tr><td>MikroTik / WinBox</td><td>WinBox и SSH к роутерам в один клик</td><td><span class="tag">галочкой</span></td></tr>
+          <tr><td>MikroTik / WinBox</td><td>WinBox и SSH к роутерам в один клик, импорт списка роутеров из WinBox</td><td><span class="tag">галочкой</span></td></tr>
+          <tr><td>Мониторинг хостов</td><td>Доска SSH-хостов: CPU, load, RAM, диск, аптайм</td><td><span class="tag">галочкой</span></td></tr>
         </tbody>
       </table>
     </div>
@@ -124,7 +125,7 @@
           <li><kbd>Ctrl</kbd>+клик по пути вида <code>src/main.rs:42</code> открывает файл на нужной строке.</li>
           <li>⏺ записывает сессию в текстовый файл, строка внизу показывает CPU, RAM и диск — этой машины или удалённой в SSH.</li>
         </ul>
-        <div class="where"><b>Где настроить:</b> ⚙ → Терминал — подсветка, подсказки, размер и шрифт (есть MesloLGS NF и Nerd Fonts для Powerlevel10k).</div>
+        <div class="where"><b>Где настроить:</b> ⚙ → Терминал — подсветка, подсказки, размер и шрифт (есть MesloLGS NF и Nerd Fonts для Powerlevel10k), цветовая схема (OpsDeck, Campbell, One Half Dark, Solarized, Dracula или своя из JSON). На Windows там же блок «Windows»: оболочка для новых вкладок — PowerShell 5.1/7, Git Bash, cmd или WSL, импорт схем из Windows Terminal; кнопка <b>WSL</b> рядом с ＋ открывает вкладку дистрибутива.</div>
       </div>
       <img class="shot" src="img/ru/terminal.jpg" alt="Терминал с блоками команд" loading="lazy" width="2160" height="1350">
     </div>
@@ -136,14 +137,28 @@
         <ul>
           <li><b>Вставить</b> (<kbd>Enter</kbd>) кладёт команду в строку без запуска, <b>Выполнить</b> (<kbd>Ctrl+Enter</kbd>) — сразу.</li>
           <li>Модель работает только на вашем компьютере, запросы никуда не уходят.</li>
-          <li>Нужен ИИ посерьёзнее — <b>AI ▸</b> справа открывает панель с Claude Code, Codex, Gemini, Aider или OpenCode.</li>
+          <li>Нужен ИИ посерьёзнее — <b>AI ▸</b> справа открывает панель с Claude Code, Codex, Gemini, Aider или OpenCode. Там же «OpsDeck AI (локальный)» — чат с той же встроенной моделью, см. ниже.</li>
         </ul>
         <div class="where"><b>Где включить:</b> ⚙ → Локальный ИИ → выберите модель → «Установить». Модели: лёгкая Qwen2.5-Coder 1.5B (≈1,1 ГБ), Qwen3.5 4B и 9B, Qwen3.6 35B-A3B или свой файл <code>.gguf</code>. Там же «Ускорение: Видеокарта (Vulkan)» — если видеокарты нет, ИИ сам перейдёт на процессор. Уже есть Ollama, vLLM или LM Studio — укажите её в блоке «Внешний ИИ-сервер».</div>
       </div>
       <img class="shot" src="img/ru/ai.jpg" alt="Локальный ИИ предлагает команду по описанию" loading="lazy" width="2160" height="1350">
     </div>
 
-    <div class="feature" id="settings-ai">
+    <div class="feature" id="ai-chat">
+      <div class="text">
+        <h3>Чат с локальным ИИ</h3>
+        <p>В AI-панели (<b>AI ▸</b>) выберите «OpsDeck AI (локальный)» — и работайте с встроенной моделью как с полноценным ассистентом рядом с терминалом.</p>
+        <ul>
+          <li>Ответ печатается по мере генерации, <b>Стоп</b> прерывает. Модель знает ОС, оболочку и текущую папку терминала.</li>
+          <li>Команды из ответа: <b>▸ В терминал</b> вставляет в активную вкладку без Enter — сами ничего не запускаются; <b>Копировать</b>.</li>
+          <li><kbd>Ctrl+Shift+A</kbd>, логи подов и алерты (⇢ AI) падают в поле вопроса, кнопка «@» в заметках отправляет текст заметки.</li>
+          <li>Агент по умолчанию выбирается в ⚙ → AI-агент — он открывается в панели и получает всё, что вы отправляете в AI.</li>
+        </ul>
+      </div>
+      <img class="shot" src="img/ru/ai-chat.jpg" alt="Чат с локальным ИИ рядом с терминалом" loading="lazy" width="2160" height="1350">
+    </div>
+
+    <div class="feature flip" id="settings-ai">
       <div class="text">
         <h3>Настройка ИИ</h3>
         <ul>
@@ -156,7 +171,7 @@
       <img class="shot" src="img/ru/settings-ai.jpg" alt="Настройки локального ИИ: модель, ускорение, внешний сервер" loading="lazy" width="2160" height="1350">
     </div>
 
-    <div class="feature flip" id="k8s">
+    <div class="feature" id="k8s">
       <div class="text">
         <h3>Kubernetes</h3>
         <p>Живые таблицы ресурсов в духе Lens: обновляются сами, с CPU и RAM из metrics-server.</p>
@@ -165,19 +180,20 @@
           <li>Клик по строке — панель снизу: логи (у деплоймента со всех подов сразу), детали со ссылками, YAML с применением.</li>
           <li>Shell, port-forward, scale, restart, Helm rollback, Argo CD sync — кнопками справа.</li>
           <li>🔒 у контекста — режим «только чтение»: изменения блокируются на стороне приложения, случайный клик ничего не сломает.</li>
+          <li>Фильтр по меткам как у <code>kubectl -l</code>: <code>app=api</code>, <code>env in (prod,stage)</code>, <code>!canary</code>. У нод CPU и RAM обновляются каждые 5 секунд — с полоской загрузки и графиком.</li>
         </ul>
         <div class="where"><b>Где настроить:</b> ⚙ → Kubernetes — показывать ли контексты из общего <code>~/.kube/config</code>. ⎈ Терминал в разделе открывает shell с kubectl, helm и k9s в выбранном контексте.</div>
       </div>
       <img class="shot" src="img/ru/k8s.jpg" alt="Список подов с CPU и RAM" loading="lazy" width="2160" height="1350">
     </div>
 
-    <div class="feature" id="alerts">
+    <div class="feature flip" id="alerts">
       <div class="text">
         <h3>Алерты</h3>
         <p>OpsDeck сам опрашивает источники — на компьютер ничего не нужно пробрасывать, IP и NAT не важны.</p>
         <ul>
-          <li>Источники: Grafana Alerting, Prometheus Alertmanager и JSON-ленты ваших анализаторов логов.</li>
-          <li>Одинаковые алерты собираются в одну карточку со счётчиком, разделы по давности.</li>
+          <li>Источники: Grafana Alerting, Prometheus Alertmanager, Zabbix 6.0+ (то же, что на его странице Problems; токен или логин/пароль, в том числе за HTTP Basic) и JSON-ленты ваших анализаторов логов.</li>
+          <li>Одинаковые алерты собираются в одну карточку со счётчиком, разделы по давности. В карточке — сам алерт, метки и детали правила открываются кнопкой «Подробнее».</li>
           <li>Кнопки карточки: дашборд и правило во встроенной вкладке Grafana, <b>→ AI</b> — разбор алерта, <b>✓ Просмотрен</b>, <b>🔕 Скрыть такие</b>.</li>
         </ul>
         <div class="where"><b>Где включить:</b> модуль «Алерты» в ⊞. Источник добавляется в разделе Grafana · ArgoCD · GitLab: ＋ Добавить → тип Grafana, Alertmanager или AI-анализатор → «Сохранить и проверить». Для Grafana достаточно токена service account с ролью Viewer. Частота опроса — ⚙ в разделе алертов.</div>
@@ -185,7 +201,7 @@
       <img class="shot" src="img/ru/alerts.jpg" alt="Карточки алертов с действиями" loading="lazy" width="2160" height="1350">
     </div>
 
-    <div class="feature flip" id="ssh">
+    <div class="feature" id="ssh">
       <div class="text">
         <h3>SSH</h3>
         <ul>
@@ -198,13 +214,27 @@
       <img class="shot" src="img/ru/ssh.jpg" alt="SSH-хосты по группам" loading="lazy" width="2160" height="1350">
     </div>
 
+    <div class="feature flip" id="monitor">
+      <div class="text">
+        <h3>Мониторинг хостов</h3>
+        <p>Доска с карточками SSH-хостов: CPU, load, память, диск и аптайм. Цвет карточки — по худшему показателю: жёлтый от 75%, красный от 90%.</p>
+        <ul>
+          <li><b>＋ Хосты</b> — профили из раздела SSH и хосты из <code>~/.ssh/config</code>, группы становятся разделами доски.</li>
+          <li>Метрики снимаются по ssh-ключу или через уже открытую сессию — пароль доска не спрашивает. Соединение переиспользуется, опрос дешёвый.</li>
+          <li>Группы сворачиваются (остаётся сводка по цветам, хосты не опрашиваются), × убирает хост или группу с доски.</li>
+        </ul>
+        <div class="where"><b>Где включить:</b> модуль «Мониторинг хостов» в ⊞. Частота опроса — вверху раздела.</div>
+      </div>
+      <img class="shot" src="img/ru/monitor.jpg" alt="Доска мониторинга SSH-хостов" loading="lazy" width="2160" height="1350">
+    </div>
+
     <div class="feature" id="code">
       <div class="text">
         <h3>IDE: код и git</h3>
         <ul>
           <li>📂 — открыть папку проекта, дерево слева показывает изменения git цветом.</li>
           <li>Подсветка для Terraform, YAML, JSON, Go, Python, Rust, SQL, Dockerfile и других. Ошибки YAML и Terraform подчёркиваются сразу, <code>.tf</code> при сохранении форматируется как <code>terraform fmt</code>.</li>
-          <li><b>⎇ git</b> внизу справа — изменения, коммит, граф всех веток, переключение и создание веток, fetch/pull/push.</li>
+          <li><b>⎇ git</b> внизу справа — изменения, коммит, граф всех веток, переключение и создание веток, fetch/pull/push. Ветку переключили в терминале — граф обновится сам.</li>
           <li><b>▭ консоль</b> (<kbd>Ctrl+`</kbd>) — терминал прямо в папке проекта.</li>
         </ul>
         <div class="where"><b>Где включить:</b> модуль «IDE: код и git» в ⊞. Чтобы файлы из терминала открывались здесь, выберите «OpsDeck IDE» в панели 📁 Файлы терминала.</div>
@@ -274,7 +304,7 @@
       </div>
       <div class="card">
         <h3>Сеть и DNS · MikroTik</h3>
-        <p>ping, mtr, traceroute, dig, nslookup и скан портов с баннерами сервисов. Для MikroTik — WinBox и SSH в один клик с паролем из KeePass; путь к WinBox — в ⚙.</p>
+        <p>ping, mtr, traceroute, dig, nslookup и скан портов с баннерами сервисов. Для MikroTik — WinBox и SSH в один клик с паролем из KeePass; путь к WinBox — в ⚙. «Импорт из WinBox» переносит сохранённые роутеры из его списка адресов вместе с группами и (по галочке) паролями.</p>
       </div>
     </div>
   </div>
@@ -294,6 +324,7 @@
           <tr><td><kbd>Ctrl+Shift+D</kbd> / <kbd>Ctrl+Shift+E</kbd></td><td>Разделить терминал вправо / вниз</td></tr>
           <tr><td><kbd>Ctrl+Shift+↑/↓</kbd></td><td>К предыдущей / следующей команде в выводе</td></tr>
           <tr><td><kbd>Ctrl+Shift+A</kbd> / <kbd>Ctrl+Shift+I</kbd></td><td>Выделенное — в AI / показать AI-панель</td></tr>
+          <tr><td><kbd>Ctrl+Shift+R</kbd></td><td>Переподключиться: оборвавшаяся SSH-сессия во вкладке или упавший <code>ssh</code> в shell</td></tr>
           <tr><td><kbd>Ctrl+Shift+B</kbd></td><td>Панель файлов текущей папки</td></tr>
           <tr><td><kbd>Ctrl+=</kbd> / <kbd>Ctrl+-</kbd> / <kbd>Ctrl+0</kbd></td><td>Размер шрифта терминала</td></tr>
           <tr><td><kbd>→</kbd> / <kbd>Ctrl+→</kbd></td><td>Принять подсказку целиком / одно слово</td></tr>
@@ -325,6 +356,10 @@
       <p>Оно не повреждено — так macOS помечает скачанные программы без платной подписи Apple. Перетащите OpsDeck в «Программы» и выполните <code>xattr -cr /Applications/OpsDeck.app</code>. Если появится «не удалось проверить разработчика» — «Системные настройки» → «Конфиденциальность и безопасность» → «Всё равно открыть».</p>
     </details>
     <details>
+      <summary>Как перенести OpsDeck на другой компьютер?</summary>
+      <p>⚙ → «Перенос на другой компьютер» → «Экспорт…»: отметьте, что взять — настройки и интерфейс, SSH, веб-панели, базы, MikroTik, сниппеты, kubeconfig, папку заметок. На новом компьютере — «Импорт…» с тем же архивом. Пароли в архив не попадают (они в системном хранилище), их нужно ввести заново.</p>
+    </details>
+    <details>
       <summary>Локальный ИИ медленный</summary>
       <p>Крупные модели на процессоре думают несколько секунд. Включите ⚙ → Локальный ИИ → Ускорение → «Видеокарта (Vulkan)» или выберите модель поменьше. Подойдёт и встроенная графика Intel или AMD.</p>
     </details>
@@ -344,7 +379,7 @@
     </div>
     <div>
       <div>Автор: <a href="https://github.com/LeoAlecksey">LeoAlecksey</a> · <a href="https://t.me/sys_admin_expert">канал в Telegram</a></div>
-      <div>Спасибо контрибьюторам: <a href="https://github.com/UnQuaiz">UnQuaiz</a>, <a href="https://github.com/Duke1715">Duke1715</a>, <a href="https://github.com/artp1ay">artp1ay</a>, <a href="https://github.com/Ranger-X">Ranger-X</a></div>
+      <div>Спасибо контрибьюторам: <a href="https://github.com/UnQuaiz">UnQuaiz</a>, <a href="https://github.com/Duke1715">Duke1715</a>, <a href="https://github.com/artp1ay">artp1ay</a>, <a href="https://github.com/Ranger-X">Ranger-X</a>, <a href="https://github.com/LockerWarUA">LockerWarUA</a></div>
       <div class="muted">Нравится проект? <a href="https://yoomoney.ru/to/4100119645604976">Поддержать</a> или поставить ⭐ на GitHub.</div>
     </div>
   </div>

@@ -33,6 +33,10 @@ pub struct Connector {
     /// kind "ai": token the analyzer uses to push findings to OpsDeck's local ingest endpoint
     #[serde(default)]
     pub ingest_token: String,
+    /// kind "zabbix": login of HTTP Basic auth set up on the web server in front of Zabbix; its
+    /// password is a separate keyring secret
+    #[serde(default)]
+    pub basic_user: String,
 }
 
 fn new_token() -> String {
@@ -45,6 +49,10 @@ fn default_auth() -> String {
 
 fn secret_key(id: &str) -> String {
     format!("connector:{id}")
+}
+
+fn basic_key(id: &str) -> String {
+    format!("connector:{id}:basic")
 }
 
 fn load() -> Result<Vec<Connector>, String> {
@@ -65,9 +73,14 @@ pub fn connectors_list() -> Result<Vec<Connector>, String> {
     Ok(list)
 }
 
-/// `secret`: Some(non-empty) replaces the stored secret, None/empty keeps the existing one.
+/// `secret`, `basic_secret` (password of `basic_user`): Some(non-empty) replaces the stored one,
+/// None/empty keeps it.
 #[tauri::command]
-pub fn connector_save(mut connector: Connector, secret: Option<String>) -> Result<(), String> {
+pub fn connector_save(
+    mut connector: Connector,
+    secret: Option<String>,
+    basic_secret: Option<String>,
+) -> Result<(), String> {
     if !store::valid_id(&connector.id) {
         return Err("invalid id".into());
     }
@@ -91,8 +104,20 @@ pub fn connector_save(mut connector: Connector, secret: Option<String>) -> Resul
     if connector.auth == "keepass" && connector.keepass_entry.is_empty() {
         return Err("выберите запись KeePass".into());
     }
+    let basic_secret = basic_secret.filter(|s| !s.is_empty());
+    if !connector.basic_user.is_empty()
+        && basic_secret.is_none()
+        && store::secret_get(&basic_key(&connector.id)).is_none()
+    {
+        return Err("задайте пароль Basic auth".into());
+    }
     if let Some(s) = secret.filter(|s| !s.is_empty()) {
         store::secret_set(&secret_key(&connector.id), &s)?;
+    }
+    if connector.basic_user.is_empty() {
+        store::secret_delete(&basic_key(&connector.id));
+    } else if let Some(s) = basic_secret {
+        store::secret_set(&basic_key(&connector.id), &s)?;
     }
     let mut list = load()?;
     match list.iter_mut().find(|c| c.id == connector.id) {
@@ -118,7 +143,18 @@ pub fn connector_delete(id: String) -> Result<(), String> {
     let mut list = load()?;
     list.retain(|c| c.id != id);
     store::secret_delete(&secret_key(&id));
+    store::secret_delete(&basic_key(&id));
     store::save_json(FILE, &list)
+}
+
+/// HTTP Basic auth of the web server in front of the connector, if configured.
+pub fn basic_credentials(c: &Connector) -> Result<Option<(String, String)>, String> {
+    if c.basic_user.is_empty() {
+        return Ok(None);
+    }
+    let pass = store::secret_get(&basic_key(&c.id))
+        .ok_or("не задан пароль Basic auth — откройте коннектор и введите его")?;
+    Ok(Some((c.basic_user.clone(), pass)))
 }
 
 /// All connectors (for other modules, e.g. alert polling).

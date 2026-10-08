@@ -30,6 +30,37 @@ test.describe("notes", () => {
     await expect(page.locator("section.view.note-dirty"), "the frame goes away after saving").toHaveCount(0);
   });
 
+  test("Ctrl+S and Ctrl+E work in the Russian layout (from feedback)", async ({ app, page }) => {
+    const ru = (key: string, code: string) => page.locator(".notes-main").evaluate((el, [k, c]) => {
+      const target = document.activeElement && el.contains(document.activeElement) ? document.activeElement : el;
+      target.dispatchEvent(new KeyboardEvent("keydown", { key: k, code: c, ctrlKey: true, bubbles: true, cancelable: true }));
+    }, [key, code] as const);
+    await ru("у", "KeyE");
+    const editor = page.locator(".note-editor");
+    await expect(editor).toBeVisible();
+    await editor.press("End");
+    await editor.pressSequentially(" правка");
+    await ru("ы", "KeyS");
+    expect((await app.called("note_write")).args.content as string).toContain("правка");
+    await expect(page.locator("section.view.note-dirty")).toHaveCount(0);
+  });
+
+  test("unsaved frame goes all around; the editor has no half focus ring (from feedback)", async ({ page }) => {
+    await page.locator("[data-m=edit]").click();
+    const editor = page.locator(".note-editor");
+    await editor.press("End");
+    await editor.pressSequentially("!");
+    const frame = await page.locator(".notes-main").evaluate((el) => {
+      const s = getComputedStyle(el, "::after");
+      return [s.borderTopWidth, s.borderRightWidth, s.borderBottomWidth, s.borderLeftWidth, s.position];
+    });
+    expect(frame).toEqual(["2px", "2px", "2px", "2px", "absolute"]);
+    expect(await editor.evaluate((el) => getComputedStyle(el).boxShadow)).toBe("none");
+    await page.keyboard.press("Control+KeyS");
+    await expect(page.locator("section.view.note-dirty")).toHaveCount(0);
+    expect(await page.locator(".notes-main").evaluate((el) => getComputedStyle(el, "::after").borderTopWidth)).toBe("0px");
+  });
+
   test("a note with Windows line endings is not 'unsaved' after just viewing it, and keeps them", async ({ app, page }) => {
     await app.override("note_read", "# Attenuator\r\n\r\nWindows line endings.\r\n");
     const open = (path: string) => page.evaluate((p) => window.dispatchEvent(new CustomEvent("open-note", { detail: { path: p } })), path);
@@ -128,6 +159,25 @@ test.describe("IDE git graph", () => {
     await page.locator("[data-a=git-toggle]").click();
     await expect(page.locator(".cg-commit")).toHaveCount(8);
     await expect(page.locator(".cg-hint")).toHaveCount(0);
+  });
+
+  test("a branch switched in a terminal shows up by itself (from feedback)", async ({ app, page }) => {
+    await app.override("code_git_stamp", "ref: refs/heads/feature/monitoring|1|0|1");
+    await app.view("code");
+    await page.evaluate(() => window.dispatchEvent(new CustomEvent("open-in-code", { detail: { path: "/home/demo/projects/infra" } })));
+    await page.locator("[data-a=git-toggle]").click();
+    await expect(page.locator(".cg-branch")).toHaveText("feature/monitoring");
+    await expect.poll(async () => (await app.calls("code_git_stamp")).length, { timeout: 6000 }).toBeGreaterThan(0);
+    const logs = (await app.calls("code_git_log")).length;
+    // `git switch main` in the console
+    await page.evaluate(() => {
+      const o = (window as any).__DEMO_OVERRIDES;
+      o.code_git_stamp = "ref: refs/heads/main|1|0|2";
+      o.fs_git_status = { root: "/home/demo/projects/infra", branch: "main", files: {} };
+    });
+    await expect(page.locator(".cg-branch")).toHaveText("main", { timeout: 6000 });
+    expect((await app.calls("code_git_log")).length, "the graph is redrawn").toBeGreaterThan(logs);
+    await expect(page.locator(".cg-changes")).toContainText("чисто");
   });
 });
 

@@ -553,7 +553,14 @@ fn free_port() -> Result<u16, String> {
 }
 
 /// The running server's port; starts it (and waits until the model is loaded) if needed.
-async fn ensure_server(app: &AppHandle) -> Result<u16, String> {
+/// The built-in engine was just used: it is unloaded only after IDLE_STOP without use.
+pub(crate) fn touch(app: &AppHandle) {
+    if let Some(s) = app.state::<AiState>().server.lock().unwrap().as_mut() {
+        s.last_used = Instant::now();
+    }
+}
+
+pub(crate) async fn ensure_server(app: &AppHandle) -> Result<u16, String> {
     let state = app.state::<AiState>();
     {
         let mut g = state.server.lock().unwrap();
@@ -845,7 +852,7 @@ pub async fn ai_command(app: AppHandle, request: String, cwd: Option<String>, re
 }
 
 /// Models like to wrap the answer in ``` or prefix it with "$ ".
-fn clean_command(raw: &str) -> String {
+pub(crate) fn clean_command(raw: &str) -> String {
     // a reasoning model may still prepend <think>…</think>
     let raw = raw.rsplit_once("</think>").map(|(_, after)| after).unwrap_or(raw);
     let mut s = raw.trim();

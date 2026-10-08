@@ -792,6 +792,19 @@ export function mountCode(root: HTMLElement) {
     if (!con && consoleEl.hidden && ls.get("opsdeck.code.console") === "1") toggleConsole(true);
     refreshGit();
   });
+  // a branch switched or a commit made in a terminal: notice it without the ⟳ button
+  let gitStamp = "";
+  setInterval(async () => {
+    if (root.hidden || document.hidden || !git.root) return;
+    const stamp = await invoke<string>("code_git_stamp", { root: git.root }).catch(() => "");
+    if (!stamp || stamp === gitStamp) return;
+    const first = !gitStamp;
+    gitStamp = stamp;
+    if (first) return;
+    await refreshGit(false);
+    if (!gitPanel.hidden) drawGit();
+    if (!$(".cg-branches").hidden) drawBranches();
+  }, 2000);
   window.addEventListener("beforeunload", (e) => { if (tabs.some(isDirty)) e.preventDefault(); });
   registerProvider(() => [
     { group: "IDE", title: "Открыть папку проекта", run: () => { window.dispatchEvent(new CustomEvent("show-view", { detail: "code" })); $("[data-a=open]").click(); } },

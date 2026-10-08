@@ -98,6 +98,8 @@ export function mountAlerts(root: HTMLElement) {
   // severities shown (all by default); sections that are collapsed
   let sevOn = new Set<string>(prefs.get("sev", ["crit", "warn", "info", "other"]));
   const closed = new Set<string>(prefs.get("closed", ["old", "quiet"]));
+  // cards whose rule details (description, value, labels, instances) are open
+  const expanded = new Set<string>();
   groupSel.value = prefs.get("group", "name");
 
   const isMuted = (a: Alert) => muted.some((m) => m.name === a.name && (!m.source || m.source === a.source));
@@ -151,6 +153,8 @@ export function mountAlerts(root: HTMLElement) {
     const diff = distinguishing(g.items);
     const acked = g.items.every((x) => x.acked);
     const longDesc = a.description.length > 400;
+    // what "Подробнее" opens: the rule's details, not the alert itself
+    const more = (a.summary && a.description && a.description !== a.summary) || (n === 1 && a.value) || labels.length > 0 || n > 1;
     const since = n > 1 && g.oldest - g.newest > 3600000
       ? `${age(new Date(Date.now() - g.newest).toISOString())} … ${age(new Date(Date.now() - g.oldest).toISOString())}`
       : age(a.starts_at);
@@ -164,8 +168,9 @@ export function mountAlerts(root: HTMLElement) {
         <span class="spacer"></span>
         <span class="muted" title="Горит с ${esc(new Date(a.starts_at).toLocaleString(locale()))}">${esc(since)} · ${esc(a.source)}</span>
       </div>
-      ${a.summary ? `<div class="al-summary-text">${esc(a.summary)}</div>` : ""}
-      ${a.description && a.description !== a.summary ? (longDesc
+      ${a.summary ? `<div class="al-summary-text">${esc(a.summary)}</div>` : !a.summary && a.description ? `<div class="al-summary-text">${esc(a.description.slice(0, 200))}${a.description.length > 200 ? "…" : ""}</div>` : ""}
+      <div class="al-more" ${expanded.has(g.key) ? "" : "hidden"}>
+      ${a.description && a.description !== a.summary && a.summary ? (longDesc
         ? `<details class="al-desc"><summary class="muted">${esc(a.description.slice(0, 200))}…</summary><div class="muted">${esc(a.description)}</div></details>`
         : `<div class="muted al-desc">${esc(a.description)}</div>`) : ""}
       ${n === 1 && a.value ? `<div class="mono muted al-value">${esc(a.value)}</div>` : ""}
@@ -176,8 +181,10 @@ export function mountAlerts(root: HTMLElement) {
           <td class="muted">${esc(age(x.starts_at))}</td>
           <td class="al-inst-links">${linksOf(x).slice(0, 2).map(([t, u]) => `<button class="ghost" data-url="${esc(u)}">${esc(t)} ↗</button>`).join("")}</td></tr>`).join("")}
         </tbody></table></details>` : ""}
+      </div>
       <div class="al-actions">
         ${n === 1 ? linksOf(a).map(([t, u]) => `<button class="ghost" data-url="${esc(u)}">${esc(t)} ↗</button>`).join("") : ""}
+        ${more ? `<button class="ghost al-more-btn" data-a="more">${expanded.has(g.key) ? "Скрыть детали ▴" : "Подробнее ▾"}</button>` : ""}
         <span class="spacer"></span>
         <button class="ghost" data-a="ai">⇢ AI</button>
         <button class="ghost" data-a="ack">${acked ? "Вернуть" : "✓ Просмотрен"}</button>
@@ -331,6 +338,11 @@ export function mountAlerts(root: HTMLElement) {
       load();
     }
     if (!a) return;
+    if (act === "more") {
+      const key = t.closest<HTMLElement>(".al-card")!.dataset.g!;
+      expanded.has(key) ? expanded.delete(key) : expanded.add(key);
+      return draw();
+    }
     if (act === "resolve") { for (const x of items) await invoke("alerts_resolve", { fingerprint: x.fingerprint }); load(); }
     if (act === "ack") {
       const to = !items.every((x) => x.acked);

@@ -5,7 +5,7 @@ import { pickEntry } from "./keepass";
 import { ask, esc, toast, overlay } from "./ui";
 import { registerProvider } from "./palette";
 
-type Connector = { id: string; kind: string; name: string; group?: string; url: string; username: string; auth: string; keepass_entry?: string; ingest_token?: string };
+type Connector = { id: string; kind: string; name: string; group?: string; url: string; username: string; auth: string; keepass_entry?: string; ingest_token?: string; basic_user?: string };
 
 const KINDS: Record<string, { label: string; auth: string[]; hint: string }> = {
   grafana: { label: "Grafana", auth: ["keepass", "password", "token", "none"], hint: "Логин/пароль — автологин в панель и сбор алертов. Токен service account — только для сбора алертов (роль Viewer достаточно), в панель входите вручную." },
@@ -62,6 +62,10 @@ export function mountConnectors(root: HTMLElement) {
           <div data-a="keepass" class="kp-bind"><span class="kp-bound muted">запись не выбрана</span><button type="button" data-a="pick">Выбрать запись…</button></div>
           <label data-a="user">Логин <input name="username" autocomplete="off" /></label>
           <label data-a="secret"><span class="secret-label">Пароль</span> <input name="secret" type="password" autocomplete="new-password" placeholder="" /></label>
+          <div class="grid2" data-a="basic" hidden>
+            <label>Basic auth: логин <input name="basic_user" autocomplete="off" placeholder="если веб-сервер спрашивает пароль" /></label>
+            <label>Basic auth: пароль <input name="basic_secret" type="password" autocomplete="new-password" /></label>
+          </div>
           <p class="muted hint"></p>
           <div class="ai-help" hidden></div>
           <div class="src-help" hidden></div>
@@ -108,6 +112,8 @@ export function mountConnectors(root: HTMLElement) {
     form.querySelector<HTMLElement>(".secret-label")!.textContent = auth === "token" ? "Токен" : "Пароль";
     f("secret").placeholder = editing ? "оставьте пустым, чтобы не менять" : "";
     form.querySelector<HTMLElement>(".hint")!.textContent = kind.hint;
+    form.querySelector<HTMLElement>("[data-a=basic]")!.hidden = f("kind").value !== "zabbix";
+    f("basic_secret").placeholder = editing?.basic_user ? "оставьте пустым, чтобы не менять" : "";
     const ai = f("kind").value === "ai";
     f("url").required = !ai;
     f("url").placeholder = ai ? "необязательно: http://analyzer:8080/findings" : "https://grafana.example.com";
@@ -145,6 +151,7 @@ export function mountConnectors(root: HTMLElement) {
         <ol><li>URL — адрес веб-интерфейса Zabbix, например <code>https://zabbix.example.com</code> (API найдётся сам).</li>
         <li>Токен: Zabbix → <b>Users → API tokens → Create API token</b> (пользователь с правом чтения нужных хостов). Здесь: Авторизация = <b>токен</b>.</li>
         <li>Или логин/пароль (в том числе из KeePass) — OpsDeck сам войдёт через API.</li>
+        <li>Если веб-сервер перед Zabbix спрашивает пароль (HTTP Basic) — заполните «Basic auth». На Zabbix 7.2+ за Basic токен не пройдёт: нужен логин/пароль, и OpsDeck пойдёт в API через сессию входа в веб-интерфейс — это <b>обходной путь</b>; штатно — снять Basic с <code>/api_jsonrpc.php</code> и закрыть его по IP.</li>
         <li><b>Сохранить и проверить</b>. Важность Disaster/High — critical, Average/Warning — warning, Information — info.</li></ol>`;
     }
   }
@@ -212,12 +219,14 @@ export function mountConnectors(root: HTMLElement) {
       username: f("username").value.trim(), auth: f("auth").value,
       keepass_entry: f("auth").value === "keepass" ? boundEntry : "",
       ingest_token: editing?.ingest_token ?? "",
+      basic_user: f("kind").value === "zabbix" ? f("basic_user").value.trim() : "",
     };
     if (!connector.name) connector.name = new URL(connector.url || "http://x").hostname;
     try {
-      await invoke("connector_save", { connector, secret: f("secret").value || null });
+      await invoke("connector_save", { connector, secret: f("secret").value || null, basicSecret: f("basic_secret").value || null });
       editing = (await invoke<Connector[]>("connectors_list")).find((c) => c.id === connector.id) ?? null;
       f("secret").value = "";
+      f("basic_secret").value = "";
       refresh();
       const n = await invoke<number>("alerts_test_source", { id: connector.id });
       res.classList.add("ok");
@@ -240,6 +249,7 @@ export function mountConnectors(root: HTMLElement) {
       .map((g) => `<option value="${esc(g!)}">`).join("");
     f("url").value = c?.url ?? "";
     f("username").value = c?.username ?? "";
+    f("basic_user").value = c?.basic_user ?? "";
     setBound(c?.keepass_entry ?? "");
     syncForm();
     if (c) { f("auth").value = c.auth; syncForm(); }
@@ -260,9 +270,10 @@ export function mountConnectors(root: HTMLElement) {
       username: f("username").value.trim(), auth: f("auth").value,
       keepass_entry: f("auth").value === "keepass" ? boundEntry : "",
       ingest_token: editing?.ingest_token ?? "",
+      basic_user: f("kind").value === "zabbix" ? f("basic_user").value.trim() : "",
     };
     try {
-      await invoke("connector_save", { connector, secret: f("secret").value || null });
+      await invoke("connector_save", { connector, secret: f("secret").value || null, basicSecret: f("basic_secret").value || null });
       // settings changed: the embedded panel is recreated with them on next show
       if (editing) invoke("web_embed_close", { id: connector.id }).catch(() => {});
       if (connector.kind === "ai" && !editing?.ingest_token) {

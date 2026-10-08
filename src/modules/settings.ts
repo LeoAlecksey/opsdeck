@@ -1,5 +1,5 @@
 import { helpBtn } from "./help";
-import { langSetting, setLang, t } from "../i18n";
+import { langSetting, locale, setLang, t } from "../i18n";
 import { invoke } from "@tauri-apps/api/core";
 import { ask, esc, toast } from "./ui";
 import { mountSnippets } from "./snippets";
@@ -226,6 +226,21 @@ export function mountSettings(root: HTMLElement) {
         <datalist id="dl-kp"></datalist><datalist id="dl-ob"></datalist><datalist id="dl-wb"></datalist>
         <div class="row"><button class="primary" type="submit">Сохранить</button><span class="muted detect-state"></span></div>
       </form>
+      <fieldset class="xfer-field"><legend>Перенос на другой компьютер</legend>
+        <p class="muted hint">Архив с выбранными частями: настройки и интерфейс, SSH, веб-панели, базы, MikroTik, сниппеты, kubeconfig, заметки. Пароли в архив не попадают — они в системном хранилище, после переноса их нужно ввести заново.</p>
+        <div class="row"><button type="button" class="ghost" data-x="export">Экспорт…</button><button type="button" class="ghost" data-x="import">Импорт…</button></div>
+        <dialog class="xfer-dlg">
+          <form method="dialog">
+            <h3 class="xfer-title"></h3>
+            <p class="muted xfer-from"></p>
+            <div class="xfer-parts"></div>
+            <label class="xfer-notes" hidden>Куда положить заметки <input name="notes_dest" spellcheck="false" /></label>
+            <p class="muted hint xfer-hint"></p>
+            <p class="err xfer-err"></p>
+            <div class="actions"><button value="cancel" formnovalidate>Отмена</button><button value="go" class="primary xfer-go"></button></div>
+          </form>
+        </dialog>
+      </fieldset>
       <fieldset class="log-field"><legend>Журнал</legend>
         <p class="muted hint">Ошибки, зависания интерфейса (с командой, которая в этот момент выполнялась), падения и медленные операции пишутся в файл: <code class="log-path">…</code></p>
         <div class="row"><button type="button" class="ghost" data-log="problems">Показать ошибки и зависания</button><button type="button" class="ghost" data-log="all">Весь журнал (хвост)</button><button type="button" class="ghost" data-log="open">Открыть папку</button></div>
@@ -487,6 +502,81 @@ export function mountSettings(root: HTMLElement) {
   });
   // shells, WSL and Windows Terminal: only where they exist
   root.querySelector<HTMLElement>(".win-field")!.hidden = !isWindows();
+
+  // ----- moving to another computer -----
+  type Part = { id: string; label: string; files: number; bytes: number; default: boolean; warn: string };
+  const xdlg = root.querySelector<HTMLDialogElement>(".xfer-dlg")!;
+  const xform = xdlg.querySelector("form")!;
+  const xq = <T extends HTMLElement = HTMLElement>(s: string) => xdlg.querySelector<T>(s)!;
+  const size = (b: number) => (b >= 1 << 30 ? `${(b / (1 << 30)).toFixed(1)} ГБ` : b >= 1 << 20 ? `${(b / (1 << 20)).toFixed(1)} МБ` : `${Math.max(1, Math.round(b / 1024))} КБ`);
+  let xmode: "export" | "import" = "export";
+  let xpath = "";
+  const drawParts = (parts: Part[]) => {
+    xq(".xfer-parts").innerHTML = parts.map((p) => `<label class="check xfer-part"><input type="checkbox" name="part" value="${esc(p.id)}" ${p.default && p.files ? "checked" : ""} ${p.files ? "" : "disabled"} />
+      <span>${esc(t(p.label))} <span class="muted">${p.files ? `${p.files} ${t("файл.")} · ${size(p.bytes)}` : t("пусто")}</span>${p.warn ? `<br><span class="warn small">⚠ ${esc(t(p.warn))}</span>` : ""}</span></label>`).join("");
+    const sync = () => { xq(".xfer-notes").hidden = xmode !== "import" || !xq<HTMLInputElement>("input[value=notes]")?.checked; };
+    xq(".xfer-parts").onchange = sync;
+    sync();
+  };
+  const chosenParts = () => [...xdlg.querySelectorAll<HTMLInputElement>("input[name=part]:checked")].map((i) => i.value);
+  const uiState = () => {
+    const out: Record<string, string> = {};
+    try { for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i)!; if (k.startsWith("opsdeck.")) out[k] = localStorage.getItem(k) ?? ""; } } catch { /* ignore */ }
+    return JSON.stringify(out);
+  };
+  root.querySelector<HTMLElement>("[data-x=export]")!.onclick = async () => {
+    xmode = "export";
+    xq(".xfer-title").textContent = t("Экспорт настроек");
+    xq(".xfer-from").textContent = "";
+    xq(".xfer-hint").textContent = t("Отметьте, что перенести. Архив собирается в несколько потоков — большая папка заметок не проблема.");
+    xq(".xfer-go").textContent = t("Сохранить архив…");
+    xq(".xfer-err").textContent = "";
+    xq(".xfer-parts").innerHTML = `<p class="muted">${esc(t("считаю…"))}</p>`;
+    xdlg.showModal();
+    drawParts(await invoke<Part[]>("transfer_parts").catch((e) => { xq(".xfer-err").textContent = String(e); return []; }));
+  };
+  root.querySelector<HTMLElement>("[data-x=import]")!.onclick = async () => {
+    const path = await invoke<string | null>("transfer_pick").catch(() => null);
+    if (!path) return;
+    try {
+      const r = await invoke<{ manifest: { app_version: string; created: string; os: string; parts: Part[]; notes_root: string }; notes_here: string }>("transfer_inspect", { path });
+      xmode = "import";
+      xpath = path;
+      xq(".xfer-title").textContent = t("Импорт настроек");
+      xq(".xfer-from").textContent = `${path} · OpsDeck ${r.manifest.app_version} · ${r.manifest.os} · ${new Date(r.manifest.created).toLocaleString(locale())}`;
+      xq(".xfer-hint").textContent = t("Файлы, которые будут заменены, сначала копируются в папку backup-… в настройках OpsDeck. После импорта OpsDeck перезапустится.");
+      xq(".xfer-go").textContent = t("Импортировать");
+      xq(".xfer-err").textContent = "";
+      xq<HTMLInputElement>("input[name=notes_dest]").value = r.notes_here || r.manifest.notes_root;
+      xdlg.showModal();
+      drawParts(r.manifest.parts.map((p) => ({ ...p, default: p.default })));
+    } catch (e) { toast(t(String(e)), "err"); }
+  };
+  xform.addEventListener("submit", async (e) => {
+    if ((e.submitter as HTMLButtonElement | null)?.value !== "go") return;
+    e.preventDefault();
+    const parts = chosenParts();
+    if (!parts.length) { xq(".xfer-err").textContent = t("Ничего не выбрано"); return; }
+    const go = xq<HTMLButtonElement>(".xfer-go");
+    go.disabled = true;
+    try {
+      if (xmode === "export") {
+        const r = await invoke<{ file: string; files: number; bytes: number } | null>("transfer_export", { parts, ui: uiState(), dest: null });
+        if (r) { xdlg.close(); toast(`${t("Сохранено")}: ${r.file} · ${r.files} ${t("файл.")} · ${size(r.bytes)}`); }
+      } else {
+        const notesDest = xq<HTMLInputElement>("input[name=notes_dest]").value.trim() || null;
+        const r = await invoke<{ files: number; backup: string; ui: string | null }>("transfer_import", { path: xpath, parts, notesDest });
+        if (r.ui) {
+          try { for (const [k, v] of Object.entries(JSON.parse(r.ui) as Record<string, string>)) if (k.startsWith("opsdeck.")) localStorage.setItem(k, v); } catch { /* ignore */ }
+        }
+        xdlg.close();
+        const restart = await ask(t("Импорт завершён"), `${t("Восстановлено файлов")}: ${r.files}.${r.backup ? ` ${t("Прежние версии")}: ${r.backup}.` : ""} ${t("Пароли введите заново: они хранятся в системном хранилище и в архив не попадают.")}`, { ok: t("Перезапустить OpsDeck") });
+        if (restart !== null) invoke("app_restart").catch(() => location.reload());
+        else toast(t("Настройки применятся после перезапуска OpsDeck"));
+      }
+    } catch (err) { xq(".xfer-err").textContent = t(String(err)); }
+    finally { go.disabled = false; }
+  });
 
   window.addEventListener("view-shown", (e) => { if ((e as CustomEvent).detail === "settings") load(); });
 }
