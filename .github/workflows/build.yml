@@ -277,6 +277,18 @@ jobs:
 
       - run: npm ci
 
+      # Tauri's bundler downloads AppRun into its tool cache with mode 0770 and copies it into the
+      # AppImage as AppRun.wrapped — sandboxes that mount the image as root (firejail, the AppImage
+      # catalog) then can't start it (tauri-apps/tauri#16155). A 0755 copy put there first is used as is.
+      - name: AppImage launcher runnable by every user
+        if: runner.os == 'Linux'
+        run: |
+          arch="$(uname -m)"
+          mkdir -p ~/.cache/tauri
+          curl -fsSL --retry 3 -o ~/.cache/tauri/AppRun-"$arch" \
+            "https://github.com/tauri-apps/binary-releases/releases/download/apprun-old/AppRun-$arch"
+          chmod 755 ~/.cache/tauri/AppRun-"$arch"
+
       - name: Build (tauri)
         uses: tauri-apps/tauri-action@v0
         env:
@@ -294,6 +306,12 @@ jobs:
           releaseBody: ${{ env.RELEASE_NOTES }}
           # черновик: публикует его job publish, когда прошли проверки и все сборки
           releaseDraft: true
+
+      - name: AppImage check (every file readable and runnable by every user)
+        if: runner.os == 'Linux'
+        run: |
+          command -v unsquashfs >/dev/null || { sudo apt-get update && sudo apt-get install -y squashfs-tools; }
+          scripts/check-appimage.sh $(find src-tauri/target -path '*/bundle/appimage/*.AppImage')
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
