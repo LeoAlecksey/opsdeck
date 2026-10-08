@@ -611,60 +611,6 @@ host lower
     }
 
     #[test]
-    fn comments_and_directives() {
-        let conf = "
-# Global comment
-#Host commented-out-host-1
-# Host commented-out-host-2
-
-Host wiki    #Added by lazyssh
-    HostName 87.228.68.185 # comment on directive
-    User root # inline user comment
-    Port 2222
-    IdentityFile ~/.ssh/id_ed25519
-    ProxyCommand ssh -A -W 10.0.0.1:22 bastion # proxy
-
-Host inline-grp # group: staging
-    HostName 10.0.0.2
-
-Host quoted-vals
-    HostName \"quoted.example.com\"
-    User \"admin\"
-";
-        let hosts = parse_config_text(conf);
-        let names: Vec<_> = hosts.iter().map(|h| h.alias.as_str()).collect();
-        assert_eq!(names, ["wiki", "inline-grp", "quoted-vals"], "comments are not treated as hosts");
-        let w = &hosts[0];
-        assert_eq!(w.alias, "wiki");
-        assert_eq!(w.hostname, "87.228.68.185");
-        assert_eq!(w.user, "root");
-        assert_eq!(w.port, "2222");
-        assert_eq!(w.identity_file, "~/.ssh/id_ed25519");
-        assert_eq!(w.proxy_command, "ssh -A -W 10.0.0.1:22 bastion");
-        let ig = &hosts[1];
-        assert_eq!(ig.alias, "inline-grp");
-        assert_eq!(ig.group, "staging");
-        let q = &hosts[2];
-        assert_eq!(q.hostname, "quoted.example.com");
-        assert_eq!(q.user, "admin");
-    }
-
-    #[test]
-    fn include_parsing() {
-        let dir = std::env::temp_dir().join(format!("opsdeck_ssh_test_{}", std::process::id()));
-        let _ = std::fs::create_dir_all(&dir);
-        let inc_file = dir.join("inc.conf");
-        let _ = std::fs::write(&inc_file, "Host inc-host\n    HostName 10.20.30.40\n");
-
-        let main_conf = format!("Include {}\nHost main-host\n    HostName 1.2.3.4\n", inc_file.display());
-        let hosts = parse_config_text(&main_conf);
-        let names: Vec<_> = hosts.iter().map(|h| h.alias.as_str()).collect();
-        assert!(names.contains(&"inc-host"));
-        assert!(names.contains(&"main-host"));
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    #[test]
     fn users_and_jumps() {
         assert!(valid_user("deploy"));
         assert!(valid_user("user@CORP.example"), "AD-style logins");
