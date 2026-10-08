@@ -89,7 +89,7 @@ const HELP: Record<string, { title: string; html: string }> = {
       <ul>
         <li><b>Grafana</b> — алерты Grafana Alerting (логин/пароль, токен service account с ролью Viewer или KeePass);</li>
         <li><b>Alertmanager</b> — Prometheus Alertmanager;</li>
-        <li><b>Zabbix</b> — проблемы Zabbix 6.0+ по API, те же, что на его странице Problems (без выключенных хостов и триггеров, зависимых и «симптомов»): API-токен (Users → API tokens) или логин/пароль;</li>
+        <li><b>Zabbix</b> — проблемы Zabbix 6.0+ по API, те же, что на его странице Problems (без выключенных хостов и триггеров, зависимых и «симптомов»): API-токен (Users → API tokens) или логин/пароль; если веб-сервер перед Zabbix спрашивает пароль (HTTP Basic) — заполните «Basic auth» в коннекторе (на 7.2+ за Basic — только логин/пароль, через сессию входа в веб-интерфейс: это обходной путь);</li>
         <li><b>AI / анализатор</b> — находки вашего анализатора логов/алертов: локальный присылает их на 127.0.0.1 со своим токеном, удалённый отдаёт JSON-ленту по URL.</li>
       </ul>
       <h4>Как подключить Grafana — по шагам</h4>
