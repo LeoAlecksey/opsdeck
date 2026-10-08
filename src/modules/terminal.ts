@@ -201,7 +201,7 @@ export function mountTerminal(root: HTMLElement) {
       <div class="fail-chip" hidden><span class="fail-text"></span>
         <button data-f="retry" class="primary" hidden title="Ctrl+Shift+R">⟳ Повторить</button>
         <button data-f="ai" class="primary">⇢ спросить AI</button><button data-f="x" class="icon">${icon("close", 14)}</button></div>
-      <div class="reconnect-bar" hidden><span class="rc-text">Соединение закрыто</span>
+      <div class="reconnect-bar" hidden><span class="reconnect-text">Соединение закрыто</span>
         <button data-rc="go" class="primary" title="Enter или Ctrl+Shift+R">⟳ Переподключить</button>
         <button data-rc="close" class="ghost" title="Ctrl+Shift+W">Закрыть</button></div>`;
     tab.host.appendChild(el);
@@ -240,7 +240,7 @@ export function mountTerminal(root: HTMLElement) {
       if (!pane.keepOpen) return closePane(pane);
       pane.exited = true;
       const bar = pane.el.querySelector<HTMLElement>(".reconnect-bar")!;
-      bar.querySelector(".rc-text")!.textContent = pane.spawn.program ? `${t("Соединение закрыто")}: ${[pane.spawn.program, ...(pane.spawn.args ?? [])].join(" ").slice(0, 80)}` : t("Сессия завершена");
+      bar.querySelector(".reconnect-text")!.textContent = pane.spawn.program ? `${t("Соединение закрыто")}: ${[pane.spawn.program, ...(pane.spawn.args ?? [])].join(" ").slice(0, 80)}` : t("Сессия завершена");
       bar.hidden = false;
     };
     listen<string>(`pty-record-${pty.id}`, (e) => {
