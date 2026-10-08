@@ -32,6 +32,7 @@ export const HELP_EN: Record<string, { title: string; html: string }> = {
         <li>${kbd("Ctrl+Shift+↑/↓")} to the previous / next command</li>
         <li>${kbd("Ctrl+=")} / ${kbd("Ctrl+-")} / ${kbd("Ctrl+0")} font size</li>
         <li>${kbd("Ctrl+Shift+C/V")} copy / paste, ${kbd("Ctrl+Shift+A")} selection → AI, ${kbd("Ctrl+Shift+I")} AI panel</li>
+        <li>${kbd("Ctrl+Shift+R")} reconnect: an SSH/kubectl exec tab whose session dropped stays open — «⟳ Reconnect» (or ${kbd("Enter")}); a failed <code>ssh</code> typed in a shell — «⟳ Retry»</li>
         <li>${kbd("Ctrl+Shift+K")} local AI: a command from a description in words</li>
         <li>${kbd("Ctrl+Shift+P")} command palette — search across OpsDeck (clusters, hosts, notes, snippets, command history)</li>
       </ul>

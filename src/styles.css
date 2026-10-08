@@ -1088,3 +1088,9 @@ body.no-select, body.no-select * { user-select: none; -webkit-user-select: none;
 .ai-chat-in textarea { flex: 1; resize: vertical; min-height: 40px; max-height: 40vh; font-size: 13px; }
 .ai-chat-btns { display: flex; flex-direction: column; gap: 4px; }
 .ai-host:has(> .ai-chat) { padding: 0; }
+
+/* a connection tab whose session ended: reconnect in place */
+.reconnect-bar { position: absolute; left: 50%; bottom: 16px; transform: translateX(-50%); z-index: 7; display: flex; align-items: center; gap: 10px;
+  padding: 8px 12px; background: var(--panel); border: 1px solid var(--accent); border-radius: 8px; box-shadow: 0 6px 24px #0008; max-width: calc(100% - 32px); }
+.reconnect-bar .rc-text { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.reconnect-bar button { padding: 2px 10px; flex: none; }

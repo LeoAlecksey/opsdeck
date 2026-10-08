@@ -38,6 +38,7 @@ const HELP: Record<string, { title: string; html: string }> = {
         <li>${kbd("Ctrl+Shift+↑/↓")} к предыдущей / следующей команде</li>
         <li>${kbd("Ctrl+=")} / ${kbd("Ctrl+-")} / ${kbd("Ctrl+0")} размер шрифта</li>
         <li>${kbd("Ctrl+Shift+C/V")} копировать / вставить, ${kbd("Ctrl+Shift+A")} выделение → AI, ${kbd("Ctrl+Shift+I")} AI-панель</li>
+        <li>${kbd("Ctrl+Shift+R")} переподключиться: вкладка SSH/kubectl exec, где сессия оборвалась, не закрывается — плашка «⟳ Переподключить» (или ${kbd("Enter")}); упавший <code>ssh</code>, набранный в shell, — «⟳ Повторить»</li>
         <li>${kbd("Ctrl+Shift+K")} локальный ИИ: команда по описанию словами</li>
         <li>${kbd("Ctrl+Shift+P")} палитра команд — поиск по всему OpsDeck (кластеры, хосты, заметки, сниппеты, история команд)</li>
       </ul>
