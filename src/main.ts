@@ -15,7 +15,7 @@ import { mountSettings } from "./modules/settings";
 import { mountSsh } from "./modules/ssh";
 import { mountAlerts } from "./modules/alerts";
 import { checkUpdates } from "./modules/updates";
-import { esc, logUi, toast } from "./modules/ui";
+import { esc, logUi, overlay, toast } from "./modules/ui";
 import { currentLang, startI18n } from "./i18n";
 
 // anything that blows up in the UI ends up in the log file (⚙ → Журнал)
@@ -126,9 +126,9 @@ for (const v of views) {
   if (isOn(v.id)) ensure(v.id);
 }
 
+let closeModulesMenu: (() => void) | null = null;
 function toggleModulesMenu(anchor: HTMLElement) {
-  const old = document.querySelector(".modules-pop");
-  if (old) return old.remove();
+  if (closeModulesMenu) return closeModulesMenu();
   const pop = document.createElement("div");
   pop.className = "modules-pop";
   pop.innerHTML = `<div class="modules-head">Модули</div>` +
@@ -137,17 +137,25 @@ function toggleModulesMenu(anchor: HTMLElement) {
   const r = anchor.getBoundingClientRect();
   pop.style.left = `${r.right + 8}px`;
   pop.style.bottom = `${Math.max(8, window.innerHeight - r.bottom)}px`;
+  // an open web panel is a native view over the window: it hides while the menu is open
+  overlay(true);
   document.body.appendChild(pop);
   pop.addEventListener("change", (e) => {
     const box = (e.target as HTMLElement).closest<HTMLInputElement>("input[data-mod]");
     if (box) setModule(box.dataset.mod!, box.checked);
   });
-  const close = (e: Event) => {
-    if (e instanceof KeyboardEvent ? e.key !== "Escape" : pop.contains(e.target as Node) || anchor.contains(e.target as Node)) return;
+  const done = () => {
     pop.remove();
     document.removeEventListener("pointerdown", close, true);
     document.removeEventListener("keydown", close, true);
+    closeModulesMenu = null;
+    overlay(false);
   };
+  const close = (e: Event) => {
+    if (e instanceof KeyboardEvent ? e.key !== "Escape" : pop.contains(e.target as Node) || anchor.contains(e.target as Node)) return;
+    done();
+  };
+  closeModulesMenu = done;
   document.addEventListener("pointerdown", close, true);
   document.addEventListener("keydown", close, true);
 }
