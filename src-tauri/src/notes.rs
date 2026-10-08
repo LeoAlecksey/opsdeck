@@ -14,11 +14,17 @@ use tauri::Url;
 
 pub(crate) async fn vault() -> Result<PathBuf, String> {
     let v = settings::current().await.obsidian_vault;
-    let p = PathBuf::from(&v);
-    if v.is_empty() || !p.is_dir() {
-        return Err("не задан Obsidian vault — укажите папку в настройках".into());
+    if v.trim().is_empty() {
+        return Err("не задана папка с заметками — укажите путь в настройках".into());
     }
-    p.canonicalize().map_err(err)
+    let p = crate::editor::expand(&v);
+    if !p.exists() {
+        return Err(format!("папка с заметками не найдена: «{}»", v.trim()));
+    }
+    if !p.is_dir() {
+        return Err(format!("путь к заметкам указывает на файл, а не папку: «{}»", v.trim()));
+    }
+    p.canonicalize().map(crate::store::clean_path_buf).map_err(err)
 }
 
 /// Relative, no `..`, stays inside the vault even through symlinks.
@@ -95,14 +101,14 @@ pub async fn notes_list() -> Result<VaultInfo, String> {
                     .ok()
                     .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
                     .map_or(0, |d| d.as_secs());
-                NoteInfo { path: rel.to_string_lossy().into_owned(), mtime }
+                NoteInfo { path: rel.to_string_lossy().replace('\\', "/"), mtime }
             })
             .collect();
         VaultInfo {
             name: root.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default(),
             root: root.to_string_lossy().into_owned(),
             notes,
-            folders: dirs.into_iter().map(|d| d.to_string_lossy().into_owned()).collect(),
+            folders: dirs.into_iter().map(|d| d.to_string_lossy().replace('\\', "/")).collect(),
         }
     })
     .await
@@ -294,7 +300,7 @@ fn dir_name(p: &str) -> String {
     Path::new(p).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| p.to_string())
 }
 
-fn remember(path: &str, name: Option<&str>) -> Result<(), String> {
+pub(crate) fn remember(path: &str, name: Option<&str>) -> Result<(), String> {
     let mut list = known();
     match list.iter_mut().find(|v| v.path == path) {
         Some(v) => {
@@ -344,12 +350,60 @@ pub async fn vaults_list() -> Result<Vaults, String> {
 #[tauri::command]
 pub fn vault_open(path: String, name: Option<String>) -> Result<(), String> {
     let p = crate::editor::expand(&path);
-    if !p.is_dir() {
-        return Err(format!("папки {} нет", p.display()));
+    if !p.exists() {
+        return Err(format!("папка «{}» не найдена", path.trim()));
     }
-    let path = p.canonicalize().map_err(err)?.to_string_lossy().into_owned();
+    if !p.is_dir() {
+        return Err(format!("«{}» указывает на файл, а не папку", path.trim()));
+    }
+    let path = p.canonicalize().map(crate::store::clean_path_buf).map_err(err)?.to_string_lossy().into_owned();
     remember(&path, name.as_deref().filter(|n| !n.trim().is_empty()))?;
     activate(&path)
+}
+
+#[derive(Serialize)]
+pub struct VaultCheck {
+    pub ok: bool,
+    pub exists: bool,
+    pub is_dir: bool,
+    pub is_obsidian: bool,
+    pub md_count: usize,
+    pub path: String,
+    pub err: Option<String>,
+}
+
+#[tauri::command]
+pub async fn vault_validate_path(path: String) -> Result<VaultCheck, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let raw = path.trim();
+        if raw.is_empty() {
+            return Ok(VaultCheck { ok: false, exists: false, is_dir: false, is_obsidian: false, md_count: 0, path: String::new(), err: Some("путь не указан".into()) });
+        }
+        let p = crate::editor::expand(raw);
+        if !p.exists() {
+            return Ok(VaultCheck { ok: false, exists: false, is_dir: false, is_obsidian: false, md_count: 0, path: p.to_string_lossy().into_owned(), err: Some(format!("папка не существует: {}", p.display())) });
+        }
+        if !p.is_dir() {
+            return Ok(VaultCheck { ok: false, exists: true, is_dir: false, is_obsidian: false, md_count: 0, path: p.to_string_lossy().into_owned(), err: Some("указан файл, а не папка".into()) });
+        }
+        let canon = p.canonicalize().map(crate::store::clean_path_buf).unwrap_or_else(|_| p.clone());
+        let is_obsidian = canon.join(".obsidian").is_dir();
+        let mut md_count = 0;
+        let mut stack = vec![canon.clone()];
+        while let Some(dir) = stack.pop() {
+            if let Ok(rd) = fs::read_dir(&dir) {
+                for entry in rd.flatten() {
+                    let ep = entry.path();
+                    if entry.file_name().to_string_lossy().starts_with('.') { continue; }
+                    if ep.is_dir() && stack.len() < 30 { stack.push(ep); }
+                    else if ep.is_file() && is_md(&ep) { md_count += 1; }
+                }
+            }
+        }
+        Ok(VaultCheck { ok: true, exists: true, is_dir: true, is_obsidian, md_count, path: canon.to_string_lossy().into_owned(), err: None })
+    })
+    .await
+    .map_err(err)?
 }
 
 /// New vault: `parent/name`, with a first note; becomes active.
@@ -375,7 +429,7 @@ pub fn vault_create(parent: String, name: String) -> Result<String, String> {
         ),
     )
     .map_err(err)?;
-    let path = dir.canonicalize().map_err(err)?.to_string_lossy().into_owned();
+    let path = dir.canonicalize().map(crate::store::clean_path_buf).map_err(err)?.to_string_lossy().into_owned();
     remember(&path, Some(name))?;
     activate(&path)?;
     Ok(path)
@@ -502,5 +556,19 @@ mod tests {
         let t = tags_of("---\ntags: [infra, \"k8s\"]\n---\n# Заголовок\nтекст #идея и #infra/dns, `#notatag`, #123\n```\n#nope\n```\n");
         assert_eq!(t, vec!["infra", "k8s", "идея", "infra/dns"]);
         assert_eq!(tags_of("---\ntags:\n  - a\n  - b\n---\n"), vec!["a", "b"]);
+    }
+
+    #[tokio::test]
+    async fn validate_path() {
+        let dir = std::env::temp_dir().join(format!("opsdeck-test-vault-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("test.md"), "# Test\n").unwrap();
+
+        let check = super::vault_validate_path(dir.to_string_lossy().into_owned()).await.unwrap();
+        assert!(check.ok && check.exists && check.is_dir && check.md_count == 1 && !check.is_obsidian);
+        assert!(!super::vault_validate_path("   ".into()).await.unwrap().ok);
+        assert!(!super::vault_validate_path(dir.join("nope").to_string_lossy().into_owned()).await.unwrap().ok);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

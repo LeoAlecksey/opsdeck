@@ -195,6 +195,7 @@
     alerts_get: { current: alerts, history: [...alerts, ...resolved], firing: alerts.length }, alerts_sources: ["Grafana", "Alertmanager", "log-analyzer"],
     alerts_config_get: { ingest_enabled: true, ingest_port: 9977, poll_enabled: true, poll_seconds: 60, notify: true, notify_resolved: false, muted: [] },
     vaults_list: { active: "/home/demo/notes", vaults: [{ name: "notes", path: "/home/demo/notes", exists: true, obsidian: true, found: true }, { name: "work", path: "/home/demo/work-notes", exists: true, obsidian: false, found: true }] },
+    vault_validate_path: { ok: true, exists: true, is_dir: true, is_obsidian: true, md_count: 5, path: "/home/demo/notes", err: null },
     notes_list: vault, notes_tags: tags, tasks_list: tasks, note_search: [],
     db_list: dbProfiles, db_query: dbResult, mt_list: [{ id: "m1", name: "core-router", host: "192.0.2.1", group: "office", username: "admin", auth: "keepass", keepass_entry: "k5", winbox_port: 8291, ssh_port: 22 }],
     snippets_list: [{ id: "s1", title: L("Логи деплоймента", "Deployment logs"), command: "kubectl -n {{ns:shop}} logs deploy/{{name}} --tail=200 -f", tags: ["k8s"] }],
