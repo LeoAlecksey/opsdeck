@@ -10,7 +10,7 @@ import { ask, esc, toast } from "./ui";
 import { registerProvider } from "./palette";
 import { fileIcon, folderIcon } from "./fileicons";
 import { setFrontTags, tagsOf, taskDialog, ymd } from "./taskkit";
-import { aiAgent, DEFAULT_AGENT, fileRef } from "./ai-agents";
+import { AI_PROVIDERS, aiAgent, DEFAULT_AGENT, fileRef } from "./ai-agents";
 
 type VaultEntry = { name: string; path: string; exists: boolean; obsidian: boolean; found: boolean };
 type TagInfo = { tag: string; notes: string[] };
@@ -420,7 +420,11 @@ export function mountNotes(root: HTMLElement) {
     const path = fullPath(current);
     // other agents (and Claude without the IDE bridge): the reference goes into the AI panel's prompt
     const toPanel = () => {
-      window.dispatchEvent(new CustomEvent("send-to-ai", { detail: fileRef(path, lines.lineStart, lines.lineEnd) + " " }));
+      // the local AI cannot open files: it gets the text itself (the selected lines or the note)
+      const local = AI_PROVIDERS[aiAgent()]?.local;
+      const body = (a !== b && !editor.hidden ? value.slice(a, b) : value).slice(0, 8000);
+      const detail = local ? `${i18nT("Заметка")} ${current}:\n\`\`\`\n${body}\n\`\`\`\n` : fileRef(path, lines.lineStart, lines.lineEnd) + " ";
+      window.dispatchEvent(new CustomEvent("send-to-ai", { detail }));
       toast(`${i18nT("Ссылка на заметку отправлена в")} ${aiAgent()}`);
     };
     if (aiAgent() !== DEFAULT_AGENT) return toPanel();

@@ -225,6 +225,18 @@
         const disk = args.target === "id:h2" ? 0.95 : 0.4;
         return { host: args.target.replace(/^\w+:/, "") === "h1" ? "bastion" : args.target.split(":")[1], cpu: 10 * n, cores: 4, load: [0.2 * n, 0.3, 0.25], mem_used: 3e9, mem_total: 8e9, swap_used: 0, swap_total: 0, disk_mount: "/", disk_used: disk * 100e9, disk_total: 100e9, uptime: 90000 * n };
       }
+      if (cmd === "ai_chat") {
+        const q = args.messages.at(-1).content;
+        const answer = L("Посмотреть поды, которые перезапускаются:\n\n```bash\nkubectl get pods -A | grep -v Running\n```\n\nПотом `kubectl describe pod` нужного.", "Pods that restart:\n\n```bash\nkubectl get pods -A | grep -v Running\n```\n\nThen `kubectl describe pod` the one you need.");
+        const pieces = q.includes("ошибка") ? [] : answer.match(/[\s\S]{1,12}/g);
+        let i = 0;
+        const tick = () => {
+          if (i < pieces.length) { emit(`ai-chat-${args.id}`, { text: pieces[i++] }); setTimeout(tick, 15); }
+          else emit(`ai-chat-done-${args.id}`, { error: q.includes("ошибка") ? L("локальный ИИ не установлен — ⚙ Настройки → Локальный ИИ", "the local AI is not installed") : null, elapsed_ms: 900 });
+        };
+        setTimeout(tick, 30);
+        return null;
+      }
       if (cmd === "k8s_list") return args.kind === "namespaces" ? ["default", "kube-system", "monitoring", "shop"].map((n) => ({ metadata: { name: n, uid: n } })) : pods;
       if (cmd === "k8s_watch_start") { setTimeout(() => emit(`k8s-watch-${args.id}`, { type: "reset", items: args.kind === "pods" ? pods : [] }), 50); return null; }
       if (cmd === "db_tree") return dbTree(args.path);

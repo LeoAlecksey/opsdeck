@@ -2,7 +2,10 @@
  * AI agents of the terminal's side panel and the one chosen by default (Settings → AI agent).
  * The choice is shared: the panel's own selector, the palette and Settings all change it.
  */
-export type AiProvider = { program: string; args?: string[] };
+/** `local`: the built-in chat (the local AI from Settings), not a CLI in a terminal. */
+export const LOCAL_AGENT = "OpsDeck AI (локальный)";
+
+export type AiProvider = { program: string; args?: string[]; local?: boolean };
 
 export const AI_PROVIDERS: Record<string, AiProvider> = {
   "Claude Code": { program: "claude" },
@@ -10,6 +13,7 @@ export const AI_PROVIDERS: Record<string, AiProvider> = {
   Gemini: { program: "gemini" },
   Aider: { program: "aider" },
   OpenCode: { program: "opencode" },
+  [LOCAL_AGENT]: { program: "", local: true },
 };
 
 const KEY = "opsdeck.ai.provider";

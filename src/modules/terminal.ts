@@ -11,6 +11,7 @@ import { attachPathLinks, mountFiles } from "./files";
 import { esc, overlay, toast } from "./ui";
 import { isWindows } from "./themes";
 import { AI_PROVIDERS, aiAgent, setAiAgent } from "./ai-agents";
+import { LocalChat } from "./aichat";
 import { isWsl, shellName } from "./shellkind";
 
 /** Other modules open a tab via: window.dispatchEvent(new CustomEvent("open-terminal", { detail })) */
@@ -116,7 +117,9 @@ export function mountTerminal(root: HTMLElement) {
   const tabs: Tab[] = [];
   let activeTab: Tab | null = null;
   const filesPanel = $(".files-panel");
-  let ai: PtyTerminal | null = null;
+  /** what the AI panel holds: an agent's CLI in a terminal, or the local AI chat */
+  type AiPane = { dispose(): void; resize(): void; paste(text: string): void; focus(): void };
+  let ai: AiPane | null = null;
 
   for (const name of Object.keys(AI_PROVIDERS)) providerSel.add(new Option(name, name));
   providerSel.value = aiAgent();
@@ -364,7 +367,16 @@ export function mountTerminal(root: HTMLElement) {
     ai?.dispose();
     aiHost.innerHTML = "";
     const p = AI_PROVIDERS[providerSel.value];
-    ai = new PtyTerminal(aiHost, { program: p.program, args: p.args, cwd: cwd() });
+    if (p.local) {
+      ai = new LocalChat(aiHost, {
+        context: () => ({ cwd: cwd(), shell: shellName(activePane()?.pty.launched ?? null) }),
+        // into the active pane, as a bracketed paste: multi-line stays one input, no Enter
+        insert: (cmd) => { const pane = activePane(); if (!pane) return; pane.pty.send(`\x1b[200~${cmd}\x1b[201~`); pane.pty.term.focus(); },
+      });
+      return;
+    }
+    const pty = new PtyTerminal(aiHost, { program: p.program, args: p.args, cwd: cwd() });
+    ai = { dispose: () => pty.dispose(), resize: () => pty.resize(), focus: () => pty.term.focus(), paste: (text) => { pty.send(`\x1b[200~${text}\x1b[201~`); } };
   }
 
   function toggleAi(force?: boolean) {
@@ -375,7 +387,7 @@ export function mountTerminal(root: HTMLElement) {
     requestAnimationFrame(() => {
       activeTab?.panes.forEach((p) => p.pty.resize());
       ai?.resize();
-      (show ? ai : activePane()?.pty)?.term.focus();
+      if (show) ai?.focus(); else activePane()?.pty.term.focus();
     });
   }
 
@@ -388,8 +400,10 @@ export function mountTerminal(root: HTMLElement) {
     const fresh = !ai;
     toggleAi(true);
     // bracketed paste so multi-line text lands as one message instead of being submitted line by line
-    setTimeout(() => ai?.send(`\x1b[200~${text}\x1b[201~`), fresh ? 1500 : 0);
-    ai?.term.focus();
+    // a CLI agent needs a moment to start before it takes input; the chat takes it at once
+    const local = AI_PROVIDERS[providerSel.value]?.local;
+    setTimeout(() => ai?.paste(text), fresh && !local ? 1500 : 0);
+    ai?.focus();
   }
 
   splitter.addEventListener("pointerdown", (e) => {

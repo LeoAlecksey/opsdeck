@@ -1,6 +1,7 @@
 use tauri::Manager;
 
 mod ai;
+mod aichat;
 mod alerts;
 mod cmdindex;
 mod code;
@@ -63,6 +64,7 @@ pub fn run() {
         .manage(alerts::AlertsState::default())
         .manage(sysmon::SysState::default())
         .manage(ai::AiState::default())
+        .manage(aichat::ChatState::default())
         .setup(|app| {
             diag::install_panic_hook();
             main_window(app)?;
@@ -177,6 +179,8 @@ pub fn run() {
             ai::ai_command,
             ai::ai_test,
             winshell::win_shells,
+            aichat::ai_chat,
+            aichat::ai_chat_stop,
             winshell::wt_settings,
             winbox_import::mt_import_scan,
             winbox_import::mt_import,
