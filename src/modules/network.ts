@@ -112,14 +112,18 @@ export function mountNetwork(root: HTMLElement) {
     if (current) return;
     const v = (n: string) => (form.elements.namedItem(n) as HTMLInputElement).value.trim();
     const runId = `run${++seq}`;
+    // output can arrive before tool_run returns the command line: hold it until "$ cmd" is shown
+    let held: (() => void)[] | null = [];
+    const show = (f: () => void) => (held ? held.push(f) : f());
     const unlisten = [
       await listen<{ stream: string; text: string }>(`tool-line-${runId}`, (ev) =>
-        append(ev.payload.text, ev.payload.stream === "err" ? "err" : "")),
-      await listen<number | null>(`tool-exit-${runId}`, (ev) => {
+        show(() => append(ev.payload.text, ev.payload.stream === "err" ? "err" : ""))),
+      await listen<number | null>(`tool-exit-${runId}`, (ev) => show(() => {
         append(`— завершено, код ${ev.payload ?? "прерван"}`, "muted");
         finish();
-      }),
+      })),
     ];
+    const release = () => { const h = held ?? []; held = null; h.forEach((f) => f()); };
     current = { runId, unlisten };
     stopBtn.disabled = false;
     runBtn.disabled = true;
@@ -132,7 +136,9 @@ export function mountNetwork(root: HTMLElement) {
         },
       });
       append(`$ ${cmd}`, "cmd");
+      release();
     } catch (err) {
+      held = null;
       append(String(err), "err");
       finish();
     }
