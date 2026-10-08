@@ -1070,8 +1070,10 @@ body.no-select, body.no-select * { user-select: none; -webkit-user-select: none;
 .k8s-spark polyline { fill: none; stroke: currentColor; stroke-width: 1.2; opacity: .8; vector-effect: non-scaling-stroke; }
 
 /* local AI chat in the AI panel */
-.ai-chat { display: flex; flex-direction: column; height: 100%; min-height: 0; background: var(--bg); }
-.ai-chat-log { flex: 1; overflow: auto; padding: 10px 12px; display: flex; flex-direction: column; gap: 10px; }
+/* fills the panel exactly: the messages scroll, the question box stays at the bottom */
+.ai-chat { position: absolute; inset: 0; display: flex; flex-direction: column; min-height: 0; background: var(--bg); }
+.ai-panel .ai-host { min-height: 0; overflow: hidden; }
+.ai-chat-log { flex: 1; min-height: 0; overflow: auto; padding: 10px 12px; display: flex; flex-direction: column; gap: 10px; }
 .ai-chat-hello { font-size: 12px; margin: 0; }
 .ai-msg { padding: 8px 10px; border-radius: 8px; font-size: 13px; line-height: 1.5; max-width: 100%; overflow-wrap: anywhere; }
 .ai-msg.user { align-self: flex-end; background: var(--panel-2); max-width: 90%; }
