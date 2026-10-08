@@ -216,11 +216,27 @@ textarea:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 1
 .lfilter { width: 240px; font-family: var(--mono, monospace); font-size: 12px; }
 .lfilter.bad { border-color: var(--danger); }
 .auto { display: flex; align-items: center; gap: 4px; }
-.k8s.loading [data-act=refresh] { animation: spin 1s linear infinite; }
+.k8s.loading [data-act=refresh] svg { animation: spin 1s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 .k8s-err { padding: 8px 12px; border-bottom: 1px solid var(--border); white-space: pre-wrap; }
+.k8s-err.reconnecting { color: #e6c07b; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
 
 .table-wrap { flex: 1; min-height: 0; overflow: auto; }
+table.res tr.skeleton-row { pointer-events: none; }
+table.res tr.skeleton-row:hover { background: transparent; }
+table.res tr.skeleton-row td { height: 29px; border-bottom: 1px solid #1a1f2d; }
+.skeleton-cell {
+  display: block;
+  height: 12px;
+  border-radius: 4px;
+  background: linear-gradient(90deg, var(--panel-2) 0%, var(--panel-hover) 50%, var(--panel-2) 100%);
+  background-size: 200% 100%;
+  animation: k8s-shimmer 1.4s ease-in-out infinite;
+}
+@keyframes k8s-shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
 table.res { width: 100%; border-collapse: collapse; font-size: 12.5px; }
 table.res th { position: sticky; top: 0; background: var(--panel); text-align: left; font-weight: 600; color: var(--muted);
   padding: 6px 10px; border-bottom: 1px solid var(--border); cursor: pointer; white-space: nowrap; user-select: none; }

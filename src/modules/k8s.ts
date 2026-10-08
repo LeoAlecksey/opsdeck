@@ -473,6 +473,7 @@ export function mountK8s(root: HTMLElement) {
     $(".ctx-title").classList.remove("muted");
     closeDrawer();
     items = [];
+    root.classList.add("loading");
     render();
     await Promise.all([loadNamespaces(), loadCrds()]);
     usage.clear();
@@ -528,6 +529,7 @@ export function mountK8s(root: HTMLElement) {
     sortCol = 0; sortDir = 1;
     closeDrawer();
     items = [];
+    root.classList.add("loading");
     renderKinds();
     render();
     startWatch();
@@ -608,7 +610,7 @@ export function mountK8s(root: HTMLElement) {
     watchId = "";
   }
 
-  type WatchMsg = { type: "reset" | "apply" | "delete" | "error"; items?: Obj[]; uids?: string[]; message?: string };
+  type WatchMsg = { type: "reset" | "apply" | "delete" | "error"; items?: Obj[]; uids?: string[]; message?: string; retrying?: boolean };
 
   async function startWatch() {
     stopWatch();
@@ -620,8 +622,28 @@ export function mountK8s(root: HTMLElement) {
     const un = await listen<WatchMsg>(`k8s-watch-${id}`, (e) => {
       if (watchId !== id) return;
       const m = e.payload;
-      if (m.type === "error") { errBox.hidden = false; errBox.textContent = m.message ?? "ошибка watch"; root.classList.remove("loading"); return; }
+      if (m.type === "error") {
+        errBox.hidden = false;
+        if (m.retrying) {
+          errBox.classList.add("reconnecting");
+          errBox.classList.remove("err");
+          root.classList.add("loading");
+          errBox.innerHTML = `<span>Нестабильное соединение с кластером, повторное подключение… <span class="muted">(${esc(m.message ?? "")})</span></span> <button class="ghost" data-act="watch-retry" style="margin-left:8px;padding:2px 8px;font-size:11.5px">Повторить</button>`;
+          const btn = errBox.querySelector<HTMLButtonElement>("[data-act=watch-retry]");
+          if (btn) btn.onclick = () => startWatch();
+        } else {
+          errBox.classList.remove("reconnecting");
+          errBox.classList.add("err");
+          errBox.textContent = m.message ?? "ошибка watch";
+          root.classList.remove("loading");
+          render();
+        }
+        return;
+      }
       errBox.hidden = true;
+      errBox.classList.remove("reconnecting");
+      errBox.classList.add("err");
+      errBox.textContent = "";
       if (m.type === "reset") { items = m.items ?? []; root.classList.remove("loading"); }
       if (m.type === "apply") {
         const byUid = new Map(items.map((o) => [o.metadata.uid, o]));
@@ -634,7 +656,7 @@ export function mountK8s(root: HTMLElement) {
     if (watchId !== id) { un(); return; }
     unlistenWatch = un;
     invoke("k8s_watch_start", { ctx: ref(), id, kind: kind.id, namespace: currentNs() || null })
-      .catch((err) => { errBox.hidden = false; errBox.textContent = String(err); root.classList.remove("loading"); });
+      .catch((err) => { errBox.hidden = false; errBox.textContent = String(err); root.classList.remove("loading"); render(); });
   }
 
   async function refresh() {
@@ -654,6 +676,7 @@ export function mountK8s(root: HTMLElement) {
       if (seq !== loadSeq) return;
       errBox.hidden = false;
       errBox.textContent = String(e);
+      render();
     } finally {
       loading = false;
       root.classList.remove("loading");
@@ -723,6 +746,22 @@ export function mountK8s(root: HTMLElement) {
     ];
   };
 
+  function skeletonRows(cols: Col[]): string {
+    const w = [
+      [65, 45, 30, 45, 25, 55, 45, 35],
+      [50, 35, 30, 40, 20, 60, 40, 30],
+      [75, 50, 30, 45, 25, 45, 45, 35],
+      [55, 40, 30, 35, 20, 50, 40, 30],
+      [70, 35, 30, 40, 25, 55, 45, 35],
+      [60, 45, 30, 35, 20, 40, 40, 30],
+    ];
+    return w.map((row) =>
+      `<tr class="skeleton-row">${cols.map((_, i) =>
+        `<td><span class="skeleton-cell" style="width:${row[i % row.length]}%"></span></td>`
+      ).join("")}</tr>`
+    ).join("");
+  }
+
   function render() {
     const base = kind.namespaced && currentNs() ? kind.cols.filter((c) => c !== ns) : kind.cols;
     // metrics go right before the age column
@@ -730,6 +769,13 @@ export function mountK8s(root: HTMLElement) {
     const cols = mc.length ? [...base.slice(0, -1), ...mc, base[base.length - 1]] : base;
     if (sortCol >= cols.length) sortCol = 0;
     thead.innerHTML = `<tr>${cols.map((c, i) => `<th data-i="${i}" class="${i === sortCol ? (sortDir > 0 ? "asc" : "desc") : ""}">${esc(c.h)}</th>`).join("")}</tr>`;
+    if (items.length === 0 && root.classList.contains("loading")) {
+      tbody.innerHTML = skeletonRows(cols);
+      countEl.textContent = "";
+      openPending();
+      syncDetails();
+      return;
+    }
     const q = filterIn.value.trim().toLowerCase();
     let sel: Term[] = [];
     try {
