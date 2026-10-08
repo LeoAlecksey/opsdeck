@@ -1,5 +1,5 @@
 # Обновления зависимостей раз в месяц, одним PR на экосистему, в ветку dev.
-# Мажорные версии (vite 8, typescript 7, xterm 6, …) обновляем вручную: они ломают API.
+# Мажорные версии (vite 8, typescript 7, xterm 6, actions/checkout 7, tauri-action 1…) обновляем вручную: они ломают API.
 # Исправления безопасности приходят отдельно и сразу (Dependabot security updates).
 version: 2
 updates:
@@ -28,4 +28,7 @@ updates:
     target-branch: dev
     schedule: { interval: monthly }
     groups:
-      actions: { patterns: ["*"] }
+      actions: { update-types: [minor, patch] }
+    ignore:
+      - dependency-name: "*"
+        update-types: [version-update:semver-major]

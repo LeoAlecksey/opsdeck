@@ -42,12 +42,20 @@ fn default_ssh_port() -> u16 {
     22
 }
 
-fn secret_key(id: &str) -> String {
+pub(crate) fn secret_key(id: &str) -> String {
     format!("mikrotik:{id}")
 }
 
 fn load() -> Result<Vec<Device>, String> {
     store::load_json(FILE)
+}
+
+pub(crate) fn list() -> Result<Vec<Device>, String> {
+    load()
+}
+
+pub(crate) fn save_all(list: &[Device]) -> Result<(), String> {
+    store::save_json(FILE, &list)
 }
 
 fn find(id: &str) -> Result<Device, String> {
@@ -107,10 +115,8 @@ pub fn mt_delete(id: String) -> Result<(), String> {
 pub async fn mt_winbox(kp: State<'_, KeepassState>, id: String) -> Result<(), String> {
     let d = find(&id)?;
     let (user, pass) = credentials(&kp, &d)?;
-    let bin = settings::current().await.winbox_path;
-    if bin.is_empty() {
-        return Err("не найден WinBox — укажите путь в настройках".into());
-    }
+    let bin = winbox_bin(&settings::current().await.winbox_path)?;
+    let bin = bin.to_string_lossy().into_owned();
     let addr = if d.winbox_port == 8291 { d.host.clone() } else { format!("{}:{}", d.host, d.winbox_port) };
     let mut cmd = Command::new(&bin);
     cmd.arg(addr);
@@ -131,6 +137,28 @@ pub async fn mt_winbox(kp: State<'_, KeepassState>, id: String) -> Result<(), St
         .map_err(|e| format!("{bin}: {e}"))?;
     std::thread::spawn(move || child.wait()); // reap, no zombies
     Ok(())
+}
+
+/// The WinBox executable from the setting, forgiving what Windows' "Copy as path" adds (quotes)
+/// and a folder instead of the file.
+fn winbox_bin(raw: &str) -> Result<std::path::PathBuf, String> {
+    let s = raw.trim().trim_matches(|c| c == '"' || c == '\'').trim();
+    if s.is_empty() {
+        return Err("не найден WinBox — укажите путь в ⚙ Настройки".into());
+    }
+    let p = crate::editor::expand(s);
+    if p.is_dir() {
+        for name in ["winbox64.exe", "winbox.exe", "WinBox.exe", "WinBox64.exe", "WinBox", "winbox"] {
+            if p.join(name).is_file() {
+                return Ok(p.join(name));
+            }
+        }
+        return Err(format!("в папке {} нет WinBox — укажите сам файл winbox64.exe", p.display()));
+    }
+    if !p.is_file() {
+        return Err(format!("WinBox не найден по пути {} — проверьте путь в ⚙ Настройки", p.display()));
+    }
+    Ok(p)
 }
 
 #[derive(Serialize)]
@@ -155,4 +183,23 @@ pub fn mt_ssh(app: AppHandle, kp: State<KeepassState>, id: String) -> Result<Ssh
         args: vec!["-p".into(), d.ssh_port.to_string(), target],
         password_copied: copied,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn winbox_path_forgiving() {
+        let dir = std::env::temp_dir().join(format!("opsdeck-winbox-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let exe = dir.join("winbox64.exe");
+        std::fs::write(&exe, b"").unwrap();
+        let quoted = format!("  \"{}\"  ", exe.display());
+        assert_eq!(winbox_bin(&quoted).unwrap(), exe, "quotes from Copy as path");
+        assert_eq!(winbox_bin(&dir.to_string_lossy()).unwrap(), exe, "a folder is enough");
+        assert!(winbox_bin("").unwrap_err().contains("укажите путь"));
+        assert!(winbox_bin(&dir.join("nope.exe").to_string_lossy()).unwrap_err().contains("не найден по пути"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

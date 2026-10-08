@@ -145,7 +145,7 @@ pub fn prepare(kp: &KeepassState, id: &str) -> Result<(Connector, Url, Option<St
     let secret = match c.auth.as_str() {
         "none" => String::new(),
         "keepass" => {
-            let (user, pass) = keepass::credentials(&kp, &c.keepass_entry)?;
+            let (user, pass) = keepass::credentials(kp, &c.keepass_entry)?;
             if c.username.is_empty() {
                 c.username = user;
             }
@@ -158,9 +158,10 @@ pub fn prepare(kp: &KeepassState, id: &str) -> Result<(Connector, Url, Option<St
     Ok((c, url, script))
 }
 
-/// Opens the connector in its own window.
+/// Opens the connector in its own window. Async: on Windows, building a window from a synchronous
+/// command deadlocks (WebviewWindowBuilder::build docs) — a blank window that cannot be closed.
 #[tauri::command]
-pub fn connector_open(app: AppHandle, kp: State<KeepassState>, id: String) -> Result<(), String> {
+pub async fn connector_open(app: AppHandle, kp: State<'_, KeepassState>, id: String) -> Result<(), String> {
     let label = format!("conn-{id}");
     if let Some(w) = app.get_webview_window(&label) {
         return w.set_focus().map_err(|e| e.to_string());
@@ -241,3 +242,26 @@ if (cfg.kind === 'gitlab') {
   }
 }
 "#;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn login_script_embeds_values_safely() {
+        let c: Connector = serde_json::from_value(serde_json::json!({
+            "id": "c1", "kind": "grafana", "name": "Grafana", "url": "https://grafana.example.com/", "username": "admin", "auth": "password"
+        }))
+        .unwrap();
+        let url = Url::parse("https://grafana.example.com/login").unwrap();
+        let secret = r#"p"a\ss</script><script>alert(1)"#;
+        let js = login_script(&c, &url, secret);
+        assert!(js.contains("if (location.origin !== cfg.origin) return;"), "only on the connector's own origin");
+        assert!(js.contains(r#""origin":"https://grafana.example.com""#));
+        assert!(js.contains(r#""base":"https://grafana.example.com""#), "no trailing slash in the base");
+        // the secret is a JSON string literal: quotes and backslashes escaped, nothing breaks out
+        assert!(js.contains(&serde_json::to_string(secret).unwrap()));
+        assert!(!js.contains(r#"p"a\ss"#));
+        assert!(js.ends_with(");"));
+    }
+}

@@ -1,3 +1,6 @@
+import { relTo } from "./paths";
+import { eolOf, toLf, withEol, type Eol } from "./eol";
+import { locale } from "../i18n";
 import { helpBtn } from "./help";
 import { icon } from "./icons";
 import { invoke } from "@tauri-apps/api/core";
@@ -34,7 +37,7 @@ import { nginx } from "@codemirror/legacy-modes/mode/nginx";
 import { parseAllDocuments } from "yaml";
 
 type Entry = { name: string; dir: boolean; link: boolean; size: number };
-type Git = { root: string; branch: string; files: Record<string, string> };
+type Git = { root: string; branch: string; files: Record<string, string>; error?: string };
 type Commit = { hash: string; parents: string[]; refs: string[]; author: string; time: number; subject: string };
 type Branch = { name: string; upstream: string; track: string; time: number; subject: string };
 type Branches = { current: string; local: Branch[]; remote: Branch[] };
@@ -47,6 +50,8 @@ type Tab = {
   path: string | null;
   state: EditorState;
   saved: string;
+  /** the file's line endings: the editor works in "\n", saving writes these back */
+  eol: Eol;
   mtime: number;
   readonly: boolean;
   btn: HTMLElement;
@@ -63,7 +68,7 @@ const isTf = (p: string | null) => !!p && /\.(tf|tfvars|hcl)$/i.test(p);
 const shq = (p: string) => (/^[\w@%+=:,./~-]+$/.test(p) ? p : `'${p.replace(/'/g, `'\\''`)}'`);
 const ago = (t: number) => {
   const d = Date.now() / 1000 - t;
-  return d < 3600 ? `${Math.max(1, Math.round(d / 60))} мин` : d < 86400 ? `${Math.round(d / 3600)} ч` : d < 86400 * 60 ? `${Math.round(d / 86400)} дн` : new Date(t * 1000).toLocaleDateString();
+  return d < 3600 ? `${Math.max(1, Math.round(d / 60))} мин` : d < 86400 ? `${Math.round(d / 3600)} ч` : d < 86400 * 60 ? `${Math.round(d / 86400)} дн` : new Date(t * 1000).toLocaleDateString(locale());
 };
 
 function languageFor(path: string): { ext: Extension; name: string } {
@@ -281,7 +286,7 @@ export function mountCode(root: HTMLElement) {
     btn.title = path ?? title;
     tabsEl.appendChild(btn);
     const lang = langOverride ?? (path ? languageFor(path).ext : []);
-    const t: Tab = { id, title, path, saved: text, mtime, readonly, btn, state: EditorState.create({ doc: text, extensions: extensionsFor({ path, readonly, lang }) }) };
+    const t: Tab = { id, title, path, saved: toLf(text), eol: eolOf(text), mtime, readonly, btn, state: EditorState.create({ doc: toLf(text), extensions: extensionsFor({ path, readonly, lang }) }) };
     btn.onclick = () => activate(t);
     btn.onauxclick = (e) => { if (e.button === 1) closeTab(t); };
     btn.querySelector<HTMLElement>(".x")!.onclick = (e) => { e.stopPropagation(); closeTab(t); };
@@ -348,7 +353,7 @@ export function mountCode(root: HTMLElement) {
     if (isTf(t.path) && tfTool !== "") await fmt(); // format on save; a syntax error still saves as is
     const text = view.state.doc.toString();
     try {
-      t.mtime = await invoke<number>("code_write", { path: t.path, text, expectMtime: t.mtime || null, force });
+      t.mtime = await invoke<number>("code_write", { path: t.path, text: withEol(text, t.eol), expectMtime: t.mtime || null, force });
       t.saved = text;
       markDirty(t);
       toast(`Сохранено: ${t.title}`);
@@ -365,7 +370,7 @@ export function mountCode(root: HTMLElement) {
   async function readDir(dir: string) {
     listing.set(dir, await invoke<Entry[]>("fs_list", { path: dir, hidden: true }).catch((e) => String(e)));
   }
-  const relToGit = (abs: string) => (git.root && abs.startsWith(git.root + "/") ? abs.slice(git.root.length + 1) : null);
+  const relToGit = (abs: string) => { const r = relTo(git.root, abs); return r ? r : null; };
   const HIDE = new Set([".git", "node_modules", "target", ".terraform", "dist", "__pycache__", ".venv", ".idea", ".vscode"]);
 
   function statusOf(abs: string, dir: boolean): string {
@@ -485,10 +490,11 @@ export function mountCode(root: HTMLElement) {
   }
 
   function drawChanges() {
-    $(".cg-branch").textContent = git.root ? git.branch || "detached" : "не git-репозиторий";
+    $(".cg-branch").textContent = git.root ? git.branch || "detached" : git.error ? "git недоступен" : "не git-репозиторий";
+    $(".cg-branch").closest<HTMLElement>("button")!.title = git.error || "Ветки: переключить, создать, слить, удалить";
     $(".cg-commit-box").hidden = !git.root || !Object.keys(git.files).length;
     const files = Object.entries(git.files).sort(([a], [b]) => a.localeCompare(b));
-    $(".cg-changes").innerHTML = !git.root ? "" : files.length
+    $(".cg-changes").innerHTML = !git.root ? (git.error ? `<p class="err pad">${esc(git.error)}</p>` : "") : files.length
       ? files.map(([f, code]) => `<div class="cg-file ${stClass(code)}" data-file="${esc(f)}" title="${esc(f)} — показать изменения">
           <span class="ct-st">${esc(code.trim() || "M")}</span><span class="ct-ico">${fileIcon(f)}</span><span class="tree-label">${esc(base(f))}</span><span class="cg-dir muted">${esc(f.includes("/") ? f.slice(0, f.lastIndexOf("/")) : "")}</span></div>`).join("")
       : `<p class="muted pad">чисто ✓</p>`;
@@ -544,13 +550,29 @@ export function mountCode(root: HTMLElement) {
         const cls = r.startsWith("tag: ") ? "tag" : r.startsWith("HEAD") ? "head" : r.includes("/") ? "remote" : "branch";
         return `<span class="cg-ref ${cls}">${esc(r.replace(/^HEAD -> /, "● ").replace(/^tag: /, "🏷 "))}</span>`;
       }).join("");
-      const when = new Date(c.time * 1000).toLocaleDateString();
-      rows.push(`<div class="cg-commit" data-h="${c.hash}" title="${esc(`${c.hash.slice(0, 10)} · ${c.author} · ${new Date(c.time * 1000).toLocaleString()}\n${c.subject}`)}">
+      const when = new Date(c.time * 1000).toLocaleDateString(locale());
+      rows.push(`<div class="cg-commit" data-h="${c.hash}" title="${esc(`${c.hash.slice(0, 10)} · ${c.author} · ${new Date(c.time * 1000).toLocaleString(locale())}\n${c.subject}`)}">
         <svg width="${x(width - 1) + 8}" height="${H}" class="cg-lanes">${svg}</svg>
         <span class="cg-msg">${refs}${esc(c.subject)}</span><span class="cg-meta muted">${esc(c.author.split(" ")[0])} · ${when}</span></div>`);
     }
-    box.innerHTML = rows.join("") + (commits.length === 300 ? `<p class="muted pad">показаны последние 300 коммитов</p>` : "");
+    const br = await invoke<Branches>("code_git_branches", { root: git.root }).catch(() => null);
+    box.innerHTML = branchHint(commits, br) + rows.join("") + (commits.length === 300 ? `<p class="muted pad">показаны последние 300 коммитов</p>` : "");
   }
+
+  /** A just-created branch sits on the same commit as the one it came from, so it has no line of its
+   *  own yet: say so instead of leaving only a label. */
+  function branchHint(commits: Commit[], br: Branches | null): string {
+    const head = commits.find((c) => c.refs.some((r) => r.startsWith("HEAD -> ")));
+    if (!head || !br) return "";
+    const cur = head.refs.find((r) => r.startsWith("HEAD -> "))!.slice(8);
+    const locals = new Set(br.local.map((b) => b.name)), remotes = new Set(br.remote.map((b) => b.name));
+    const others = head.refs.filter((r) => r !== cur && !r.startsWith("HEAD") && !r.startsWith("tag: "));
+    const upstream = br.local.find((b) => b.name === cur)?.upstream;
+    const from = others.find((r) => locals.has(r)) ?? others.find((r) => remotes.has(r) && r !== upstream)?.replace(/^[^/]+\//, "");
+    if (!from) return "";
+    return `<div class="cg-hint"><span class="cg-ref head">● ${esc(cur)}</span> создана от <b>${esc(from)}</b> — своя линия в графе появится после первого коммита в этой ветке</div>`;
+  }
+
 
   function drawGit() { drawChanges(); drawGraph(); }
   $(".cg-changes").addEventListener("click", async (e) => {
@@ -605,11 +627,12 @@ export function mountCode(root: HTMLElement) {
       const r = await invoke<{ text: string; mtime: number }>("code_read", { path: t.path }).catch(() => null);
       if (!r) { t.btn.classList.add("gone"); t.btn.title = `${t.path} — файла больше нет на диске`; continue; }
       t.btn.classList.remove("gone");
-      if (r.text === t.saved) { t.mtime = r.mtime; continue; }
+      if (toLf(r.text) === t.saved) { t.mtime = r.mtime; continue; }
       if (isDirty(t)) { toast(`«${t.title}» изменился на диске, а у вас несохранённые правки — при сохранении OpsDeck спросит, что оставить`, "err"); continue; }
       const st = t === active ? view.state : t.state;
-      const next = st.update({ changes: { from: 0, to: st.doc.length, insert: r.text } }).state;
-      t.saved = r.text;
+      const next = st.update({ changes: { from: 0, to: st.doc.length, insert: toLf(r.text) } }).state;
+      t.saved = toLf(r.text);
+      t.eol = eolOf(r.text);
       t.mtime = r.mtime;
       if (t === active) { view.setState(next); t.state = next; } else t.state = next;
       markDirty(t);

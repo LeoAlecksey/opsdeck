@@ -32,6 +32,8 @@ pub struct Settings {
     /// for the UI: a key is saved in the keyring
     #[serde(skip_deserializing)]
     pub ai_key_saved: bool,
+    /// Windows: the shell for new terminal tabs ("" = PowerShell); see winshell.rs
+    pub term_shell: String,
 }
 
 impl Default for Settings {
@@ -50,6 +52,7 @@ impl Default for Settings {
             ai_model: String::new(),
             ai_api_key: String::new(),
             ai_key_saved: false,
+            term_shell: String::new(),
         }
     }
 }
@@ -181,4 +184,31 @@ fn is_winbox_name(name: &str) -> bool {
     let n = name.to_lowercase();
     let stem = n.strip_suffix(".exe").unwrap_or(&n);
     stem == "winbox" || stem == "winbox64"
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn winbox_names() {
+        for ok in ["WinBox", "winbox64.exe", "WinBox.exe", "winbox"] {
+            assert!(is_winbox_name(ok), "{ok}");
+        }
+        for bad in ["winbox.sh", "notwinbox", "winbox32.exe", ""] {
+            assert!(!is_winbox_name(bad), "{bad}");
+        }
+    }
+
+    #[test]
+    fn api_key_is_never_serialized() {
+        let s = Settings { ai_api_key: "sk-secret".into(), ai_key_saved: true, ..Default::default() };
+        let json = serde_json::to_string(&s).unwrap();
+        assert!(!json.contains("sk-secret"), "the key must not reach settings.json or the UI");
+        assert!(json.contains("\"ai_key_saved\":true"));
+        // the UI sends the key on save; the saved flag is never trusted from outside
+        let back: Settings = serde_json::from_str(r#"{"ai_api_key":"typed","ai_key_saved":true}"#).unwrap();
+        assert_eq!(back.ai_api_key, "typed");
+        assert!(!back.ai_key_saved);
+    }
 }

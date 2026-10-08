@@ -4,6 +4,7 @@
 //!   this machine, so a changing IP or NAT doesn't matter;
 //! - push, loopback only: a local analyzer (log/alert AI running on this machine) POSTs findings
 //!   or alerts to 127.0.0.1 with its connector's token.
+//!
 //! Current items are keyed by fingerprint; a bounded event history is kept on disk.
 
 use crate::{connectors, keepass::KeepassState, store};
@@ -11,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{
     collections::{BTreeMap, HashMap, HashSet, VecDeque},
-    sync::Mutex,
+    sync::{LazyLock, Mutex},
     time::Duration,
 };
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -330,6 +331,7 @@ fn poll_url(c: &connectors::Connector) -> Option<String> {
     match c.kind.as_str() {
         "grafana" => Some(format!("{base}/api/alertmanager/grafana/api/v2/alerts?active=true&silenced=true&inhibited=true")),
         "alertmanager" => Some(format!("{base}/api/v2/alerts?active=true&silenced=true&inhibited=true")),
+        "zabbix" => Some(zabbix_api(base)),
         // AI feed: the URL is the feed itself
         "ai" if !base.is_empty() => Some(c.url.clone()),
         _ => None,
@@ -340,10 +342,257 @@ fn http_client() -> Result<reqwest::Client, String> {
     reqwest::Client::builder().timeout(Duration::from_secs(15)).build().map_err(|e| e.to_string())
 }
 
+// ---------- pull: Zabbix (JSON-RPC API, Zabbix 6.0+) ----------
+
+fn zabbix_api(base: &str) -> String {
+    if base.ends_with("api_jsonrpc.php") { base.to_string() } else { format!("{base}/api_jsonrpc.php") }
+}
+
+/// Zabbix severity 0..5 → a name the alert view sorts by (disaster/high are critical).
+fn zabbix_severity(s: &str) -> &'static str {
+    match s {
+        "5" => "disaster",
+        "4" => "high",
+        "3" => "average",
+        "2" => "warning",
+        "1" => "information",
+        _ => "not classified",
+    }
+}
+
+/// Current problems (problem.get) + their hosts (event.get) → alerts.
+fn parse_zabbix(problems: &Value, events: &Value, base: &str, source: &str) -> Vec<Alert> {
+    let base = base.trim_end_matches('/').trim_end_matches("/api_jsonrpc.php");
+    let hosts: std::collections::HashMap<String, Vec<String>> = events
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|e| (s(&e["eventid"]), e["hosts"].as_array().into_iter().flatten().map(|h| s(if h["name"].is_string() { &h["name"] } else { &h["host"] })).collect()))
+        .collect();
+    problems
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|p| {
+            let eventid = s(&p["eventid"]);
+            let host = hosts.get(&eventid).map(|h| h.join(", ")).unwrap_or_default();
+            let mut labels: BTreeMap<String, String> = p["tags"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .map(|t| (s(&t["tag"]), s(&t["value"])))
+                .filter(|(k, _)| !k.is_empty())
+                .collect();
+            if !host.is_empty() {
+                labels.insert("host".into(), host.clone());
+            }
+            let started = s(&p["clock"]).parse::<i64>().ok().and_then(|t| chrono::DateTime::from_timestamp(t, 0)).map(|t| t.to_rfc3339()).unwrap_or_else(now);
+            Alert {
+                kind: "alert".into(),
+                fingerprint: format!("zabbix-{}", fnv(&format!("{source}|{eventid}"))),
+                status: "firing".into(),
+                silenced: s(&p["suppressed"]) == "1",
+                source: source.into(),
+                name: s(&p["name"]),
+                severity: zabbix_severity(&s(&p["severity"])).into(),
+                summary: host,
+                starts_at: started,
+                received_at: now(),
+                generator_url: format!("{base}/tr_events.php?triggerid={}&eventid={eventid}", s(&p["objectid"])),
+                dashboard_url: format!("{base}/zabbix.php?action=problem.view"),
+                labels,
+                ..Default::default()
+            }
+        })
+        .collect()
+}
+
+/// Where a server takes the token: the Authorization header since 6.4, the "auth" field before.
+/// Both at once no longer works — 7.2 removed the field and rejects a request that has it.
+fn zabbix_token_in_header(version: &str) -> bool {
+    // not a version we can read: the current way
+    zabbix_version(version).is_none_or(|v| v >= (6, 4))
+}
+
+/// (major, minor) of a version string like "7.0.31".
+fn zabbix_version(version: &str) -> Option<(u32, u32)> {
+    let mut parts = version.split('.').map(|p| p.parse::<u32>().ok());
+    Some((parts.next()??, parts.next()??))
+}
+
+/// Problems whose trigger is in `triggers` (trigger.get with monitored + skipDependent): what the
+/// Problems page of Zabbix shows.
+fn zabbix_shown(problems: &Value, triggers: &Value) -> Value {
+    let keep: HashSet<String> = triggers
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|t| s(&t["triggerid"]))
+        .collect();
+    problems
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|p| keep.contains(&s(&p["objectid"])))
+        .cloned()
+        .collect()
+}
+
+async fn zabbix_call(
+    client: &reqwest::Client,
+    url: &str,
+    token: &str,
+    header: bool,
+    method: &str,
+    params: Value,
+) -> Result<Value, String> {
+    let mut body = serde_json::json!({ "jsonrpc": "2.0", "method": method, "params": params, "id": 1 });
+    let mut req = client.post(url);
+    if !token.is_empty() && method != "user.login" {
+        if header {
+            req = req.bearer_auth(token);
+        } else {
+            body["auth"] = Value::String(token.to_string());
+        }
+    }
+    let r = req.json(&body).send().await.map_err(|e| format!("нет соединения ({e}) — проверьте URL и VPN"))?;
+    if !r.status().is_success() {
+        return Err(format!("HTTP {} — проверьте URL (нужен адрес веб-интерфейса Zabbix)", r.status().as_u16()));
+    }
+    let v: Value = r.json().await.map_err(|e| format!("ответ не JSON ({e}) — проверьте URL"))?;
+    if let Some(e) = v.get("error") {
+        let msg = format!("{} {}", s(&e["message"]), s(&e["data"]));
+        return Err(if msg.contains("auth") || msg.contains("session") || msg.contains("Not authorized") {
+            format!("Zabbix не принял токен или пароль: {}", msg.trim())
+        } else {
+            format!("Zabbix: {}", msg.trim())
+        });
+    }
+    Ok(v["result"].clone())
+}
+
+/// Sessions of user.login by API URL and user: signing in at every poll would leave a new session
+/// on the server every minute.
+static ZABBIX_SESSIONS: LazyLock<Mutex<HashMap<String, String>>> = LazyLock::new(Default::default);
+
+async fn zabbix_login(
+    client: &reqwest::Client,
+    url: &str,
+    header: bool,
+    user: &str,
+    pass: &str,
+) -> Result<String, String> {
+    let r = zabbix_call(
+        client,
+        url,
+        "",
+        header,
+        "user.login",
+        serde_json::json!({ "username": user, "password": pass }),
+    )
+    .await?;
+    let session = r
+        .as_str()
+        .ok_or("Zabbix не вернул сессию после входа")?
+        .to_string();
+    ZABBIX_SESSIONS
+        .lock()
+        .unwrap()
+        .insert(format!("{url}\n{user}"), session.clone());
+    Ok(session)
+}
+
+async fn fetch_zabbix(client: &reqwest::Client, c: &connectors::Connector, user: &str, pass: &str) -> Result<Vec<Alert>, String> {
+    let url = zabbix_api(c.url.trim_end_matches('/'));
+    if pass.is_empty() {
+        return Err("не задан API-токен или пароль Zabbix".into());
+    }
+    // apiinfo.version needs no auth
+    let version = zabbix_call(
+        client,
+        &url,
+        "",
+        false,
+        "apiinfo.version",
+        serde_json::json!([]),
+    )
+    .await?;
+    let header = zabbix_token_in_header(&s(&version));
+    let kept = if c.auth == "token" {
+        None
+    } else {
+        ZABBIX_SESSIONS
+            .lock()
+            .unwrap()
+            .get(&format!("{url}\n{user}"))
+            .cloned()
+    };
+    let mut token = match (c.auth == "token", &kept) {
+        (true, _) => pass.to_string(),
+        (false, Some(session)) => session.clone(),
+        (false, None) => zabbix_login(client, &url, header, user, pass).await?,
+    };
+    let mut query = serde_json::json!({
+        "output": ["eventid", "objectid", "name", "severity", "clock", "suppressed"],
+        "selectTags": "extend", "recent": false, "sortfield": ["eventid"], "sortorder": "DESC", "limit": 1000
+    });
+    // the Problems page hides symptoms (problems attached to a cause problem; 7.0+)
+    if zabbix_version(&s(&version)).is_some_and(|v| v >= (7, 0)) {
+        query["symptom"] = Value::Bool(false);
+    }
+    let problems = match zabbix_call(client, &url, &token, header, "problem.get", query.clone())
+        .await
+    {
+        // a kept session ends with auto-logout or a server restart ("Session terminated,
+        // re-login, please."): sign in again, once
+        Err(e)
+            if kept.is_some() && (e.contains("re-login") || e.starts_with("Zabbix не принял")) =>
+        {
+            token = zabbix_login(client, &url, header, user, pass).await?;
+            zabbix_call(client, &url, &token, header, "problem.get", query).await?
+        }
+        r => r?,
+    };
+    // the Problems page also drops problems of disabled triggers, hosts and items (they stay open in
+    // the database, sometimes for years) and of triggers that depend on another one in a problem state
+    let mut triggerids: Vec<String> = problems
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|p| s(&p["objectid"]))
+        .collect();
+    triggerids.sort();
+    triggerids.dedup();
+    let problems = if triggerids.is_empty() {
+        problems
+    } else {
+        let triggers = zabbix_call(
+            client,
+            &url,
+            &token,
+            header,
+            "trigger.get",
+            serde_json::json!({ "output": ["triggerid"], "triggerids": triggerids, "monitored": true, "skipDependent": true }),
+        )
+        .await?;
+        zabbix_shown(&problems, &triggers)
+    };
+    let ids: Vec<String> = problems.as_array().into_iter().flatten().map(|p| s(&p["eventid"])).collect();
+    let events = if ids.is_empty() {
+        Value::Array(Vec::new())
+    } else {
+        zabbix_call(client, &url, &token, header, "event.get", serde_json::json!({ "eventids": ids, "output": ["eventid"], "selectHosts": ["host", "name"] })).await?
+    };
+    Ok(parse_zabbix(&problems, &events, &c.url, &c.name))
+}
+
 /// Current alerts of one source, with a human explanation on failure.
 async fn fetch_source(client: &reqwest::Client, kp: &KeepassState, c: &connectors::Connector) -> Result<Vec<Alert>, String> {
     let url = poll_url(c).ok_or("этот тип коннектора не является источником алертов")?;
     let (user, pass) = connectors::credentials(kp, c)?;
+    if c.kind == "zabbix" {
+        return fetch_zabbix(client, c, &user, &pass).await;
+    }
     if c.kind == "grafana" && pass.is_empty() {
         return Err("не задан пароль или токен — Grafana не отдаёт алерты без авторизации".into());
     }
@@ -632,4 +881,174 @@ pub fn alerts_resolve(app: AppHandle, fingerprint: String) {
 #[tauri::command]
 pub async fn alerts_poll_now(app: AppHandle) -> Vec<String> {
     poll_once(&app).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn alertmanager_v2_alert() {
+        let a = parse_alert(
+            &json!({
+                "labels": { "alertname": "PodCrashLooping", "severity": "critical", "namespace": "shop" },
+                "annotations": { "summary": "worker restarts", "message": "OOM" },
+                "status": { "state": "suppressed" },
+                "fingerprint": "abc123",
+                "startsAt": "2026-10-06T09:00:00Z",
+                "endsAt": "0001-01-01T00:00:00Z",
+                "generatorURL": "https://grafana.example.com/alerting"
+            }),
+            "Alertmanager",
+        );
+        assert_eq!(a.name, "PodCrashLooping");
+        assert_eq!(a.severity, "critical");
+        assert_eq!(a.status, "firing");
+        assert!(a.silenced, "suppressed in API v2 = silenced");
+        assert_eq!(a.fingerprint, "abc123");
+        assert_eq!(a.summary, "worker restarts");
+        assert_eq!(a.description, "OOM", "message is used when there is no description");
+        assert_eq!(a.ends_at, "", "the zero date means 'not ended'");
+        assert_eq!(a.labels["namespace"], "shop");
+        assert_eq!(a.source, "Alertmanager");
+    }
+
+    #[test]
+    fn webhook_alert_without_fingerprint_gets_stable_one() {
+        let v = json!({ "labels": { "alertname": "X", "priority": "P2" }, "status": "resolved", "startsAt": "t" });
+        let a = parse_alert(&v, "Grafana");
+        let b = parse_alert(&v, "Grafana");
+        assert_eq!(a.status, "resolved");
+        assert_eq!(a.severity, "P2", "priority is the fallback severity");
+        assert!(!a.fingerprint.is_empty());
+        assert_eq!(a.fingerprint, b.fingerprint, "same labels → same fingerprint");
+        let c = parse_alert(&json!({ "labels": { "alertname": "Y" }, "startsAt": "t" }), "Grafana");
+        assert_ne!(a.fingerprint, c.fingerprint);
+    }
+
+    #[test]
+    fn ai_finding() {
+        let f = parse_finding(
+            &json!({
+                "title": "Burst of 401",
+                "severity": "warning",
+                "summary": "312 responses",
+                "details": "long text",
+                "status": "closed",
+                "labels": { "app": "api" },
+                "links": [{ "title": "Grafana", "url": "https://grafana.example.com/d/1" }, { "title": "bad", "url": "javascript:alert(1)" }]
+            }),
+            "log-analyzer",
+        )
+        .unwrap();
+        assert_eq!(f.kind, "ai");
+        assert_eq!(f.status, "resolved");
+        assert_eq!(f.links.len(), 1, "only http(s) links are kept");
+        assert_eq!(f.description, "long text");
+        assert!(parse_finding(&json!({ "summary": "no title" }), "x").is_none());
+    }
+
+    #[test]
+    fn finding_fingerprint_by_id_or_content() {
+        let by_id = |t: &str| parse_finding(&json!({ "id": "stable-1", "title": t }), "a").unwrap().fingerprint;
+        assert_eq!(by_id("first wording"), by_id("second wording"), "same id updates the same finding");
+        let by_content = |src: &str| parse_finding(&json!({ "title": "T", "labels": { "a": "1" } }), src).unwrap().fingerprint;
+        assert_ne!(by_content("a"), by_content("b"), "different sources never collide");
+    }
+
+    #[test]
+    fn finding_is_bounded() {
+        let long = "x".repeat(5000);
+        let f = parse_finding(&json!({ "title": long, "summary": long, "links": (0..20).map(|i| json!({ "url": format!("https://e.com/{i}") })).collect::<Vec<_>>() }), "a").unwrap();
+        assert_eq!(f.name.chars().count(), 200);
+        assert_eq!(f.summary.chars().count(), 1000);
+        assert_eq!(f.links.len(), 8);
+    }
+
+    #[test]
+    fn item_kind_detection() {
+        assert_eq!(parse_item(&json!({ "labels": { "alertname": "A" }, "startsAt": "t" }), "s").unwrap().kind, "alert");
+        assert_eq!(parse_item(&json!({ "title": "F" }), "s").unwrap().kind, "ai");
+        assert!(parse_item(&json!({ "foo": 1 }), "s").is_none());
+    }
+
+    #[test]
+    fn body_shapes() {
+        assert_eq!(items_of(&json!([1, 2, 3])).len(), 3);
+        assert_eq!(items_of(&json!({ "alerts": [1, 2] })).len(), 2);
+        assert_eq!(items_of(&json!({ "findings": [1] })).len(), 1);
+        assert_eq!(items_of(&json!({ "items": [1, 2, 3, 4] })).len(), 4);
+        assert_eq!(items_of(&json!({ "title": "one" })).len(), 1);
+        assert!(items_of(&json!("text")).is_empty());
+    }
+
+    #[test]
+    fn zabbix_problems() {
+        let problems = json!([
+            { "eventid": "101", "objectid": "9001", "name": "High CPU on web-1", "severity": "4", "clock": "1791300000", "suppressed": "0",
+              "tags": [{ "tag": "service", "value": "shop" }, { "tag": "", "value": "x" }] },
+            { "eventid": "102", "objectid": "9002", "name": "Disk is full", "severity": "5", "clock": "bad", "suppressed": "1", "tags": [] },
+        ]);
+        let events = json!([{ "eventid": "101", "hosts": [{ "host": "web-1", "name": "Web 1" }] }]);
+        let a = parse_zabbix(&problems, &events, "https://zabbix.example.com/", "Zabbix");
+        assert_eq!(a.len(), 2);
+        assert_eq!((a[0].name.as_str(), a[0].severity.as_str(), a[0].summary.as_str()), ("High CPU on web-1", "high", "Web 1"));
+        assert_eq!(a[0].labels["host"], "Web 1");
+        assert_eq!(a[0].labels["service"], "shop");
+        assert!(!a[0].labels.contains_key(""), "empty tags are dropped");
+        assert_eq!(a[0].starts_at, "2026-10-06T15:20:00+00:00");
+        assert_eq!(a[0].generator_url, "https://zabbix.example.com/tr_events.php?triggerid=9001&eventid=101");
+        assert_eq!(a[1].severity, "disaster");
+        assert!(a[1].silenced, "suppressed in Zabbix = silenced");
+        assert_ne!(a[0].fingerprint, a[1].fingerprint);
+        assert_eq!(a[0].fingerprint, parse_zabbix(&problems, &events, "https://zabbix.example.com", "Zabbix")[0].fingerprint, "stable per event");
+        assert_eq!(zabbix_api("https://z.example.com"), "https://z.example.com/api_jsonrpc.php");
+        assert_eq!(zabbix_api("https://z.example.com/api_jsonrpc.php"), "https://z.example.com/api_jsonrpc.php");
+    }
+
+    #[test]
+    fn zabbix_token_place() {
+        for v in ["6.0.48", "6.2.9"] {
+            assert!(!zabbix_token_in_header(v), "{v}: the auth field");
+        }
+        for v in ["6.4.21", "7.0.31", "7.4.15", "8.0.0"] {
+            assert!(
+                zabbix_token_in_header(v),
+                "{v}: the header (7.2+ rejects the field)"
+            );
+        }
+        assert!(zabbix_token_in_header(""));
+    }
+
+    #[test]
+    fn zabbix_problems_page() {
+        assert_eq!(zabbix_version("7.0.31"), Some((7, 0)));
+        assert_eq!(zabbix_version("8.0.0rc2"), Some((8, 0)));
+        assert_eq!(zabbix_version("x"), None);
+        let problems = json!([
+            { "eventid": "1", "objectid": "10" },
+            { "eventid": "2", "objectid": "20" },
+            { "eventid": "3", "objectid": "10" },
+        ]);
+        // trigger 20 is disabled or depends on a trigger in a problem state
+        let shown = zabbix_shown(&problems, &json!([{ "triggerid": "10" }]));
+        let ids: Vec<&str> = shown
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|p| p["eventid"].as_str().unwrap())
+            .collect();
+        assert_eq!(ids, ["1", "3"]);
+    }
+
+    #[test]
+    fn muting() {
+        let cfg = AlertsConfig { muted: vec![Mute { source: "Grafana".into(), name: "Noise".into() }, Mute { source: String::new(), name: "Everywhere".into() }], ..Default::default() };
+        let a = |src: &str, name: &str| Alert { source: src.into(), name: name.into(), ..Default::default() };
+        assert!(is_muted(&cfg, &a("Grafana", "Noise")));
+        assert!(!is_muted(&cfg, &a("Alertmanager", "Noise")), "a mute is per source");
+        assert!(is_muted(&cfg, &a("Alertmanager", "Everywhere")), "empty source mutes in every source");
+        assert!(!is_muted(&cfg, &a("Grafana", "Other")));
+    }
 }

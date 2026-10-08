@@ -1,3 +1,4 @@
+import { locale } from "../i18n";
 import { helpBtn } from "./help";
 import { icon } from "./icons";
 import { invoke } from "@tauri-apps/api/core";
@@ -161,7 +162,7 @@ export function mountAlerts(root: HTMLElement) {
         ${n > 1 ? `<span class="al-count" title="Сколько экземпляров горит">×${n}</span>` : ""}
         ${a.silenced ? `<span class="badge">silenced</span>` : ""}${acked ? `<span class="badge">просмотрен</span>` : ""}
         <span class="spacer"></span>
-        <span class="muted" title="Горит с ${esc(new Date(a.starts_at).toLocaleString())}">${esc(since)} · ${esc(a.source)}</span>
+        <span class="muted" title="Горит с ${esc(new Date(a.starts_at).toLocaleString(locale()))}">${esc(since)} · ${esc(a.source)}</span>
       </div>
       ${a.summary ? `<div class="al-summary-text">${esc(a.summary)}</div>` : ""}
       ${a.description && a.description !== a.summary ? (longDesc
@@ -225,7 +226,7 @@ export function mountAlerts(root: HTMLElement) {
     $(".al-summary").textContent = `горит ${data.firing}${mutedNow ? ` · скрыто правилами ${mutedNow}` : ""}`;
 
     hist.innerHTML = data.history.filter(match).slice(0, 300).map((a) => `<tr>
-      <td title="${esc(new Date(a.received_at).toLocaleString())}">${esc(age(a.received_at))}</td>
+      <td title="${esc(new Date(a.received_at).toLocaleString(locale()))}">${esc(age(a.received_at))}</td>
       <td class="${a.status === "resolved" ? "ok" : "bad"}">${a.status === "resolved" ? "resolved" : "firing"}</td>
       <td>${esc(a.name)}</td><td>${esc(a.severity)}</td><td class="wrap">${esc(a.summary || a.description)}</td><td class="muted">${esc(a.source)}</td></tr>`).join("")
       || `<tr><td class="muted" colspan="6">Пока пусто</td></tr>`;
@@ -239,11 +240,13 @@ export function mountAlerts(root: HTMLElement) {
       <ol>
         <li><b>Grafana</b>: в Grafana создайте токен — Administration → Users and access → Service accounts → Add service account (роль Viewer) → Add service account token. Затем здесь «＋ Grafana», авторизация «токен», «Сохранить и проверить».</li>
         <li><b>Prometheus Alertmanager</b>: «＋ Alertmanager», URL вида http://alertmanager:9093.</li>
+        <li><b>Zabbix</b>: «＋ Zabbix», адрес веб-интерфейса и API-токен (Users → API tokens) или логин/пароль.</li>
         <li><b>Свой AI-анализатор</b>: «＋ AI-анализатор» — в карточке будет адрес, токен и пример curl.</li>
       </ol>
       <div class="row">
         <button class="primary" data-add="grafana">${icon("plus", 16)} Grafana</button>
         <button data-add="alertmanager">${icon("plus", 16)} Alertmanager</button>
+        <button data-add="zabbix">${icon("plus", 16)} Zabbix</button>
         <button data-add="ai">${icon("plus", 16)} AI-анализатор</button>
       </div>
     </div>`;
@@ -342,7 +345,7 @@ export function mountAlerts(root: HTMLElement) {
     if (act === "ai") {
       const inst = items.length > 1 ? `\nЭкземпляров: ${items.length}; метки: ${items.slice(0, 10).map((x) => Object.entries(x.labels).filter(([k]) => !HIDDEN_LABELS.has(k)).map(([k, v]) => `${k}=${v}`).join(" ")).join(" | ")}` : "";
       window.dispatchEvent(new CustomEvent("send-to-ai", { detail:
-        `${a.kind === "ai" ? "Находка AI-анализатора" : "Алерт"} (${a.source}): ${a.name}, severity ${a.severity || "—"}, горит с ${new Date(a.starts_at).toLocaleString()}.\n` +
+        `${a.kind === "ai" ? "Находка AI-анализатора" : "Алерт"} (${a.source}): ${a.name}, severity ${a.severity || "—"}, горит с ${new Date(a.starts_at).toLocaleString(locale())}.\n` +
         `${a.summary}\n${a.description}\n${a.value ? `Значения: ${a.value}\n` : ""}Метки: ${Object.entries(a.labels).map(([k, v]) => `${k}=${v}`).join(", ")}${inst}\n` +
         `Что это может значить и что проверить в первую очередь?` }));
     }

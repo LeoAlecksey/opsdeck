@@ -788,6 +788,22 @@ pub struct AiAnswer {
     elapsed_ms: u64,
 }
 
+/// The "Shell, OS" line of the AI context. `shell` is the pane's shell by program name
+/// ("pwsh", "bash", ...) or "wsl:<distro>": a WSL tab runs Linux even though OpsDeck runs on Windows.
+fn shell_context(shell: Option<&str>, os: &str) -> String {
+    match shell {
+        Some(s) if s.starts_with("wsl:") || s == "wsl" => {
+            let distro = s
+                .strip_prefix("wsl:")
+                .filter(|d| !d.is_empty())
+                .unwrap_or("по умолчанию");
+            format!("Shell: shell Linux в WSL (дистрибутив {distro}), ОС: linux\n")
+        }
+        Some(s) => format!("Shell: {s}, ОС: {os}\n"),
+        None => format!("Shell: bash, ОС: {os}\n"),
+    }
+}
+
 /// Plain-words request → one shell command. `context` = cwd, recent commands, shell.
 #[tauri::command]
 pub async fn ai_command(app: AppHandle, request: String, cwd: Option<String>, recent: Vec<String>, shell: Option<String>) -> Result<AiAnswer, String> {
@@ -797,7 +813,7 @@ pub async fn ai_command(app: AppHandle, request: String, cwd: Option<String>, re
     if let Some(c) = cwd.filter(|c| !c.is_empty()) {
         context += &format!("Текущая папка: {c}\n");
     }
-    context += &format!("Shell: {}, ОС: {}\n", shell.unwrap_or_else(|| "bash".into()), std::env::consts::OS);
+    context += &shell_context(shell.as_deref(), std::env::consts::OS);
     if !recent.is_empty() {
         context += "Недавние команды пользователя:\n";
         for r in recent.iter().rev().take(10).rev() {
@@ -851,12 +867,7 @@ mod tests {
     use crate::settings::Settings;
 
     fn settings(host: &str, port: &str, model: &str, key: &str) -> Settings {
-        let mut s = Settings::default();
-        s.ai_host = host.into();
-        s.ai_port = port.into();
-        s.ai_model = model.into();
-        s.ai_api_key = key.into();
-        s
+        Settings { ai_host: host.into(), ai_port: port.into(), ai_model: model.into(), ai_api_key: key.into(), ..Default::default() }
     }
 
     #[test]
@@ -881,9 +892,42 @@ mod tests {
     }
 
     #[test]
+    fn model_catalog() {
+        let mut ids = std::collections::HashSet::new();
+        let mut files = std::collections::HashSet::new();
+        for m in MODELS {
+            assert!(ids.insert(m.id), "duplicate id {}", m.id);
+            assert!(files.insert(m.file), "duplicate file {}", m.file);
+            assert_eq!(m.sha256.len(), 64, "{}", m.id);
+            assert!(m.sha256.chars().all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()), "{}", m.id);
+            assert!(m.url.starts_with("https://huggingface.co/") && m.url.ends_with(m.file), "{}", m.url);
+            assert!(m.size > 500_000_000, "{}", m.id);
+        }
+        assert_eq!(MODELS[0].id, "qwen2.5-coder-1.5b", "the light model stays the default");
+        assert!(MODELS.windows(2).all(|w| w[0].ram_gb <= w[1].ram_gb && w[0].size < w[1].size), "ordered from light to large");
+    }
+
+    #[test]
     fn clean() {
         assert_eq!(super::clean_command("```bash\n$ kubectl get pods -n prod\n```"), "kubectl get pods -n prod");
         assert_eq!(super::clean_command("`ls -la`"), "ls -la");
         assert_eq!(super::clean_command("<think>\nсписок подов\n</think>\n\nkubectl get pods -A"), "kubectl get pods -A");
+    }
+
+    #[test]
+    fn shell_line() {
+        assert_eq!(shell_context(None, "linux"), "Shell: bash, ОС: linux\n");
+        assert_eq!(
+            shell_context(Some("pwsh"), "windows"),
+            "Shell: pwsh, ОС: windows\n"
+        );
+        assert_eq!(
+            shell_context(Some("wsl:Ubuntu-24.04"), "windows"),
+            "Shell: shell Linux в WSL (дистрибутив Ubuntu-24.04), ОС: linux\n"
+        );
+        assert_eq!(
+            shell_context(Some("wsl"), "windows"),
+            "Shell: shell Linux в WSL (дистрибутив по умолчанию), ОС: linux\n"
+        );
     }
 }

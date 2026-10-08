@@ -84,6 +84,10 @@ fn ssh_dir() -> PathBuf {
 /// Concrete `Host` entries of ~/.ssh/config (patterns with * ? ! are skipped; Include is not followed).
 fn parse_config() -> Vec<ConfigHost> {
     let Ok(raw) = std::fs::read_to_string(ssh_dir().join("config")) else { return Vec::new() };
+    parse_config_text(&raw)
+}
+
+fn parse_config_text(raw: &str) -> Vec<ConfigHost> {
     let mut out: Vec<ConfigHost> = Vec::new();
     let mut current: Vec<usize> = Vec::new();
     let mut comment_group = String::new();
@@ -148,8 +152,8 @@ pub struct Effective {
 }
 
 /// Cache of `ssh -G` keyed by ~/.ssh/config mtime — otherwise every ssh_list spawns ssh.exe per alias.
-static EFFECTIVE_CACHE: Mutex<Option<(Option<SystemTime>, HashMap<String, Option<Effective>>)>> =
-    Mutex::new(None);
+type EffectiveCache = (Option<SystemTime>, HashMap<String, Option<Effective>>);
+static EFFECTIVE_CACHE: Mutex<Option<EffectiveCache>> = Mutex::new(None);
 
 fn config_mtime() -> Option<SystemTime> {
     std::fs::metadata(ssh_dir().join("config"))
@@ -369,14 +373,7 @@ pub fn ssh_connect(app: AppHandle, kp: State<KeepassState>, id: Option<String>, 
     if !valid_user(&user) {
         return Err("некорректный пользователь в записи KeePass".into());
     }
-    let mut args = vec!["-p".to_string(), h.port.to_string()];
-    if !h.identity_file.is_empty() {
-        args.extend(["-i".into(), h.identity_file.clone()]);
-    }
-    if !h.jump.is_empty() {
-        args.extend(["-J".into(), h.jump.clone()]);
-    }
-    args.push(if user.is_empty() { h.host.clone() } else { format!("{user}@{}", h.host) });
+    let args = profile_args(&h, &user);
     let copied = !pass.is_empty();
     if copied {
         keepass::copy_secret(&app, pass)?;
@@ -385,3 +382,102 @@ pub fn ssh_connect(app: AppHandle, kp: State<KeepassState>, id: Option<String>, 
 }
 
 
+
+/// ssh arguments for the monitoring board's probe: "id:<profile>" or "alias:<Host from ~/.ssh/config>".
+/// Never asks KeePass or the keyring: the probe logs in by key or over an open session.
+pub(crate) fn probe_args(target: &str) -> Result<Vec<String>, String> {
+    if let Some(alias) = target.strip_prefix("alias:") {
+        if alias.starts_with('-') || !parse_config().iter().any(|h| h.alias == alias) {
+            return Err("хост не найден в ~/.ssh/config".into());
+        }
+        return Ok(vec![alias.to_string()]);
+    }
+    let id = target.strip_prefix("id:").ok_or("неизвестный хост")?;
+    let h = load()?.into_iter().find(|h| h.id == id).ok_or("профиль не найден")?;
+    Ok(profile_args(&h, &h.user))
+}
+
+fn profile_args(h: &SshHost, user: &str) -> Vec<String> {
+    let mut args = vec!["-p".to_string(), h.port.to_string()];
+    if !h.identity_file.is_empty() {
+        args.extend(["-i".into(), h.identity_file.clone()]);
+    }
+    if !h.jump.is_empty() {
+        args.extend(["-J".into(), h.jump.clone()]);
+    }
+    args.push(if user.is_empty() { h.host.clone() } else { format!("{user}@{}", h.host) });
+    args
+}
+
+#[cfg(test)]
+mod tests {
+
+    #[test]
+    fn board_probe_args() {
+        let h = SshHost {
+            id: "a".into(), name: "web".into(), group: String::new(), host: "192.0.2.1".into(), port: 2222, user: "ops".into(),
+            identity_file: "~/.ssh/id".into(), jump: "bastion".into(), auth: "keepass".into(), keepass_entry: "k".into(),
+        };
+        assert_eq!(profile_args(&h, &h.user), ["-p", "2222", "-i", "~/.ssh/id", "-J", "bastion", "ops@192.0.2.1"]);
+        assert_eq!(profile_args(&SshHost { identity_file: String::new(), jump: String::new(), ..h.clone() }, "").last().unwrap(), "192.0.2.1");
+        assert!(probe_args("alias:-oProxyCommand=x").is_err());
+        assert!(probe_args("rm -rf").is_err());
+    }
+    use super::*;
+
+    const CONFIG: &str = "
+# group: prod
+Host bastion bastion-alt
+    HostName bastion.example.com
+    User ops
+    Port 2222
+    IdentityFile ~/.ssh/id_ed25519
+
+Host app-1
+    HostName=198.51.100.11
+    ProxyJump bastion
+    User deploy
+    User ignored-second-value
+
+Host *.internal !secret
+    User wildcard
+
+Match host foo
+    User from-match
+
+host lower
+  hostname lower.example.com
+";
+
+    #[test]
+    fn config_hosts() {
+        let hosts = parse_config_text(CONFIG);
+        let names: Vec<_> = hosts.iter().map(|h| h.alias.as_str()).collect();
+        assert_eq!(names, ["bastion", "bastion-alt", "app-1", "lower"], "patterns are skipped");
+        let b = &hosts[0];
+        assert_eq!((b.hostname.as_str(), b.user.as_str(), b.port.as_str()), ("bastion.example.com", "ops", "2222"));
+        assert_eq!(b.group, "prod", "# group: comment above Host");
+        assert_eq!(hosts[1].hostname, "bastion.example.com", "settings apply to every alias of the line");
+        assert_eq!(hosts[1].group, "prod");
+        let app = &hosts[2];
+        assert_eq!(app.hostname, "198.51.100.11", "key=value form");
+        assert_eq!(app.user, "deploy", "first value wins, like ssh");
+        assert_eq!(app.proxy_jump, "bastion");
+        assert_eq!(app.group, "", "the group comment is used once");
+        assert_eq!(hosts[3].hostname, "lower.example.com", "keywords are case-insensitive");
+        assert_eq!(hosts[3].user, "", "Match blocks do not leak into the next Host");
+    }
+
+    #[test]
+    fn users_and_jumps() {
+        assert!(valid_user("deploy"));
+        assert!(valid_user("user@CORP.example"), "AD-style logins");
+        assert!(!valid_user("-oProxyCommand=x"), "no option injection");
+        assert!(!valid_user("a b"));
+        assert!(!valid_user("a;rm"));
+        assert!(valid_jump("bastion"));
+        assert!(valid_jump("ops@bastion.example.com:2222,deploy@10.0.0.1"));
+        assert!(!valid_jump("-J evil"));
+        assert!(!valid_jump("ops@host;id"));
+    }
+}

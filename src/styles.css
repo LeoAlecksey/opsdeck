@@ -1000,3 +1000,48 @@ body.no-select, body.no-select * { user-select: none; -webkit-user-select: none;
 .ai-others button.link { padding: 0; border: 0; background: none; color: var(--accent); cursor: pointer; font-size: 12px; }
 .ai-others button.link:hover { text-decoration: underline; }
 .hint.warn { color: #e6c07b; }
+
+/* web panels: ＋ menu to open another panel from a tab */
+.web-pick { margin-left: 2px; }
+.web-pick-menu { position: fixed; z-index: 70; min-width: 220px; max-height: 60vh; overflow: auto; padding: 4px; background: var(--panel);
+  border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 8px 28px rgba(0, 0, 0, .35); display: flex; flex-direction: column; }
+.web-pick-menu button { justify-content: flex-start; gap: 8px; width: 100%; }
+.web-pick-menu button .muted { margin-left: auto; font-size: 12px; }
+.web-pick-menu .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); flex: none; }
+.web-pick-menu .dot.kind-grafana { background: #f2a54a; } .web-pick-menu .dot.kind-argocd { background: #ef7b4d; } .web-pick-menu .dot.kind-gitlab { background: #e2432a; }
+
+/* notes: unsaved changes — a turquoise frame around the note until it is saved */
+.note-dirty .notes-main { box-shadow: inset 0 0 0 2px var(--accent); border-radius: 4px; }
+
+/* IDE git graph: a new branch has no line of its own until its first commit */
+.cg-hint { margin: 6px 8px 8px; padding: 8px 10px; font-size: 12px; color: var(--muted); border: 1px dashed var(--border); border-radius: 6px; line-height: 1.5; }
+.web-tabs .dot.kind-zabbix, .web-pick-menu .dot.kind-zabbix { background: #d40000; }
+
+/* terminal colour schemes, Windows block */
+.wsl-btn { font-size: 11px; font-weight: 600; letter-spacing: .02em; width: auto; padding: 0 6px; }
+.theme-row { display: flex; align-items: flex-end; gap: 8px; flex-wrap: wrap; }
+.theme-row label { flex: 1; min-width: 200px; }
+.theme-import textarea { width: 100%; font-family: var(--mono, monospace); font-size: 12px; }
+
+/* monitoring board */
+.mon-board { display: flex; flex-direction: column; gap: 14px; }
+.mon-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 10px; }
+.mon-card { background: var(--panel); border: 1px solid var(--border); border-left: 3px solid var(--border); border-radius: 8px; padding: 10px 12px; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.mon-card.warn { border-left-color: #e6c07b; } .mon-card.bad { border-left-color: var(--danger); }
+.mon-head { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.mon-head b { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mon-addr { font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mon-busy { margin-left: auto; }
+.mon-dot { width: 9px; height: 9px; border-radius: 50%; flex: none; background: var(--muted, #888); }
+.mon-dot.ok { background: #98d982; } .mon-dot.warn { background: #e6c07b; } .mon-dot.bad { background: var(--danger); }
+.mon-row { display: grid; grid-template-columns: 52px 1fr auto; align-items: center; gap: 8px; font-size: 12px; }
+.mon-row > span:first-child { color: var(--muted, #888); overflow: hidden; text-overflow: ellipsis; }
+.mon-row.warn .mon-val, .mon-row.warn .mon-bar { color: #e6c07b; } .mon-row.bad .mon-val, .mon-row.bad .mon-bar { color: var(--danger); }
+.mon-row.ok .mon-bar { color: #98d982; }
+.mon-bar { display: block; height: 6px; background: var(--panel-2); border-radius: 3px; overflow: hidden; }
+.mon-bar > i { display: block; height: 100%; background: currentColor; opacity: .8; }
+.mon-val { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.mon-foot { display: flex; justify-content: space-between; font-size: 11px; }
+.mon-err { color: var(--danger); font-size: 12px; margin: 0; word-break: break-word; }
+.mon-pick-list { display: flex; flex-direction: column; gap: 4px; max-height: 50vh; overflow: auto; margin: 8px 0; }
+.mon-pick .mon-filter { width: 100%; }

@@ -1,0 +1,27 @@
+import { describe, expect, it } from "vitest";
+import { isWsl, shellName } from "../../src/modules/shellkind";
+
+const WSL = "C:\\Windows\\System32\\wsl.exe";
+
+describe("pane shell", () => {
+  it("names local shells by program", () => {
+    expect(shellName({ program: "C:\\Program Files\\PowerShell\\7\\pwsh.exe", args: [] })).toBe("pwsh");
+    expect(shellName({ program: "powershell.exe", args: [] })).toBe("powershell");
+    expect(shellName({ program: "/bin/zsh", args: [] })).toBe("zsh");
+  });
+
+  it("WSL: the distribution from -d / --distribution", () => {
+    expect(shellName({ program: WSL, args: ["-d", "Ubuntu-24.04", "--cd", "~"] })).toBe("wsl:Ubuntu-24.04");
+    expect(shellName({ program: "wsl", args: ["--distribution", "Debian"] })).toBe("wsl:Debian");
+    expect(shellName({ program: WSL, args: [] })).toBe("wsl:");
+    expect(isWsl({ program: WSL, args: [] })).toBe(true);
+    expect(isWsl({ program: "C:\\Program Files\\Git\\bin\\bash.exe", args: [] })).toBe(false);
+  });
+
+  it("unknown for ssh, other programs and before the start", () => {
+    expect(shellName({ program: "ssh", args: ["web1"] })).toBeNull();
+    expect(shellName({ program: "claude", args: [] })).toBeNull();
+    expect(shellName(null)).toBeNull();
+    expect(isWsl(null)).toBe(false);
+  });
+});

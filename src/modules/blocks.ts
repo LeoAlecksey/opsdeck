@@ -41,7 +41,8 @@ export class ShellBlocks {
   constructor(private term: Terminal) {
     term.parser.registerOscHandler(133, (data) => { this.osc(data); return true; });
     term.parser.registerOscHandler(7, (data) => {
-      try { this.cwd = decodeURIComponent(new URL(data).pathname); } catch { /* ignore */ }
+      // file://HOST/C:/Users/… on Windows: drop the slash before the drive letter
+      try { this.cwd = decodeURIComponent(new URL(data).pathname).replace(/^\/([A-Za-z]:)/, "$1"); } catch { /* ignore */ }
       return true;
     });
   }

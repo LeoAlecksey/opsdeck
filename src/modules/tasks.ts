@@ -1,6 +1,6 @@
 import { helpBtn } from "./help";
 import { icon } from "./icons";
-import { t as tl } from "../i18n";
+import { t as tl, locale } from "../i18n";
 import { invoke } from "@tauri-apps/api/core";
 import { esc, toast } from "./ui";
 import { registerProvider } from "./palette";
@@ -21,7 +21,7 @@ const human = (d: string) => {
   if (d === ymd(addDays(new Date(), 1))) return tl("завтра");
   if (d === ymd(addDays(new Date(), -1))) return tl("вчера");
   const [y, m, day] = d.split("-").map(Number);
-  return new Date(y, m - 1, day).toLocaleDateString(undefined, { day: "numeric", month: "short", ...(y !== new Date().getFullYear() ? { year: "numeric" } : {}) });
+  return new Date(y, m - 1, day).toLocaleDateString(locale(), { day: "numeric", month: "short", ...(y !== new Date().getFullYear() ? { year: "numeric" } : {}) });
 };
 
 export function mountTasks(root: HTMLElement) {

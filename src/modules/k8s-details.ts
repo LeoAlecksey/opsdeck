@@ -1,3 +1,4 @@
+import { locale } from "../i18n";
 import { esc } from "./ui";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -73,7 +74,7 @@ const table = (head: string[], rows: string[][], clsFor?: (r: number, c: number)
       rows.map((r, ri) => `<tr>${r.map((c, ci) => `<td class="${clsFor?.(ri, ci) ?? ""}">${esc(c)}</td>`).join("")}</tr>`).join("")
     }</tbody></table>`
     : "";
-const when = (ts?: string) => (ts ? `${new Date(ts).toLocaleString()} (${age(ts)})` : "");
+const when = (ts?: string) => (ts ? `${new Date(ts).toLocaleString(locale())} (${age(ts)})` : "");
 const chips = (m?: Record<string, string>) =>
   m && Object.keys(m).length ? `<div class="chips">${Object.entries(m).map(([k, v]) => `<span class="chip">${esc(k)}=${esc(v)}</span>`).join("")}</div>` : "";
 const res = (r?: Obj) => (r ? Object.entries(r).map(([k, v]) => `${k}=${v}`).join(" ") : "");

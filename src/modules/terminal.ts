@@ -8,7 +8,10 @@ import { registerProvider } from "./palette";
 import { hlPrefs, setHlPrefs } from "./highlight";
 import { addSnippet } from "./snippets";
 import { attachPathLinks, mountFiles } from "./files";
-import { esc, toast } from "./ui";
+import { esc, overlay, toast } from "./ui";
+import { isWindows } from "./themes";
+import { AI_PROVIDERS, aiAgent, setAiAgent } from "./ai-agents";
+import { isWsl, shellName } from "./shellkind";
 
 /** Other modules open a tab via: window.dispatchEvent(new CustomEvent("open-terminal", { detail })) */
 export type OpenTerminalDetail = SpawnOpts & { title?: string; keepOpen?: boolean };
@@ -16,13 +19,6 @@ export type OpenTerminalDetail = SpawnOpts & { title?: string; keepOpen?: boolea
 type Pane = { pty: PtyTerminal; el: HTMLElement; tab: Tab; keepOpen: boolean; recording?: string };
 type Tab = { btn: HTMLElement; host: HTMLElement; label: HTMLElement; panes: Pane[]; active: Pane | null; dir: "row" | "column" };
 
-const AI_PROVIDERS: Record<string, { program: string; args?: string[] }> = {
-  "Claude Code": { program: "claude" },
-  Codex: { program: "codex" },
-  Gemini: { program: "gemini" },
-  Aider: { program: "aider" },
-  OpenCode: { program: "opencode" },
-};
 const MAX_PANES = 4;
 
 function load(key: string, fallback: string) {
@@ -56,6 +52,7 @@ export function mountTerminal(root: HTMLElement) {
         <button class="icon" data-act="files" title="Файлы: дерево текущей папки, открыть в IDE (Ctrl+Shift+B)">${icon("folder", 16)}</button>
         <div class="tabs"></div>
         <button class="icon" data-act="new" title="Новая вкладка (Ctrl+Shift+T)">${icon("plus", 16)}</button>
+        <button class="icon wsl-btn" data-act="wsl" title="Новая вкладка WSL: выбрать дистрибутив" hidden>WSL</button>
         <button class="icon" data-act="split-r" title="Разделить вправо (Ctrl+Shift+D)">${icon("splitH", 16)}</button>
         <button class="icon" data-act="split-d" title="Разделить вниз (Ctrl+Shift+E)">${icon("splitV", 16)}</button>
         <button class="icon rec-btn" data-act="rec" title="Записывать эту панель в файл (вкл/выкл)">${icon("record", 16)}</button>
@@ -122,10 +119,17 @@ export function mountTerminal(root: HTMLElement) {
   let ai: PtyTerminal | null = null;
 
   for (const name of Object.keys(AI_PROVIDERS)) providerSel.add(new Option(name, name));
-  providerSel.value = load("opsdeck.ai.provider", "Claude Code");
+  providerSel.value = aiAgent();
+  // the default agent changed in Settings or the palette: a running panel switches to it
+  window.addEventListener("ai-agent", () => {
+    if (providerSel.value === aiAgent()) return;
+    providerSel.value = aiAgent();
+    if (ai) startAi();
+  });
 
   const activePane = () => activeTab?.active ?? null;
-  const cwd = () => activePane()?.pty.blocks.cwd || undefined;
+  // a WSL pane reports Linux paths: they are no use as a Windows working folder
+  const cwd = () => { const p = activePane()?.pty; return p && !isWsl(p.launched) ? p.blocks.cwd || undefined : undefined; };
 
   // ----- session recording -----
 
@@ -228,7 +232,9 @@ export function mountTerminal(root: HTMLElement) {
     if (tab.panes.length > 1 && tab.dir !== dir) return toast("Во вкладке уже есть разделение в другую сторону", "err");
     tab.dir = dir;
     tab.host.style.flexDirection = dir;
-    addPane(tab, { cwd: cwd() });
+    // like Windows Terminal: a WSL pane splits into the same distribution, others into a local shell
+    const l = tab.active?.pty.launched ?? null;
+    addPane(tab, l && isWsl(l) ? { program: l.program, args: l.args } : { cwd: cwd() });
   }
 
   function cyclePane(step: 1 | -1) {
@@ -482,8 +488,47 @@ export function mountTerminal(root: HTMLElement) {
 
   // ----- wiring -----
 
-  providerSel.onchange = () => { save("opsdeck.ai.provider", providerSel.value); startAi(); };
+  providerSel.onchange = () => { setAiAgent(providerSel.value); startAi(); };
   $("[data-act=new]").onclick = () => newTab();
+
+  // Windows: WSL distributions in one click (the button shows only when WSL has any)
+  type WinShell = { id: string; label: string; program: string; args: string[] };
+  let wsl: WinShell[] = [];
+  if (isWindows()) {
+    invoke<WinShell[]>("win_shells").then((list) => {
+      wsl = list.filter((x) => x.id.startsWith("wsl:"));
+      $("[data-act=wsl]").hidden = !wsl.length;
+    }).catch(() => {});
+  }
+  const openWsl = (sh: WinShell) => newTab({ program: sh.program, args: sh.args, title: sh.id.slice(4) });
+  $("[data-act=wsl]").onclick = () => {
+    if (wsl.length === 1) return openWsl(wsl[0]);
+    document.querySelector(".wsl-menu")?.remove();
+    const menu = document.createElement("div");
+    menu.className = "web-pick-menu wsl-menu";
+    menu.innerHTML = wsl.map((x, i) => `<button class="ghost" data-i="${i}">${esc(x.id.slice(4))}</button>`).join("");
+    const r = $("[data-act=wsl]").getBoundingClientRect();
+    menu.style.left = `${r.left}px`;
+    menu.style.top = `${r.bottom + 4}px`;
+    overlay(true);
+    document.body.appendChild(menu);
+    const close = (e?: Event) => {
+      if (e instanceof KeyboardEvent && e.key !== "Escape") return;
+      if (e && e.type === "pointerdown" && menu.contains(e.target as Node)) return;
+      menu.remove();
+      document.removeEventListener("pointerdown", close, true);
+      document.removeEventListener("keydown", close, true);
+      overlay(false);
+    };
+    menu.addEventListener("click", (e) => {
+      const i = (e.target as HTMLElement).closest<HTMLElement>("[data-i]")?.dataset.i;
+      if (i === undefined) return;
+      close();
+      openWsl(wsl[Number(i)]);
+    });
+    document.addEventListener("pointerdown", close, true);
+    document.addEventListener("keydown", close, true);
+  };
   $("[data-act=split-r]").onclick = () => split("row");
   $("[data-act=split-d]").onclick = () => split("column");
   $("[data-act=rec]").onclick = toggleRec;
@@ -518,7 +563,7 @@ export function mountTerminal(root: HTMLElement) {
     aaCmd = "";
     try {
       const recent = aaPty.blocks.blocks.slice(-10).map((b) => b.command).filter(Boolean);
-      const r = await invoke<{ command: string; from_notes: string[]; elapsed_ms: number }>("ai_command", { request, cwd: aaPty.blocks.cwd || null, recent, shell: null });
+      const r = await invoke<{ command: string; from_notes: string[]; elapsed_ms: number }>("ai_command", { request, cwd: aaPty.blocks.cwd || null, recent, shell: shellName(aaPty.launched) });
       aaCmd = r.command;
       $(".aa-cmd").textContent = r.command || "(пустой ответ — переформулируйте)";
       $(".aa-meta").textContent = `${(r.elapsed_ms / 1000).toFixed(1)} с${r.from_notes.length ? ` · учтено команд из заметок и истории: ${r.from_notes.length}` : ""}`;
@@ -580,13 +625,42 @@ export function mountTerminal(root: HTMLElement) {
     e.stopPropagation();
   }, true);
 
+  // tab switching (#26): Alt+1…9 (9 = last), Alt+←/→, Ctrl+Tab / Ctrl+Shift+Tab, Ctrl+PageDown/PageUp
+  const cycleTab = (step: number) => {
+    if (tabs.length < 2 || !activeTab) return;
+    activate(tabs[(tabs.indexOf(activeTab) + step + tabs.length) % tabs.length]);
+  };
+  window.addEventListener("keydown", (e) => {
+    if (root.hidden || e.metaKey) return;
+    const alt = e.altKey && !e.ctrlKey && !e.shiftKey;
+    const digit = /^Digit([1-9])$/.exec(e.code)?.[1];
+    if (alt && digit) {
+      const n = Number(digit);
+      const t = n === 9 ? tabs[tabs.length - 1] : tabs[n - 1];
+      if (!t) return;
+      activate(t);
+    } else if (alt && (e.key === "ArrowRight" || e.key === "ArrowLeft")) cycleTab(e.key === "ArrowRight" ? 1 : -1);
+    else if (e.ctrlKey && !e.altKey && e.key === "Tab") cycleTab(e.shiftKey ? -1 : 1);
+    else if (e.ctrlKey && !e.altKey && !e.shiftKey && (e.key === "PageDown" || e.key === "PageUp")) cycleTab(e.key === "PageDown" ? 1 : -1);
+    else return;
+    e.preventDefault();
+    e.stopPropagation();
+  }, true);
+
   window.addEventListener("view-shown", (e) => {
     if ((e as CustomEvent).detail !== "terminal") return;
-    requestAnimationFrame(() => { activeTab?.panes.forEach((p) => p.pty.resize()); ai?.resize(); activePane()?.pty.term.focus(); });
+    requestAnimationFrame(() => {
+      activeTab?.panes.forEach((p) => p.pty.resize());
+      ai?.resize();
+      // the local AI box opens together with the view: keep the cursor in its input
+      if (root.querySelector(".ai-ask")?.hasAttribute("hidden") !== false) activePane()?.pty.term.focus();
+    });
   });
 
   registerProvider(() => [
     { group: "Терминал", title: "Новая вкладка", hint: "Ctrl+Shift+T", run: () => { show(); newTab(); } },
+    { group: "Терминал", title: "Следующая вкладка", hint: "Alt+→ · Ctrl+Tab", run: () => { show(); cycleTab(1); } },
+    { group: "Терминал", title: "Предыдущая вкладка", hint: "Alt+← · Ctrl+Shift+Tab", run: () => { show(); cycleTab(-1); } },
     { group: "Терминал", title: "Разделить вправо", hint: "Ctrl+Shift+D", run: () => { show(); split("row"); } },
     { group: "Терминал", title: "Разделить вниз", hint: "Ctrl+Shift+E", run: () => { show(); split("column"); } },
     { group: "Терминал", title: "AI-панель: показать/скрыть", hint: "Ctrl+Shift+I", run: () => { show(); toggleAi(); } },
@@ -599,7 +673,7 @@ export function mountTerminal(root: HTMLElement) {
     { group: "Терминал", title: "Шрифт по умолчанию", hint: "Ctrl+0", run: () => termFontStep(0) },
     { group: "Терминал", title: "Открыть папку с записями сессий", run: () => { invoke("pty_records_open").catch((e) => toast(String(e), "err")); } },
     ...Object.keys(AI_PROVIDERS).map((name) => ({
-      group: "AI", title: `AI-панель: ${name}`, run: () => { show(); providerSel.value = name; save("opsdeck.ai.provider", name); startAi(); toggleAi(true); },
+      group: "AI", title: `AI-панель: ${name}`, run: () => { show(); providerSel.value = name; setAiAgent(name); startAi(); toggleAi(true); },
     })),
     // recent commands of the active pane, newest first, without duplicates
     ...[...new Map(terminalApi.history().map((b) => [b.command, b])).values()].slice(0, 40).map((b) => ({

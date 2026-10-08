@@ -1,3 +1,4 @@
+import { locale } from "../i18n";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { ask, esc, toast } from "./ui";
@@ -55,7 +56,7 @@ export function mountUpdates(el: HTMLElement) {
     $(".upd-result").textContent = u.available ? "" : "✓ Это последняя версия";
     $(".upd-new").classList.toggle("rollback", !!u.rollback);
     if (u.available) {
-      const when = u.date ? ` от ${new Date(u.date * 1000).toLocaleDateString()}` : "";
+      const when = u.date ? ` от ${new Date(u.date * 1000).toLocaleDateString(locale())}` : "";
       $(".upd-title").textContent = u.rollback
         ? `Версия ${u.current} отозвана (критическая ошибка). Стабильная версия: ${u.version}${when}`
         : `Доступна версия ${u.version}${when}`;
@@ -119,7 +120,7 @@ export function mountUpdates(el: HTMLElement) {
       box.innerHTML = list.length ? list.map((r) => `
         <div class="upd-rel ${r.withdrawn ? "withdrawn" : ""}" title="${esc(r.notes.slice(0, 600))}">
           <b>${esc(r.version)}</b>
-          <span class="muted">${r.date ? new Date(r.date).toLocaleDateString() : ""}</span>
+          <span class="muted">${r.date ? new Date(r.date).toLocaleDateString(locale()) : ""}</span>
           ${r.withdrawn ? `<span class="upd-tag bad">отозвана</span>` : ""}
           ${r.version === cur ? `<span class="upd-tag">установлена</span>` : ""}
           <span class="spacer"></span>

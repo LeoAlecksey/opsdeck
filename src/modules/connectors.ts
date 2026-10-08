@@ -2,7 +2,7 @@ import { helpBtn } from "./help";
 import { icon } from "./icons";
 import { invoke } from "@tauri-apps/api/core";
 import { pickEntry } from "./keepass";
-import { ask, esc, toast } from "./ui";
+import { ask, esc, toast, overlay } from "./ui";
 import { registerProvider } from "./palette";
 
 type Connector = { id: string; kind: string; name: string; group?: string; url: string; username: string; auth: string; keepass_entry?: string; ingest_token?: string };
@@ -12,6 +12,7 @@ const KINDS: Record<string, { label: string; auth: string[]; hint: string }> = {
   argocd: { label: "ArgoCD", auth: ["keepass", "password", "token"], hint: "admin/пароль или API-токен (argocd account generate-token)." },
   gitlab: { label: "GitLab", auth: ["keepass", "password", "none"], hint: "Логин/пароль заполняются в форму входа. 2FA вводится руками." },
   alertmanager: { label: "Alertmanager", auth: ["none", "password", "token", "keepass"], hint: "Prometheus Alertmanager, URL вида http://alertmanager:9093. OpsDeck опрашивает /api/v2/alerts — алерты появятся в разделе «Алерты»." },
+  zabbix: { label: "Zabbix", auth: ["token", "keepass", "password"], hint: "Zabbix 6.0+: проблемы забираются по API раз в минуту. Удобнее всего API-токен (Users → API tokens), можно логин/пароль." },
   ai: { label: "AI / анализатор", auth: ["none", "token", "password", "keepass"], hint: "Локальный или удалённый анализатор логов и алертов. Как подключить — ниже." },
   generic: { label: "Другое (URL)", auth: ["none"], hint: "Просто открыть веб-интерфейс в отдельном окне." },
 };
@@ -21,8 +22,9 @@ export function mountConnectors(root: HTMLElement) {
   root.classList.add("web");
   root.innerHTML = `
     <div class="tabbar web-tabs">
-      <div class="tab active" data-t="home">☰ Панели</div>
+      <div class="tab active" data-t="home" title="Все панели: открыть другую, добавить, изменить">☰ Панели</div>
       <div class="tabs web-tablist"></div>
+      <button class="icon web-pick" data-act="pick" title="Открыть ещё панель (вторую Grafana и т.п.)">${icon("plus", 16)}</button>
       <span class="spacer"></span>
       ${helpBtn("web")}
       <span class="web-nav" hidden>
@@ -118,9 +120,9 @@ export function mountConnectors(root: HTMLElement) {
   function renderSourceHelp() {
     const kind = f("kind").value, auth = f("auth").value;
     const box = form.querySelector<HTMLElement>(".src-help")!;
-    const canCheck = kind === "grafana" || kind === "alertmanager" || (kind === "ai" && !!f("url").value.trim());
+    const canCheck = kind === "grafana" || kind === "alertmanager" || kind === "zabbix" || (kind === "ai" && !!f("url").value.trim());
     form.querySelector<HTMLElement>("[data-check]")!.hidden = !canCheck || (kind === "grafana" && auth === "none");
-    box.hidden = kind !== "grafana" && kind !== "alertmanager";
+    box.hidden = kind !== "grafana" && kind !== "alertmanager" && kind !== "zabbix";
     if (kind === "grafana") {
       box.innerHTML = `<div class="side-head small">Сбор алертов из этой Grafana</div>
         <ol>
@@ -138,6 +140,12 @@ export function mountConnectors(root: HTMLElement) {
         <ol><li>URL — адрес Alertmanager, например <code>http://alertmanager.monitoring:9093</code> (доступный с этого компьютера, через VPN тоже).</li>
         <li>Если перед ним нет авторизации — оставьте «без автологина»; иначе логин/пароль или токен.</li>
         <li><b>Сохранить и проверить</b>.</li></ol>`;
+    } else if (kind === "zabbix") {
+      box.innerHTML = `<div class="side-head small">Сбор проблем из Zabbix</div>
+        <ol><li>URL — адрес веб-интерфейса Zabbix, например <code>https://zabbix.example.com</code> (API найдётся сам).</li>
+        <li>Токен: Zabbix → <b>Users → API tokens → Create API token</b> (пользователь с правом чтения нужных хостов). Здесь: Авторизация = <b>токен</b>.</li>
+        <li>Или логин/пароль (в том числе из KeePass) — OpsDeck сам войдёт через API.</li>
+        <li><b>Сохранить и проверить</b>. Важность Disaster/High — critical, Average/Warning — warning, Information — info.</li></ol>`;
     }
   }
 
@@ -398,7 +406,11 @@ export function mountConnectors(root: HTMLElement) {
     requestAnimationFrame(async () => {
       placing = false;
       if (!visible()) return;
-      const r = slot.getBoundingClientRect();
+      const s = slot.getBoundingClientRect();
+      const bar = root.querySelector(".web-tabs")!.getBoundingClientRect();
+      // the page is a native view: never let it cover the tab bar (☰ Панели, ＋, tabs)
+      const top = Math.max(s.top, bar.bottom);
+      const r = { left: s.left, top, width: s.width, height: s.bottom - top };
       if (r.width < 2 || r.height < 2) return;
       const url = pendingUrl?.id === active ? pendingUrl.url : null;
       pendingUrl = null;
@@ -437,8 +449,44 @@ export function mountConnectors(root: HTMLElement) {
     else drawTabs();
   }
 
+  // ＋ in the tab bar: open another panel straight from a tab (no need to go back to ☰ Панели).
+  // The page is a native view over the window, so it is hidden while the menu is open.
+  async function pickMenu(anchor: HTMLElement) {
+    document.querySelector(".web-pick-menu")?.remove();
+    const list = (await invoke<Connector[]>("connectors_list").catch(() => [] as Connector[])).filter((c) => c.url && c.kind !== "ai");
+    const menu = document.createElement("div");
+    menu.className = "web-pick-menu";
+    menu.innerHTML = list.length
+      ? list.map((c) => `<button class="ghost" data-id="${esc(c.id)}"><span class="dot kind-${esc(c.kind)}"></span>${esc(c.name)}<span class="muted">${esc(c.group || "")}</span></button>`).join("")
+      : `<p class="muted pad">Панелей пока нет — ☰ Панели → ＋ Добавить</p>`;
+    const r = anchor.getBoundingClientRect();
+    menu.style.left = `${r.left}px`;
+    menu.style.top = `${r.bottom + 4}px`;
+    overlay(true);
+    document.body.appendChild(menu);
+    const close = (e?: Event) => {
+      if (e instanceof KeyboardEvent && e.key !== "Escape") return;
+      if (e && e.type === "pointerdown" && menu.contains(e.target as Node)) return;
+      menu.remove();
+      document.removeEventListener("pointerdown", close, true);
+      document.removeEventListener("keydown", close, true);
+      overlay(false);
+    };
+    menu.addEventListener("click", (e) => {
+      const id = (e.target as HTMLElement).closest<HTMLElement>("[data-id]")?.dataset.id;
+      const c = list.find((x) => x.id === id);
+      if (!c) return;
+      close();
+      openTab(c);
+    });
+    document.addEventListener("pointerdown", close, true);
+    document.addEventListener("keydown", close, true);
+  }
+
   root.querySelector<HTMLElement>(".web-tabs")!.addEventListener("click", (e) => {
     const t = e.target as HTMLElement;
+    const pick = t.closest<HTMLElement>("[data-act=pick]");
+    if (pick) return void pickMenu(pick);
     const tab = t.closest<HTMLElement>("[data-t]");
     if (t.closest(".x") && tab) return closeTab(tab.dataset.t!);
     if (tab) return activate(tab.dataset.t!);

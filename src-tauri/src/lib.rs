@@ -26,8 +26,29 @@ mod store;
 mod tasks;
 mod tools;
 mod updater;
+mod winbox_import;
+mod winshell;
+
+/// The main window, from tauri.conf.json ("create": false there).
+fn main_window(app: &tauri::App) -> tauri::Result<()> {
+    let cfg = app.config().app.windows.iter().find(|w| w.label == "main").cloned().expect("main window in tauri.conf.json");
+    #[allow(unused_mut)]
+    let mut builder = tauri::WebviewWindowBuilder::from_config(app.handle(), &cfg)?;
+    // e2e tests on Windows: msedgedriver enables DevTools through WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS,
+    // which WebView2 150+ ignores in elevated processes (GitHub's Windows runners); passed through the
+    // API it works. Debug builds only — release builds keep the runtime's hardening.
+    #[cfg(all(windows, debug_assertions))]
+    if let Ok(extra) = std::env::var("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS") {
+        builder = builder.additional_browser_args(&format!("--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection {extra}"));
+    }
+    builder.build()?;
+    Ok(())
+}
 
 pub fn run() {
+    #[cfg(target_os = "macos")]
+    process::fix_macos_path();
+
     tauri::Builder::default()
         .plugin(diag::log_plugin())
         .plugin(tauri_plugin_clipboard_manager::init())
@@ -44,6 +65,7 @@ pub fn run() {
         .manage(ai::AiState::default())
         .setup(|app| {
             diag::install_panic_hook();
+            main_window(app)?;
             diag::start_watchdog(app.handle().clone());
             log::info!("OpsDeck {} started", app.package_info().version);
             keepass::spawn_autolock(app.handle().clone());
@@ -153,6 +175,11 @@ pub fn run() {
             ai::ai_set_gpu,
             ai::ai_command,
             ai::ai_test,
+            winshell::win_shells,
+            winshell::wt_settings,
+            winbox_import::mt_import_scan,
+            winbox_import::mt_import,
+            winbox_import::mt_import_pick,
             settings::ai_key_clear,
             cmdindex::cmd_suggest,
             db::db_list,
@@ -210,6 +237,7 @@ pub fn run() {
             ssh::ssh_group_rename,
             sysmon::sys_local,
             sysmon::sys_remote,
+            sysmon::mon_probe,
             ports::ports_scan,
             ports::ports_listening,
             snippets::snippets_save,

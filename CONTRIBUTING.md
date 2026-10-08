@@ -2,7 +2,7 @@
 
 Спасибо, что хотите помочь! Ошибки, идеи и pull request'ы приветствуются.
 
-> *English:* issues and PRs in English are welcome too. Short version: fork → branch → `npx tsc` + `cargo check` + `cargo test` pass → PR to `dev` with a description of what and why.
+> *English:* issues and PRs in English are welcome too. Short version: fork → branch → `npx tsc`, `npm test`, `npm run test:ui` and `cargo test --lib` pass → PR to `dev` with a description of what and why.
 
 ## Сообщить об ошибке или предложить идею
 
@@ -22,6 +22,7 @@
    ```bash
    npx tsc                                  # типы TypeScript
    cd src-tauri && cargo check && cargo test --lib
+   cd .. && npm test && npm run test:ui   # тесты интерфейса: vitest и Playwright (сам поднимет vite)
    ```
 4. Откройте PR в ветку `dev` (в `master` попадает только то, что уходит в релиз). Заполните шаблон: что изменилось и зачем, как проверяли. Сборку и проверки для PR в `dev` мейнтейнер запускает вручную после просмотра кода.
 
@@ -44,3 +45,7 @@
 ## Лицензия
 
 Присылая изменения, вы соглашаетесь, что они распространяются под лицензией проекта — [MIT](LICENSE).
+
+## Безопасность
+
+PR, которые трогают CI, выпуск релизов и обновления, работу с паролями и секретами, запуск команд, зависимости или ссылки автора, автоматически получают метку «⚠ безопасность» и проверяются владельцем особенно внимательно (см. `.github/CODEOWNERS`). Ссылки автора на донат и Telegram защищены проверкой `npm run check:links`: изменить или добавить другие ссылки на оплату, кошельки или Telegram в PR нельзя.

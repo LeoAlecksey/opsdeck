@@ -347,3 +347,13 @@ pub async fn clip_write(app: AppHandle, text: String) -> Result<(), String> {
 pub async fn clip_read(app: AppHandle) -> String {
     app.clipboard().read_text().unwrap_or_default()
 }
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn entry_ids() {
+        assert!(super::parse_id("3f2b9c1e-7a4d-4f6b-9a1e-0c2d3e4f5a6b").is_ok());
+        assert!(super::parse_id("../../etc").is_err());
+        assert!(super::parse_id("").is_err());
+    }
+}

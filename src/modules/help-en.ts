@@ -27,7 +27,8 @@ export const HELP_EN: Record<string, { title: string; html: string }> = {
       <h4>Hotkeys</h4>
       <ul>
         <li>${kbd("Ctrl+Shift+T")} new tab, ${kbd("Ctrl+Shift+W")} close pane/tab</li>
-        <li>${kbd("Ctrl+Shift+D")} / ${kbd("Ctrl+Shift+E")} split right / down, ${kbd("Ctrl+Shift+←/→")} between panes</li>
+        <li>${kbd("Alt+1")}…${kbd("Alt+9")} go to a tab by number (${kbd("Alt+9")} — the last one), ${kbd("Alt+←/→")} or ${kbd("Ctrl+Tab")} / ${kbd("Ctrl+Shift+Tab")} — previous / next tab</li>
+        <li>${kbd("Ctrl+Shift+D")} / ${kbd("Ctrl+Shift+E")} split right / down (a WSL pane — into the same distribution), ${kbd("Ctrl+Shift+←/→")} between panes</li>
         <li>${kbd("Ctrl+Shift+↑/↓")} to the previous / next command</li>
         <li>${kbd("Ctrl+=")} / ${kbd("Ctrl+-")} / ${kbd("Ctrl+0")} font size</li>
         <li>${kbd("Ctrl+Shift+C/V")} copy / paste, ${kbd("Ctrl+Shift+A")} selection → AI, ${kbd("Ctrl+Shift+I")} AI panel</li>
@@ -84,6 +85,7 @@ export const HELP_EN: Record<string, { title: string; html: string }> = {
       <ul>
         <li><b>Grafana</b> — Grafana Alerting alerts (login/password, a service account token with the Viewer role, or KeePass);</li>
         <li><b>Alertmanager</b> — Prometheus Alertmanager;</li>
+        <li><b>Zabbix</b> — Zabbix 6.0+ problems over the API, the same as on its Problems page (no disabled hosts and triggers, dependent ones or symptoms): an API token (Users → API tokens) or a login/password;</li>
         <li><b>AI / analyzer</b> — findings of your log/alert analyzer: a local one posts them to 127.0.0.1 with its token, a remote one serves a JSON feed at a URL.</li>
       </ul>
       <h4>Connecting Grafana — step by step</h4>
@@ -122,6 +124,18 @@ export const HELP_EN: Record<string, { title: string; html: string }> = {
       <li><b>Ports</b> tab: a host port scan (a list and ranges, e.g. <code>22,80,8000-8100</code>, or presets) — open / closed / filtered and what answers (service banner, Server header, TLS); below — which ports this machine listens on and which process holds them.</li>
       <li>For DNS you can set the record type and the server (e.g. 8.8.8.8), for ping/mtr — the packet count.</li>
       <li><b>Stop</b> interrupts a long command.</li></ul>`,
+  },
+  monitor: {
+    title: "Host monitoring",
+    html: `
+      <h4>What it is</h4>
+      <p>A board of SSH host cards: CPU, load average, memory, disk and uptime. The card colour follows the worst value: yellow from 75%, red from 90%.</p>
+      <h4>How to turn it on</h4>
+      <ul><li>The module is turned on with a checkbox in the ⊞ menu at the bottom of the left column.</li>
+      <li><b>＋ Hosts</b> — choose profiles from the SSH section and hosts from ~/.ssh/config; the choice is remembered. Host groups become sections of the board.</li>
+      <li>“Refresh” — how often to poll (or by hand with ⟳). While the section is not open, hosts are not polled.</li></ul>
+      <h4>How metrics are collected</h4>
+      <p>Over ssh without a password: a key login (ssh-agent, IdentityFile) or a session already open in OpsDeck is needed. The connection is kept for 2 minutes and reused, so the next poll is cheap. /proc and df are read — Linux only. If a host has never been connected to, accept its key: connect once from the terminal.</p>`,
   },
   ssh: {
     title: "SSH",
@@ -198,7 +212,7 @@ export const HELP_EN: Record<string, { title: string; html: string }> = {
       <li><b>⋯</b> on a row (or right-click): new note here, rename, <b>delete</b>. Deleted items move to the vault's trash (the <code>.trash</code> folder, like in Obsidian) — you can restore them from there.</li>
       <li><b>Drag and drop</b>: drag a note or a folder into another folder or to the root. Hold over a closed folder — it opens.</li>
       <li><b>Editor / Preview</b> (${kbd("Ctrl+E")}), <b>Save</b> (${kbd("Ctrl+S")}), [[…]] links are clickable.</li>
-      <li><b>@ Claude</b> — insert a link to the note (or the selected lines) into the Claude Code prompt; <b>Obsidian ↗</b> — open in Obsidian.</li></ul>
+      <li><b>@ agent</b> — insert a link to the note (or the selected lines) into the prompt of the AI agent chosen in ⚙ Settings → AI agent: Claude Code gets it over the IDE bridge, the others as an @path line in the AI panel; <b>Obsidian ↗</b> — open in Obsidian.</li></ul>
       <h4>Tags</h4>
       <p>Above the note there is a tag bar: type a tag into <b>＋ tag</b> and press ${kbd("Enter")} — existing tags are suggested. These tags are stored at the top of the note (<code>tags: [...]</code>, like in Obsidian), <b>×</b> removes one. Tags written right in the text (<code>#idea</code>) are shown too — with a dashed border.</p>
       <h4>Tasks</h4>
@@ -242,6 +256,7 @@ export const HELP_EN: Record<string, { title: string; html: string }> = {
       <h4>What's where</h4>
       <ul><li><b>＋ Device</b> — address, WinBox/SSH ports, credentials (from KeePass, the keyring or no password).</li>
       <li><b>WinBox</b> connects to the router right away; <b>SSH</b> — a terminal tab, the password in the clipboard for 30 s; <b>ping</b> — a tab with ping.</li>
+      <li><b>Import from WinBox</b> brings over the routers saved in WinBox's address list (Addresses.cdb): address, port, login, group, the note as the name and, if ticked, passwords — into the OS keyring. The list is shown before anything is added; addresses already here are skipped. If WinBox has a master password, remove it for the import.</li>
       <li>The WinBox path — in ⚙ Settings.</li></ul>
       <h4>Caveat</h4>
       <p>WinBox accepts the password only as a command-line argument, so while it is open the password is visible in your user's process list.</p>`,
@@ -253,6 +268,8 @@ export const HELP_EN: Record<string, { title: string; html: string }> = {
       <li><b>Modules</b>: the ⊞ button at the bottom of the left column turns sections on and off with checkboxes. A fresh install starts with Terminal, Kubernetes, SSH, KeePass and Notes. If another section needs one (e.g. SSH opens a terminal tab), it is turned on automatically.</li>
       <li><b>Icon order</b> in the left column is changed by dragging with the mouse and is remembered (⚙ always stays at the bottom).</li>
       <li><b>Terminal</b>: input and output highlighting, inline suggestions, font size and family. Enter the name of an installed monospace font; choose MesloLGS NF or a Nerd Font for Powerlevel10k icons. The choice applies immediately to all terminals and is remembered. An empty field restores the default font.</li>
+      <li><b>Colour scheme</b> of the terminal: OpsDeck, Campbell, One Half Dark, Solarized Dark, Dracula or your own — <i>Import JSON…</i> takes Windows Terminal's settings.json, a list of schemes or one scheme. Applies to all terminals at once.</li>
+      <li><b>Windows</b> (shown on Windows only): the shell for new tabs — PowerShell 5.1 or 7, Git Bash, cmd, a WSL distribution — and importing schemes straight from the installed Windows Terminal. The <b>WSL</b> button next to ＋ in the terminal opens a tab of the chosen distribution; it gets TERM, COLORTERM and KUBECONFIG (paths as /mnt/c/…), and the AI command in a WSL tab suggests Linux commands.</li>
       <li><b>KeePass</b>: “Keep the database open until OpsDeck closes” (on by default) or auto-lock after N minutes idle.</li>
       <li>Paths to the KeePass database, the notes folder and WinBox are filled in automatically if found in the home folder (candidates — in the field's dropdown).</li>
       <li><b>Kubernetes</b>: by default OpsDeck works only with its own kubeconfig copies; the checkbox also shows the shared ~/.kube/config.</li>

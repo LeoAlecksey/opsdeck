@@ -122,6 +122,8 @@ pub fn cleanup(app: &AppHandle) {
     }
 }
 
+// the handshake callback type is tungstenite's: its error is a whole HTTP response
+#[allow(clippy::result_large_err)]
 async fn connection(app: AppHandle, stream: tokio::net::TcpStream) {
     let token = app.state::<IdeState>().token.clone();
     // only the CLI with the token from the lock file; browsers always send Origin

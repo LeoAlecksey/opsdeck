@@ -1,0 +1,30 @@
+# Изменения в этих местах вливаются только с одобрения владельца (Settings → Branches/Rules →
+# «Require review from Code Owners»). Здесь: CI и ключ подписи, выпуск релизов и обновления,
+# пароли и секреты, запуск команд, зависимости, ссылки автора на донат и Telegram.
+/.github/                         @LeoAlecksey
+/scripts/                         @LeoAlecksey
+/src-tauri/tauri.conf.json        @LeoAlecksey
+/src-tauri/tauri.release.conf.json @LeoAlecksey
+/src-tauri/capabilities/          @LeoAlecksey
+/src-tauri/Cargo.toml             @LeoAlecksey
+/src-tauri/Cargo.lock             @LeoAlecksey
+/package.json                     @LeoAlecksey
+/package-lock.json                @LeoAlecksey
+/src-tauri/src/updater.rs         @LeoAlecksey
+/src-tauri/src/store.rs           @LeoAlecksey
+/src-tauri/src/keepass.rs         @LeoAlecksey
+/src-tauri/src/settings.rs        @LeoAlecksey
+/src-tauri/src/connectors.rs      @LeoAlecksey
+/src-tauri/src/ai.rs              @LeoAlecksey
+/src-tauri/src/ide.rs             @LeoAlecksey
+/src-tauri/src/embed.rs           @LeoAlecksey
+/src-tauri/src/pty.rs             @LeoAlecksey
+/src-tauri/src/process.rs         @LeoAlecksey
+/src-tauri/src/ssh.rs             @LeoAlecksey
+/src-tauri/src/mikrotik.rs        @LeoAlecksey
+/src-tauri/src/db.rs              @LeoAlecksey
+/src-tauri/shell/                 @LeoAlecksey
+/src/modules/settings.ts          @LeoAlecksey
+/src/modules/updates.ts           @LeoAlecksey
+/README.md                        @LeoAlecksey
+/site/                            @LeoAlecksey

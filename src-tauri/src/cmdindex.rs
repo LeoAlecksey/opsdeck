@@ -37,6 +37,29 @@ fn shell_history() -> Vec<String> {
             }
         }
     }
+    // PowerShell (PSReadLine): one command per line, a trailing ` continues it
+    let ps = if cfg!(windows) {
+        dirs::data_dir().map(|d| d.join("Microsoft/Windows/PowerShell/PSReadLine/ConsoleHost_history.txt"))
+    } else {
+        dirs::data_dir().map(|d| d.join("powershell/PSReadLine/ConsoleHost_history.txt"))
+    };
+    if let Some(text) = ps.and_then(|p| fs::read(p).ok()) {
+        let text = String::from_utf8_lossy(&text);
+        let mut cont = String::new();
+        for l in text.lines() {
+            let l = l.trim_end_matches('\r');
+            if let Some(part) = l.strip_suffix('`') {
+                cont += part;
+                cont.push('\n');
+                continue;
+            }
+            let cmd = std::mem::take(&mut cont) + l;
+            let cmd = cmd.trim();
+            if cmd.len() >= 2 && !cmd.starts_with('#') {
+                out.push(cmd.to_string());
+            }
+        }
+    }
     out
 }
 
@@ -127,7 +150,7 @@ pub async fn related(query: &str, n: usize) -> Vec<String> {
         q.iter().filter(|t| ct.iter().any(|c| c == *t || (t.chars().count() >= 4 && c.starts_with(t.as_str())))).count()
     };
     let mut scored: Vec<(usize, String)> = idx.notes.iter().map(|(c, _)| (score(c) * 2, c.clone())).chain(idx.history.keys().map(|c| (score(c), c.clone()))).filter(|(s, _)| *s > 0).collect();
-    scored.sort_by(|a, b| b.0.cmp(&a.0));
+    scored.sort_by_key(|a| std::cmp::Reverse(a.0));
     let mut out: Vec<String> = Vec::new();
     for (_, c) in scored {
         if !out.contains(&c) {
