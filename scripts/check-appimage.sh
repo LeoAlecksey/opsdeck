@@ -17,8 +17,8 @@ for img in "$@"; do
   # -lln: numeric owners; lines like "-rwxrwx--- 0/0 31552 2026-10-08 12:00 squashfs-root/AppRun.wrapped"
   bad="$(unsquashfs -lln -o "$offset" "$img" | awk '
     $1 ~ /^[-d]/ {
-      m = $1; t = substr(m, 1, 1); or = substr(m, 8, 1); ox = substr(m, 10, 1); ux = substr(m, 4, 1)
-      if (or != "r" || (t == "d" && ox != "x") || (t == "-" && ux == "x" && ox != "x")) print m, $NF
+      m = $1; kind = substr(m, 1, 1); oread = substr(m, 8, 1); oexec = substr(m, 10, 1); uexec = substr(m, 4, 1)
+      if (oread != "r" || (kind == "d" && oexec != "x") || (kind == "-" && uexec == "x" && oexec != "x")) print m, $NF
     }')"
   if [ -n "$bad" ]; then
     echo "::error::$img: files not readable/runnable by every user:"
