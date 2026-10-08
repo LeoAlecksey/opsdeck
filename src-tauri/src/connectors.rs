@@ -5,6 +5,7 @@
 
 use crate::{
     keepass::{self, KeepassState},
+    passbolt::{self, PassboltState},
     store,
 };
 use serde::{Deserialize, Serialize};
@@ -30,6 +31,9 @@ pub struct Connector {
     /// KeePass entry uuid when auth == "keepass"
     #[serde(default)]
     pub keepass_entry: String,
+    /// Passbolt resource uuid when auth == "passbolt"
+    #[serde(default)]
+    pub passbolt_entry: String,
     /// kind "ai": token the analyzer uses to push findings to OpsDeck's local ingest endpoint
     #[serde(default)]
     pub ingest_token: String,
@@ -104,6 +108,9 @@ pub fn connector_save(
     if connector.auth == "keepass" && connector.keepass_entry.is_empty() {
         return Err("выберите запись KeePass".into());
     }
+    if connector.auth == "passbolt" && connector.passbolt_entry.is_empty() {
+        return Err("выберите запись Passbolt".into());
+    }
     let basic_secret = basic_secret.filter(|s| !s.is_empty());
     if !connector.basic_user.is_empty()
         && basic_secret.is_none()
@@ -163,8 +170,9 @@ pub fn all() -> Result<Vec<Connector>, String> {
 }
 
 /// (username, password-or-token) of a connector; empty when it has no credentials.
-pub fn credentials(
+pub async fn credentials(
     kp: &KeepassState,
+    pb: &PassboltState,
     c: &Connector,
     used: keepass::Use,
 ) -> Result<(String, String), String> {
@@ -174,12 +182,27 @@ pub fn credentials(
             let (user, pass) = keepass::credentials(kp, &c.keepass_entry, used)?;
             (if c.username.is_empty() { user } else { c.username.clone() }, pass)
         }
+        "passbolt" => {
+            let (user, pass) = passbolt::credentials(pb, &c.passbolt_entry, used).await?;
+            (
+                if c.username.is_empty() {
+                    user
+                } else {
+                    c.username.clone()
+                },
+                pass,
+            )
+        }
         _ => (c.username.clone(), store::secret_get(&secret_key(&c.id)).unwrap_or_default()),
     })
 }
 
 /// Connector, its start URL and (if credentials are configured) the auto-login init script.
-pub fn prepare(kp: &KeepassState, id: &str) -> Result<(Connector, Url, Option<String>), String> {
+pub async fn prepare(
+    kp: &KeepassState,
+    pb: &PassboltState,
+    id: &str,
+) -> Result<(Connector, Url, Option<String>), String> {
     let mut c = load()?.into_iter().find(|c| c.id == id).ok_or("connector not found")?;
     let url = Url::parse(&c.url).map_err(|e| e.to_string())?;
     let secret = match c.auth.as_str() {
@@ -192,6 +215,14 @@ pub fn prepare(kp: &KeepassState, id: &str) -> Result<(Connector, Url, Option<St
             c.auth = "password".into(); // same login flow as a stored password
             pass
         }
+        "passbolt" => {
+            let (user, pass) = passbolt::credentials(pb, &c.passbolt_entry, keepass::Use::User).await?;
+            if c.username.is_empty() {
+                c.username = user;
+            }
+            c.auth = "password".into();
+            pass
+        }
         _ => store::secret_get(&secret_key(&c.id)).unwrap_or_default(),
     };
     let script = (!secret.is_empty()).then(|| login_script(&c, &url, &secret));
@@ -201,12 +232,17 @@ pub fn prepare(kp: &KeepassState, id: &str) -> Result<(Connector, Url, Option<St
 /// Opens the connector in its own window. Async: on Windows, building a window from a synchronous
 /// command deadlocks (WebviewWindowBuilder::build docs) — a blank window that cannot be closed.
 #[tauri::command]
-pub async fn connector_open(app: AppHandle, kp: State<'_, KeepassState>, id: String) -> Result<(), String> {
+pub async fn connector_open(
+    app: AppHandle,
+    kp: State<'_, KeepassState>,
+    pb: State<'_, PassboltState>,
+    id: String,
+) -> Result<(), String> {
     let label = format!("conn-{id}");
     if let Some(w) = app.get_webview_window(&label) {
         return w.set_focus().map_err(|e| e.to_string());
     }
-    let (c, url, script) = prepare(&kp, &id)?;
+    let (c, url, script) = prepare(&kp, &pb, &id).await?;
     let mut builder = WebviewWindowBuilder::new(&app, &label, WebviewUrl::External(url))
         .title(format!("{} — OpsDeck", c.name))
         .inner_size(1360.0, 860.0)

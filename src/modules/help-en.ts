@@ -67,10 +67,10 @@ export const HELP_EN: Record<string, { title: string; html: string }> = {
     title: "Web panels",
     html: `
       <h4>How it works</h4>
-      <p>Grafana, ArgoCD, GitLab and any sites open as tabs right here, with automatic login. Passwords are in the system keyring or KeePass.</p>
+      <p>Grafana, ArgoCD, GitLab and any sites open as tabs right here, with automatic login. Passwords are in the system keyring, KeePass or Passbolt.</p>
       <h4>What's where</h4>
       <ul>
-        <li><b>＋ Add</b> — a new connector: type, URL, login method (login/password, token, KeePass entry).</li>
+        <li><b>＋ Add</b> — a new connector: type, URL, login method (login/password, token, KeePass or Passbolt entry).</li>
         <li><b>Open</b> — a tab next to “☰ Panels”; <b>⧉</b> — in a separate window.</li>
         <li><b>Groups</b>: the “Group” field in a panel card — panels with the same group are gathered into a collapsible row, like a Row in a Grafana dashboard. <b>✎</b> — edit, <b>🗑</b> — delete.</li>
         <li>On the right of a tab: <b>← → ↻ ⌂</b> — navigation, <b>⧉</b> — move to a window.</li>
@@ -149,7 +149,7 @@ export const HELP_EN: Record<string, { title: string; html: string }> = {
       <p>“Connect” opens a terminal tab with ssh. Hosts from ~/.ssh/config connect by alias with all their settings (keys, ProxyJump).</p>
       <h4>What's where</h4>
       <ul><li><b>＋ Host</b> — your own profile: address, port, user, key (-i), jump host (-J), login method.</li>
-      <li>A password from KeePass/keyring goes to the clipboard for 30 seconds — paste with ${kbd("Ctrl+Shift+V")} when ssh asks.</li>
+      <li>A password from KeePass/Passbolt/keyring goes to the clipboard for 30 seconds — paste with ${kbd("Ctrl+Shift+V")} when ssh asks.</li>
       <li><b>Groups</b> — collapsible blocks. For your own profile the group is set in ✎, for a host from ~/.ssh/config — with the 📁 button (OpsDeck keeps it to itself and doesn't change the ssh config) or with a <code># group: prod</code> comment on the line above <code>Host</code>. ✎ in a group header renames the whole group.</li>
       <li><b>⧉</b> on a host from ~/.ssh/config — save as a profile to bind a KeePass password.</li>
       <li>All hosts are in the palette ${kbd("Ctrl+Shift+P")} → “SSH: …”.</li></ul>`,
@@ -183,7 +183,7 @@ export const HELP_EN: Record<string, { title: string; html: string }> = {
     title: "Databases",
     html: `
       <h4>How it works</h4>
-      <p>Connections to PostgreSQL, MySQL/MariaDB, ClickHouse, Redis and MongoDB: address, port, login. The password is kept in the system keyring or taken from a KeePass entry. On the left — the structure: databases → schemas → tables → columns and indexes (for Redis — db and keys, for MongoDB — collections, fields and indexes). On the right — the query editor and the result.</p>
+      <p>Connections to PostgreSQL, MySQL/MariaDB, ClickHouse, Redis and MongoDB: address, port, login. The password is kept in the system keyring or taken from a KeePass or Passbolt entry. On the left — the structure: databases → schemas → tables → columns and indexes (for Redis — db and keys, for MongoDB — collections, fields and indexes). On the right — the query editor and the result.</p>
       <h4>What's where</h4>
       <ul>
         <li><b>＋</b> — a new connection. <b>Save and check</b> shows the server version or the error right away.</li>
@@ -271,13 +271,14 @@ export const HELP_EN: Record<string, { title: string; html: string }> = {
       <li>Click a row — details: 👁 show the password for 10 seconds, <b>Show description</b>.</li>
       <li>The password and description are fetched from the server on first use — Passbolt logs every such access, so nothing is downloaded in advance.</li>
       <li>⟳ — re-read the list from the server (new and changed entries).</li>
+      <li>Passbolt entries can be bound to web panels, SSH hosts, databases and MikroTik routers — then passwords are taken from here.</li>
       <li>While Passbolt is unlocked, passwords are in the palette ${kbd("Ctrl+Shift+P")} → “Password: …”.</li></ul>`,
   },
   winbox: {
     title: "MikroTik",
     html: `
       <h4>What's where</h4>
-      <ul><li><b>＋ Device</b> — address, WinBox/SSH ports, credentials (from KeePass, the keyring or no password).</li>
+      <ul><li><b>＋ Device</b> — address, WinBox/SSH ports, credentials (from KeePass, Passbolt, the keyring or no password).</li>
       <li><b>WinBox</b> connects to the router right away; <b>SSH</b> — a terminal tab, the password in the clipboard for 30 s; <b>ping</b> — a tab with ping.</li>
       <li><b>Import from WinBox</b> brings over the routers saved in WinBox's address list (Addresses.cdb): address, port, login, group, the note as the name and, if ticked, passwords — into the OS keyring. The list is shown before anything is added; addresses already here are skipped. If WinBox has a master password, remove it for the import.</li>
       <li>The WinBox path — in ⚙ Settings.</li></ul>

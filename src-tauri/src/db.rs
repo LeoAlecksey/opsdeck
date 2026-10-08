@@ -6,6 +6,7 @@
 use crate::{
     dbtunnel::{self, TunnelState},
     keepass::{self, KeepassState},
+    passbolt::{self, PassboltState},
     store::{self, err},
     tools::valid_host,
 };
@@ -45,6 +46,9 @@ pub struct DbProfile {
     pub auth: String,
     #[serde(default)]
     pub keepass_entry: String,
+    /// Passbolt resource uuid when auth == "passbolt"
+    #[serde(default)]
+    pub passbolt_entry: String,
     /// off | require (encrypt, don't check the certificate) | verify
     #[serde(default = "default_tls")]
     pub tls: String,
@@ -106,11 +110,26 @@ fn find(id: &str) -> Result<DbProfile, String> {
 }
 
 /// Username from the profile overrides the KeePass entry's one.
-fn credentials(kp: &KeepassState, p: &DbProfile) -> Result<(String, String), String> {
+async fn credentials(
+    kp: &KeepassState,
+    pb: &PassboltState,
+    p: &DbProfile,
+) -> Result<(String, String), String> {
     match p.auth.as_str() {
         "keepass" => {
             let (u, pw) = keepass::credentials(kp, &p.keepass_entry, keepass::Use::User)?;
             Ok((if p.username.is_empty() { u } else { p.username.clone() }, pw))
+        }
+        "passbolt" => {
+            let (u, pw) = passbolt::credentials(pb, &p.passbolt_entry, keepass::Use::User).await?;
+            Ok((
+                if p.username.is_empty() {
+                    u
+                } else {
+                    p.username.clone()
+                },
+                pw,
+            ))
         }
         "password" => Ok((p.username.clone(), store::secret_get(&secret_key(&p.id)).unwrap_or_default())),
         _ => Ok((p.username.clone(), String::new())),
@@ -138,6 +157,9 @@ pub fn db_save(profile: DbProfile, secret: Option<String>) -> Result<(), String>
     }
     if profile.auth == "keepass" && profile.keepass_entry.is_empty() {
         return Err("выберите запись KeePass".into());
+    }
+    if profile.auth == "passbolt" && profile.passbolt_entry.is_empty() {
+        return Err("выберите запись Passbolt".into());
     }
     if let Some(s) = secret.filter(|s| !s.is_empty()) {
         store::secret_set(&secret_key(&profile.id), &s)?;
@@ -167,9 +189,14 @@ struct Ctx {
 }
 
 /// The profile with its credentials; with a jump host the address is the local end of an SSH tunnel.
-async fn ctx(kp: &KeepassState, tunnels: &TunnelState, id: &str) -> Result<Ctx, String> {
+async fn ctx(
+    kp: &KeepassState,
+    pb: &PassboltState,
+    tunnels: &TunnelState,
+    id: &str,
+) -> Result<Ctx, String> {
     let p = find(id)?;
-    let (user, pass) = credentials(kp, &p)?;
+    let (user, pass) = credentials(kp, pb, &p).await?;
     let mut c = Ctx { p, user, pass };
     if !c.p.jump.is_empty() {
         if c.p.tls == "verify" {
@@ -187,8 +214,13 @@ async fn timed<T>(limit: Duration, f: impl std::future::Future<Output = Result<T
 
 /// Check the connection; returns the server version.
 #[tauri::command]
-pub async fn db_test(kp: State<'_, KeepassState>, tunnels: State<'_, TunnelState>, id: String) -> Result<String, String> {
-    let c = ctx(&kp, &tunnels, &id).await?;
+pub async fn db_test(
+    kp: State<'_, KeepassState>,
+    pb: State<'_, PassboltState>,
+    tunnels: State<'_, TunnelState>,
+    id: String,
+) -> Result<String, String> {
+    let c = ctx(&kp, &pb, &tunnels, &id).await?;
     let q = match c.p.engine.as_str() {
         "postgres" => "SELECT version()",
         "mysql" => "SELECT CONCAT(@@version_comment, ' ', VERSION())",
@@ -219,8 +251,15 @@ pub async fn db_test(kp: State<'_, KeepassState>, tunnels: State<'_, TunnelState
 
 /// Run what the user typed. `database` is the database/schema chosen in the panel (Redis: "db3").
 #[tauri::command]
-pub async fn db_query(kp: State<'_, KeepassState>, tunnels: State<'_, TunnelState>, id: String, query: String, database: Option<String>) -> Result<QueryResult, String> {
-    let c = ctx(&kp, &tunnels, &id).await?;
+pub async fn db_query(
+    kp: State<'_, KeepassState>,
+    pb: State<'_, PassboltState>,
+    tunnels: State<'_, TunnelState>,
+    id: String,
+    query: String,
+    database: Option<String>,
+) -> Result<QueryResult, String> {
+    let c = ctx(&kp, &pb, &tunnels, &id).await?;
     let started = Instant::now();
     let mut r = timed(QUERY_TIMEOUT, run(&c, &query, database.filter(|d| !d.is_empty()).as_deref())).await?;
     r.elapsed_ms = started.elapsed().as_millis() as u64;
@@ -229,8 +268,14 @@ pub async fn db_query(kp: State<'_, KeepassState>, tunnels: State<'_, TunnelStat
 
 /// Children of a node in the structure tree; `path` is empty for the top level.
 #[tauri::command]
-pub async fn db_tree(kp: State<'_, KeepassState>, tunnels: State<'_, TunnelState>, id: String, path: Vec<String>) -> Result<Vec<Node>, String> {
-    let c = ctx(&kp, &tunnels, &id).await?;
+pub async fn db_tree(
+    kp: State<'_, KeepassState>,
+    pb: State<'_, PassboltState>,
+    tunnels: State<'_, TunnelState>,
+    id: String,
+    path: Vec<String>,
+) -> Result<Vec<Node>, String> {
+    let c = ctx(&kp, &pb, &tunnels, &id).await?;
     timed(TREE_TIMEOUT, async {
         match c.p.engine.as_str() {
             "postgres" => pg_tree(&c, &path).await,

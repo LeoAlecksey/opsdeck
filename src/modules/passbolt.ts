@@ -2,7 +2,7 @@ import { helpBtn } from "./help";
 import { icon } from "./icons";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { esc, toast } from "./ui";
+import { esc, overlay, toast } from "./ui";
 import { registerProvider } from "./palette";
 
 export type PbStatus = {
@@ -132,6 +132,56 @@ function unlockForm(el: HTMLElement, st: PbStatus, onUnlocked: () => void) {
     }
   };
   requestAnimationFrame(() => pw.focus());
+}
+
+/** Modal picker used by connectors, SSH, databases and MikroTik to bind credentials to a Passbolt resource. */
+export function pickEntry(): Promise<PbEntry | null> {
+  const dlg = document.createElement("dialog");
+  dlg.className = "kp-picker";
+  dlg.innerHTML = `<h3>Запись Passbolt</h3><div class="kp-picker-body"></div>
+    <div class="actions"><button data-a="cancel">Отмена</button></div>`;
+  document.body.appendChild(dlg);
+  overlay(true);
+  const body = dlg.querySelector<HTMLElement>(".kp-picker-body")!;
+
+  return new Promise((resolve) => {
+    let result: PbEntry | null = null;
+    dlg.addEventListener("close", () => { overlay(false); dlg.remove(); resolve(result); });
+    dlg.querySelector<HTMLElement>("[data-a=cancel]")!.onclick = () => dlg.close();
+
+    const showList = () => {
+      body.innerHTML = `<input class="kp-q" placeholder="поиск: имя, логин, URL, папка" spellcheck="false" /><div class="kp-plist"></div>`;
+      const q = body.querySelector<HTMLInputElement>(".kp-q")!;
+      const list = body.querySelector<HTMLElement>(".kp-plist")!;
+      let entries: PbEntry[] = [];
+      const draw = async () => {
+        entries = (await pbEntries(q.value).catch(() => [])).filter((e) => e.has_password);
+        list.innerHTML = entries.slice(0, 200).map((e, i) => `
+          <button class="kp-pitem" data-i="${i}"><span>${esc(e.title || "(без названия)")}</span>
+          <span class="muted">${esc(e.username)}${e.group ? " · " + esc(e.group) : ""}</span></button>`).join("")
+          || `<p class="muted">Ничего не найдено</p>`;
+      };
+      list.onclick = (e) => {
+        const b = (e.target as HTMLElement).closest<HTMLElement>(".kp-pitem");
+        if (b) { result = entries[Number(b.dataset.i)]; dlg.close(); }
+      };
+      let t = 0;
+      q.oninput = () => { clearTimeout(t); t = window.setTimeout(draw, 120); };
+      draw();
+      q.focus();
+    };
+
+    dlg.showModal();
+    pbStatus().then((st) => (st.unlocked ? showList() : unlockForm(body, st, showList)));
+  });
+}
+
+/** Titles of bound resources for lists of other modules (known only while unlocked). */
+export async function pbTitles(): Promise<Map<string, string>> {
+  const titles = new Map<string, string>();
+  if ((await pbStatus().catch(() => null))?.unlocked)
+    (await pbEntries().catch(() => [])).forEach((e) => titles.set(e.id, `${e.title}${e.username ? " · " + e.username : ""}`));
+  return titles;
 }
 
 registerProvider(async () => {

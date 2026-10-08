@@ -3,6 +3,7 @@
 
 use crate::{
     keepass::{self, KeepassState},
+    passbolt::{self, PassboltState},
     settings, store,
     tools::valid_host,
 };
@@ -26,6 +27,9 @@ pub struct Device {
     pub auth: String,
     #[serde(default)]
     pub keepass_entry: String,
+    /// Passbolt resource uuid when auth == "passbolt"
+    #[serde(default)]
+    pub passbolt_entry: String,
     #[serde(default = "default_winbox_port")]
     pub winbox_port: u16,
     #[serde(default = "default_ssh_port")]
@@ -63,11 +67,26 @@ fn find(id: &str) -> Result<Device, String> {
 }
 
 /// Username from the device overrides the KeePass entry's one.
-fn credentials(kp: &KeepassState, d: &Device) -> Result<(String, String), String> {
+async fn credentials(
+    kp: &KeepassState,
+    pb: &PassboltState,
+    d: &Device,
+) -> Result<(String, String), String> {
     match d.auth.as_str() {
         "keepass" => {
             let (u, p) = keepass::credentials(kp, &d.keepass_entry, keepass::Use::User)?;
             Ok((if d.username.is_empty() { u } else { d.username.clone() }, p))
+        }
+        "passbolt" => {
+            let (u, p) = passbolt::credentials(pb, &d.passbolt_entry, keepass::Use::User).await?;
+            Ok((
+                if d.username.is_empty() {
+                    u
+                } else {
+                    d.username.clone()
+                },
+                p,
+            ))
         }
         "password" => Ok((d.username.clone(), store::secret_get(&secret_key(&d.id)).unwrap_or_default())),
         _ => Ok((d.username.clone(), String::new())),
@@ -89,6 +108,9 @@ pub fn mt_save(device: Device, secret: Option<String>) -> Result<(), String> {
     }
     if device.auth == "keepass" && device.keepass_entry.is_empty() {
         return Err("выберите запись KeePass".into());
+    }
+    if device.auth == "passbolt" && device.passbolt_entry.is_empty() {
+        return Err("выберите запись Passbolt".into());
     }
     if let Some(s) = secret.filter(|s| !s.is_empty()) {
         store::secret_set(&secret_key(&device.id), &s)?;
@@ -112,9 +134,13 @@ pub fn mt_delete(id: String) -> Result<(), String> {
 /// WinBox 4 CLI: `WinBox <address[:port]> <login> <password>`.
 /// Note: like any CLI launch, the password is visible in the process list of this user.
 #[tauri::command]
-pub async fn mt_winbox(kp: State<'_, KeepassState>, id: String) -> Result<(), String> {
+pub async fn mt_winbox(
+    kp: State<'_, KeepassState>,
+    pb: State<'_, PassboltState>,
+    id: String,
+) -> Result<(), String> {
     let d = find(&id)?;
-    let (user, pass) = credentials(&kp, &d)?;
+    let (user, pass) = credentials(&kp, &pb, &d).await?;
     let bin = winbox_bin(&settings::current().await.winbox_path)?;
     let bin = bin.to_string_lossy().into_owned();
     let addr = if d.winbox_port == 8291 { d.host.clone() } else { format!("{}:{}", d.host, d.winbox_port) };
@@ -170,9 +196,14 @@ pub struct SshSpec {
 
 /// Returns what to run in a terminal tab; the password (if known) goes to the clipboard for 30 s.
 #[tauri::command]
-pub fn mt_ssh(app: AppHandle, kp: State<KeepassState>, id: String) -> Result<SshSpec, String> {
+pub async fn mt_ssh(
+    app: AppHandle,
+    kp: State<'_, KeepassState>,
+    pb: State<'_, PassboltState>,
+    id: String,
+) -> Result<SshSpec, String> {
     let d = find(&id)?;
-    let (user, pass) = credentials(&kp, &d)?;
+    let (user, pass) = credentials(&kp, &pb, &d).await?;
     let target = if user.is_empty() { d.host.clone() } else { format!("{user}@{}", d.host) };
     let copied = !pass.is_empty();
     if copied {

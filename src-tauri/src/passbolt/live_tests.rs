@@ -34,7 +34,7 @@ fn by_title(state: &PassboltState, title: &str) -> String {
 }
 
 async fn password(state: &PassboltState, id: &str) -> Result<String, String> {
-    secret(state, id, |_, s| s.password.clone().unwrap_or_default()).await
+    secret(state, id, keepass::Use::User, |_, s| s.password.clone().unwrap_or_default()).await
 }
 
 /// Makes the next request refresh the session first.
@@ -118,7 +118,7 @@ async fn passbolt_live_admin() {
         ("v5 note", "a secure note\nsecond line"),
     ] {
         assert_eq!(
-            secret(&state, &by_title(&state, title), notes)
+            secret(&state, &by_title(&state, title), keepass::Use::User, notes)
                 .await
                 .unwrap(),
             n,
@@ -137,7 +137,7 @@ async fn passbolt_live_admin() {
         .unwrap()
         .secrets
         .clear();
-    secret(&state, &id, notes).await.unwrap();
+    secret(&state, &id, keepass::Use::User, notes).await.unwrap();
     let new = state
         .session
         .try_lock()

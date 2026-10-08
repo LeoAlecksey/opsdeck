@@ -4,7 +4,7 @@
 //! only in memory and are dropped on lock / auto-lock. Secrets are fetched one by one when used:
 //! Passbolt logs every secret access, so the whole vault is never downloaded at unlock.
 
-use crate::{settings, store, store::err};
+use crate::{keepass, settings, store, store::err};
 use base64::Engine;
 use pgp::{
     composed::{
@@ -930,10 +930,24 @@ fn parse_secret(kind: &str, plain: &[u8]) -> Result<Secret, String> {
     Ok(s)
 }
 
+/// (username, password) for other modules; a background use (alert polling) does not keep Passbolt
+/// unlocked — the same rule as for KeePass.
+pub async fn credentials(
+    state: &PassboltState,
+    id: &str,
+    used: keepass::Use,
+) -> Result<(String, String), String> {
+    secret(state, id, used, |e, s| {
+        (e.username.clone(), s.password.clone().unwrap_or_default())
+    })
+    .await
+}
+
 /// The decrypted secret of a resource: from memory, or fetched from the server (logged there).
 async fn secret<T>(
     state: &PassboltState,
     id: &str,
+    used: keepass::Use,
     f: impl Fn(&Entry, &Secret) -> T,
 ) -> Result<T, String> {
     uuid::Uuid::parse_str(id).map_err(|_| "bad entry id".to_string())?;
@@ -943,7 +957,9 @@ async fn secret<T>(
             .as_mut()
             .filter(|v| v.mfa_pending.is_none())
             .ok_or_else(locked_err)?;
-        v.last_used = Instant::now();
+        if used == keepass::Use::User {
+            v.last_used = Instant::now();
+        }
         let e = v
             .entries
             .iter()
@@ -1361,10 +1377,13 @@ pub async fn pb_copy(
             }
         }
         "password" => {
-            let pw = secret(&state, &id, |_, s| s.password.clone().unwrap_or_default()).await?;
+            let pw = secret(&state, &id, keepass::Use::User, |_, s| {
+                s.password.clone().unwrap_or_default()
+            })
+            .await?;
             return crate::keepass::copy_secret(&app, pw);
         }
-        "notes" => secret(&state, &id, notes).await?,
+        "notes" => secret(&state, &id, keepass::Use::User, notes).await?,
         _ => return Err("unknown field".into()),
     };
     app.clipboard().write_text(value).map_err(err)
@@ -1372,12 +1391,15 @@ pub async fn pb_copy(
 
 #[tauri::command]
 pub async fn pb_reveal(state: State<'_, PassboltState>, id: String) -> Result<String, String> {
-    secret(&state, &id, |_, s| s.password.clone().unwrap_or_default()).await
+    secret(&state, &id, keepass::Use::User, |_, s| {
+        s.password.clone().unwrap_or_default()
+    })
+    .await
 }
 
 #[tauri::command]
 pub async fn pb_notes(state: State<'_, PassboltState>, id: String) -> Result<String, String> {
-    secret(&state, &id, notes).await
+    secret(&state, &id, keepass::Use::User, notes).await
 }
 
 /// Opens the resource (or Passbolt itself) in the browser.
@@ -1489,6 +1511,55 @@ mod tests {
         b.encrypt_to_key(&mut rng, encryption_subkey(to).unwrap())
             .unwrap();
         b.to_armored_string(&mut rng, Default::default()).unwrap()
+    }
+
+    #[tokio::test]
+    async fn background_reads_do_not_keep_passbolt_unlocked() {
+        let (armored, _) = test_key(None);
+        let id = "11111111-1111-4111-8111-111111111111";
+        let entry = Entry {
+            id: id.into(),
+            kind: "v5-default".into(),
+            name: "Grafana".into(),
+            username: "grafana".into(),
+            uris: vec![],
+            description: String::new(),
+            folder: None,
+        };
+        // the password is already fetched: no server needed
+        let secret = Secret {
+            password: Some("s3cret".into()),
+            description: None,
+        };
+        let state = PassboltState::default();
+        *state.inner.lock().unwrap() = Some(Vault {
+            key: Arc::new(parse_secret_key(&armored).unwrap()),
+            mfa_pending: None,
+            entries: vec![entry],
+            folders: HashMap::new(),
+            secrets: HashMap::from([(id.to_string(), secret)]),
+            unreadable: 0,
+            warnings: vec![],
+            last_used: Instant::now() - Duration::from_secs(600),
+        });
+        let idle = || {
+            let inner = state.inner.lock().unwrap();
+            inner.as_ref().unwrap().last_used.elapsed()
+        };
+
+        let got = credentials(&state, id, keepass::Use::Background)
+            .await
+            .unwrap();
+        assert_eq!(got, ("grafana".into(), "s3cret".into()));
+        assert!(
+            idle() >= Duration::from_secs(600),
+            "alert polling must not reset the auto-lock timer"
+        );
+        credentials(&state, id, keepass::Use::User).await.unwrap();
+        assert!(
+            idle() < Duration::from_secs(5),
+            "the user's own action does"
+        );
     }
 
     #[test]
