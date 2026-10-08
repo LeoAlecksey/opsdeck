@@ -16,6 +16,19 @@ test.describe("alerts", () => {
     await expect(page.locator(".al-card:visible")).toHaveCount(5);
   });
 
+  test("a card shows the alert; the rule's details open by a button (from feedback)", async ({ page }) => {
+    const c = card(page, "PodCrashLooping");
+    await expect(c.locator(".al-name")).toBeVisible();
+    await expect(c.locator(".al-sev")).toBeVisible();
+    await expect(c.locator(".al-more")).toBeHidden();
+    await expect(c.locator(".al-more .chip").first()).toBeHidden();
+    await c.locator("[data-a=more]").click();
+    await expect(c.locator(".al-more")).toBeVisible();
+    await expect(c.locator("[data-a=more]")).toContainText("Скрыть детали");
+    await c.locator("[data-a=more]").click();
+    await expect(c.locator(".al-more")).toBeHidden();
+  });
+
   test("seen, hide such, close a finding, poll now", async ({ app, page }) => {
     await card(page, "PodCrashLooping").locator("[data-a=ack]").click();
     expect((await app.called("alerts_ack")).args).toEqual({ fingerprint: "PodCrashLooping1", acked: true });
