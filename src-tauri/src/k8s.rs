@@ -50,13 +50,26 @@ fn imported_dir() -> Result<PathBuf, String> {
     Ok(dir)
 }
 
+/// KUBECONFIG list ↔ files: `;` on Windows, `:` elsewhere (a `:` split breaks C:\ paths).
+fn kubeconfig_split(list: &std::ffi::OsStr) -> Vec<PathBuf> {
+    std::env::split_paths(list)
+        .filter(|p| !p.as_os_str().is_empty())
+        .collect()
+}
+
+fn kubeconfig_join(files: &[PathBuf]) -> Result<String, String> {
+    std::env::join_paths(files)
+        .map(|j| j.to_string_lossy().into_owned())
+        .map_err(|e| e.to_string())
+}
+
 /// The shared kubeconfig files kubectl uses outside OpsDeck: $KUBECONFIG entries or ~/.kube/config.
 fn system_files() -> Vec<(PathBuf, &'static str)> {
     let mut out: Vec<(PathBuf, &'static str)> = Vec::new();
     // OpsDeck's own terminals get KUBECONFIG pointing at the store: don't treat that as "system"
     let own = imported_dir().ok();
-    if let Ok(env) = std::env::var("KUBECONFIG") {
-        for p in env.split(':').filter(|s| !s.is_empty()).map(PathBuf::from) {
+    if let Some(env) = std::env::var_os("KUBECONFIG") {
+        for p in kubeconfig_split(&env) {
             if p.is_file() && own.as_deref() != p.parent() && !out.iter().any(|(x, _)| *x == p) {
                 out.push((p, "env"));
             }
@@ -105,8 +118,13 @@ pub fn terminal_kubeconfig() -> Option<String> {
         }
         return Some(empty.to_string_lossy().into_owned());
     }
-    let joined: Vec<String> = files.iter().map(|p| p.to_string_lossy().into_owned()).collect();
-    Some(joined.join(":"))
+    match kubeconfig_join(&files) {
+        Ok(joined) => Some(joined),
+        Err(e) => {
+            log::warn!("terminal KUBECONFIG: {e}");
+            None
+        }
+    }
 }
 
 fn read_yaml(path: &Path) -> Result<Value, String> {
@@ -1288,6 +1306,27 @@ pub async fn k8s_object_events(state: State<'_, K8sState>, ctx: Ctx, namespace: 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn kubeconfig_list_uses_platform_separator() {
+        let files = [PathBuf::from("a.yaml"), PathBuf::from("b.yaml")];
+        let joined = kubeconfig_join(&files).unwrap();
+        assert_eq!(kubeconfig_split(joined.as_ref()), files);
+        assert!(kubeconfig_split("".as_ref()).is_empty());
+        #[cfg(windows)]
+        {
+            assert_eq!(joined, "a.yaml;b.yaml");
+            // the drive letter's colon is not a separator
+            let one = r"C:\Users\me\.kube\config";
+            assert_eq!(kubeconfig_split(one.as_ref()), [PathBuf::from(one)]);
+            assert_eq!(
+                kubeconfig_split(r"C:\a.yaml;D:\b.yaml".as_ref()),
+                [PathBuf::from(r"C:\a.yaml"), PathBuf::from(r"D:\b.yaml")]
+            );
+        }
+        #[cfg(not(windows))]
+        assert_eq!(joined, "a.yaml:b.yaml");
+    }
 
     const KUBECONFIG: &str = r#"
 apiVersion: v1
