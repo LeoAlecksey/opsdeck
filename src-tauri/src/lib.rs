@@ -158,6 +158,7 @@ pub fn run() {
             code::code_create,
             code::code_tf_fmt,
             code::code_git_log,
+            code::code_git_stamp,
             code::code_git_diff,
             code::code_git_show,
             code::code_git_branches,

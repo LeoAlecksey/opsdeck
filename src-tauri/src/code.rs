@@ -4,8 +4,9 @@
 use crate::{editor::expand, process, store::err};
 use serde::Serialize;
 use std::{
+    fs,
     io::Write,
-    path::Path,
+    path::{Path, PathBuf},
     process::{Command, Stdio},
     time::UNIX_EPOCH,
 };
@@ -186,6 +187,48 @@ pub struct Commit {
 }
 
 /// Commits of all branches, newest first, for the graph.
+/// The .git directory of a work tree (".git" may be a file "gitdir: …" in worktrees and submodules).
+fn git_dir(root: &Path) -> Option<PathBuf> {
+    let dot = root.join(".git");
+    if dot.is_dir() {
+        return Some(dot);
+    }
+    let text = fs::read_to_string(&dot).ok()?;
+    let target = PathBuf::from(text.trim().strip_prefix("gitdir:")?.trim());
+    Some(if target.is_absolute() { target } else { root.join(target) })
+}
+
+/// Newest modification time under `dir` (refs are small trees).
+fn newest(dir: &Path, depth: u8) -> u128 {
+    let Ok(rd) = fs::read_dir(dir) else { return 0 };
+    rd.flatten()
+        .map(|e| {
+            let m = e.metadata().ok();
+            let t = m.as_ref().and_then(|m| m.modified().ok()).and_then(|t| t.duration_since(UNIX_EPOCH).ok()).map_or(0, |d| d.as_nanos());
+            if depth > 0 && m.is_some_and(|m| m.is_dir()) { t.max(newest(&e.path(), depth - 1)) } else { t }
+        })
+        .max()
+        .unwrap_or(0)
+}
+
+/// A cheap fingerprint of the repository state — current branch, refs, index — read from files
+/// without running git; the IDE polls it to notice a switch or commit made in a terminal.
+#[tauri::command]
+pub fn code_git_stamp(root: String) -> String {
+    let root = expand(&root);
+    let Some(dir) = git_dir(&root) else { return String::new() };
+    let mtime = |p: &Path| fs::metadata(p).and_then(|m| m.modified()).ok().and_then(|t| t.duration_since(UNIX_EPOCH).ok()).map_or(0, |d| d.as_nanos());
+    // linked worktrees keep refs in the common dir
+    let common = fs::read_to_string(dir.join("commondir")).ok().map(|c| dir.join(c.trim())).unwrap_or_else(|| dir.clone());
+    format!(
+        "{}|{}|{}|{}",
+        fs::read_to_string(dir.join("HEAD")).unwrap_or_default().trim(),
+        newest(&common.join("refs"), 6),
+        mtime(&common.join("packed-refs")),
+        mtime(&dir.join("index")),
+    )
+}
+
 #[tauri::command]
 pub async fn code_git_log(path: String, limit: Option<usize>) -> Result<Vec<Commit>, String> {
     tauri::async_runtime::spawn_blocking(move || {
@@ -416,4 +459,25 @@ mod tests {
         assert_eq!(d[0].line, 3);
         assert!(d[0].message.starts_with("Invalid expression: Expected the start"));
     }
+
+    #[test]
+    fn git_stamp_follows_branch_switch() {
+        let dir = std::env::temp_dir().join(format!("opsdeck-stamp-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(dir.join(".git/refs/heads")).unwrap();
+        fs::write(dir.join(".git/HEAD"), "ref: refs/heads/main\n").unwrap();
+        let root = dir.to_string_lossy().into_owned();
+        let a = code_git_stamp(root.clone());
+        assert!(a.starts_with("ref: refs/heads/main|"), "{a}");
+        fs::write(dir.join(".git/HEAD"), "ref: refs/heads/feature\n").unwrap();
+        assert_ne!(code_git_stamp(root.clone()), a, "switching the branch changes the stamp");
+        // a worktree: .git is a file pointing at the real git dir
+        let wt = dir.join("wt");
+        fs::create_dir_all(&wt).unwrap();
+        fs::write(wt.join(".git"), format!("gitdir: {}\n", dir.join(".git").display())).unwrap();
+        assert!(code_git_stamp(wt.to_string_lossy().into_owned()).starts_with("ref: refs/heads/feature|"));
+        assert_eq!(code_git_stamp(std::env::temp_dir().join("opsdeck-no-such").to_string_lossy().into_owned()), "");
+        let _ = fs::remove_dir_all(&dir);
+    }
 }
+

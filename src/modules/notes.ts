@@ -375,8 +375,9 @@ export function mountNotes(root: HTMLElement) {
     if (e.key === "Tab") { e.preventDefault(); editor.setRangeText("  ", editor.selectionStart, editor.selectionEnd, "end"); markDirty(); }
   });
   root.addEventListener("keydown", (e) => {
-    if (e.ctrlKey && e.key.toLowerCase() === "s") { e.preventDefault(); save(); }
-    if (e.ctrlKey && e.key.toLowerCase() === "e" && current) { e.preventDefault(); setMode(mode === "edit" ? "view" : "edit"); }
+    // by the physical key: e.key is "ы"/"у" in the Russian layout
+    if (e.ctrlKey && e.code === "KeyS") { e.preventDefault(); save(); }
+    if (e.ctrlKey && e.code === "KeyE" && current) { e.preventDefault(); setMode(mode === "edit" ? "view" : "edit"); }
   });
   root.querySelectorAll<HTMLElement>("[data-m]").forEach((b) => (b.onclick = () => setMode(b.dataset.m as "edit" | "view")));
   saveBtn.onclick = save;
