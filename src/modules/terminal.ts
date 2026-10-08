@@ -13,7 +13,7 @@ import { t } from "../i18n";
 import { isWindows } from "./themes";
 import { AI_PROVIDERS, aiAgent, setAiAgent } from "./ai-agents";
 import { LocalChat } from "./aichat";
-import { isWsl, shellName } from "./shellkind";
+import { isProgramPath, isWsl, shellName } from "./shellkind";
 
 /** Other modules open a tab via: window.dispatchEvent(new CustomEvent("open-terminal", { detail })) */
 export type OpenTerminalDetail = SpawnOpts & { title?: string; keepOpen?: boolean };
@@ -233,7 +233,7 @@ export function mountTerminal(root: HTMLElement) {
     pane.pty = pty;
     pane.exited = false;
     attachPathLinks(pty);
-    pty.term.onTitleChange((t) => { if (pane.tab.active === pane && t) pane.tab.label.textContent = t; });
+    pty.term.onTitleChange((t) => { if (pane.tab.active === pane && t && !isProgramPath(t, pane.spawn.program)) pane.tab.label.textContent = t; });
     pty.term.textarea?.addEventListener("focus", () => focusPane(pane));
     // a connection tab stays open when it ends: the reason is on screen, and it can be reconnected
     pty.onExit = () => {
