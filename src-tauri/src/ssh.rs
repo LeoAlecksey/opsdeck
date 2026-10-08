@@ -9,8 +9,8 @@ use crate::{
 };
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::HashMap,
-    path::PathBuf,
+    collections::{HashMap, HashSet},
+    path::{Path, PathBuf},
     sync::Mutex,
     time::SystemTime,
 };
@@ -61,6 +61,7 @@ pub struct ConfigHost {
     port: String,
     identity_file: String,
     proxy_jump: String,
+    proxy_command: String,
 }
 
 #[derive(Serialize)]
@@ -81,44 +82,183 @@ fn ssh_dir() -> PathBuf {
     dirs::home_dir().unwrap_or_default().join(".ssh")
 }
 
-/// Concrete `Host` entries of ~/.ssh/config (patterns with * ? ! are skipped; Include is not followed).
-fn parse_config() -> Vec<ConfigHost> {
-    let Ok(raw) = std::fs::read_to_string(ssh_dir().join("config")) else { return Vec::new() };
-    parse_config_text(&raw)
+fn strip_comment(line: &str) -> (&str, Option<&str>) {
+    let mut in_quotes = false;
+    for (i, c) in line.char_indices() {
+        if c == '"' {
+            in_quotes = !in_quotes;
+        } else if c == '#' && !in_quotes {
+            let code = line[..i].trim();
+            let comment = line[i + 1..].trim();
+            return (code, Some(comment));
+        }
+    }
+    (line.trim(), None)
 }
 
+fn glob_matches(pattern: &str, name: &str) -> bool {
+    if pattern == "*" {
+        return true;
+    }
+    if let Some((prefix, suffix)) = pattern.split_once('*') {
+        return name.starts_with(prefix)
+            && name.ends_with(suffix)
+            && name.len() >= prefix.len() + suffix.len();
+    }
+    pattern == name
+}
+
+fn resolve_includes(pattern: &str, base_dir: Option<&Path>) -> Vec<PathBuf> {
+    let expanded = if let Some(rest) = pattern.strip_prefix("~/").or_else(|| pattern.strip_prefix("~\\")) {
+        dirs::home_dir().unwrap_or_default().join(rest)
+    } else if pattern == "~" {
+        dirs::home_dir().unwrap_or_default()
+    } else {
+        let p = Path::new(pattern);
+        if p.is_absolute() {
+            p.to_path_buf()
+        } else if let Some(base) = base_dir {
+            base.join(p)
+        } else {
+            ssh_dir().join(p)
+        }
+    };
+
+    if pattern.contains(['*', '?']) {
+        let parent = expanded.parent().unwrap_or(Path::new(""));
+        let file_pattern = expanded.file_name().and_then(|f| f.to_str()).unwrap_or("");
+        let mut matches = Vec::new();
+        if let Ok(entries) = std::fs::read_dir(parent) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_file() {
+                    if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+                        if glob_matches(file_pattern, name) {
+                            matches.push(path);
+                        }
+                    }
+                }
+            }
+        }
+        matches.sort();
+        matches
+    } else if expanded.is_file() {
+        vec![expanded]
+    } else {
+        Vec::new()
+    }
+}
+
+/// Concrete `Host` entries of ~/.ssh/config (patterns with * ? ! are skipped; follows Include).
+fn parse_config() -> Vec<ConfigHost> {
+    let config_path = ssh_dir().join("config");
+    let Ok(raw) = std::fs::read_to_string(&config_path) else { return Vec::new() };
+    let mut out = Vec::new();
+    let mut visited = HashSet::new();
+    if let Ok(canon) = config_path.canonicalize() {
+        visited.insert(canon);
+    } else {
+        visited.insert(config_path);
+    }
+    parse_config_text_internal(&raw, Some(&ssh_dir()), &mut out, &mut visited, 0);
+    out
+}
+
+#[cfg_attr(not(test), allow(dead_code))]
 fn parse_config_text(raw: &str) -> Vec<ConfigHost> {
-    let mut out: Vec<ConfigHost> = Vec::new();
+    let mut out = Vec::new();
+    let mut visited = HashSet::new();
+    parse_config_text_internal(raw, Some(&ssh_dir()), &mut out, &mut visited, 0);
+    out
+}
+
+fn parse_config_text_internal(
+    raw: &str,
+    base_dir: Option<&Path>,
+    out: &mut Vec<ConfigHost>,
+    visited: &mut HashSet<PathBuf>,
+    depth: usize,
+) {
     let mut current: Vec<usize> = Vec::new();
     let mut comment_group = String::new();
     for line in raw.lines() {
-        let line = line.trim();
-        if let Some(c) = line.strip_prefix('#') {
-            let c = c.trim();
+        let (code, comment) = strip_comment(line);
+
+        if let Some(c) = comment {
             if let Some(g) = c.strip_prefix("group:").or_else(|| c.strip_prefix("Group:")) {
                 comment_group = g.trim().to_string();
             }
+        }
+
+        if code.is_empty() {
             continue;
         }
-        if line.is_empty() {
-            continue;
-        }
-        let (key, value) = match line.split_once(|c: char| c.is_whitespace() || c == '=') {
-            Some((k, v)) => (k.to_lowercase(), v.trim_start_matches(|c: char| c.is_whitespace() || c == '=').trim().to_string()),
+
+        let (key, value) = match code.split_once(|c: char| c.is_whitespace() || c == '=') {
+            Some((k, v)) => (
+                k.to_lowercase(),
+                v.trim_start_matches(|c: char| c.is_whitespace() || c == '=')
+                    .trim()
+                    .trim_matches('"')
+                    .to_string(),
+            ),
             None => continue,
         };
+
         match key.as_str() {
             "host" => {
                 current.clear();
-                for alias in value.split_whitespace().filter(|a| !a.contains(['*', '?', '!'])) {
-                    current.push(out.len());
-                    out.push(ConfigHost { alias: alias.into(), group: comment_group.clone(), ..Default::default() });
+                for alias in value.split_whitespace() {
+                    let alias = alias.trim_matches('"');
+                    if alias.is_empty()
+                        || alias.starts_with('#')
+                        || alias.starts_with('-')
+                        || alias.contains(['*', '?', '!'])
+                    {
+                        continue;
+                    }
+                    if let Some(idx) = out.iter().position(|h| h.alias == alias) {
+                        current.push(idx);
+                        if out[idx].group.is_empty() && !comment_group.is_empty() {
+                            out[idx].group = comment_group.clone();
+                        }
+                    } else {
+                        current.push(out.len());
+                        out.push(ConfigHost {
+                            alias: alias.into(),
+                            group: comment_group.clone(),
+                            ..Default::default()
+                        });
+                    }
                 }
                 comment_group.clear();
             }
             "match" => {
                 current.clear();
                 comment_group.clear();
+            }
+            "include" => {
+                current.clear();
+                comment_group.clear();
+                if depth < 8 {
+                    for inc_token in value.split_whitespace() {
+                        let inc_pattern = inc_token.trim_matches('"');
+                        for inc_path in resolve_includes(inc_pattern, base_dir) {
+                            let canon = inc_path.canonicalize().unwrap_or_else(|_| inc_path.clone());
+                            if visited.insert(canon) {
+                                if let Ok(raw_inc) = std::fs::read_to_string(&inc_path) {
+                                    parse_config_text_internal(
+                                        &raw_inc,
+                                        inc_path.parent(),
+                                        out,
+                                        visited,
+                                        depth + 1,
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
             }
             _ => {
                 for &i in &current {
@@ -130,6 +270,7 @@ fn parse_config_text(raw: &str) -> Vec<ConfigHost> {
                         "port" => &mut h.port,
                         "identityfile" => &mut h.identity_file,
                         "proxyjump" => &mut h.proxy_jump,
+                        "proxycommand" => &mut h.proxy_command,
                         _ => continue,
                     };
                     if slot.is_empty() {
@@ -139,7 +280,6 @@ fn parse_config_text(raw: &str) -> Vec<ConfigHost> {
             }
         }
     }
-    out
 }
 
 #[derive(Serialize, Clone, Default)]
@@ -149,6 +289,7 @@ pub struct Effective {
     port: String,
     identity_files: Vec<String>,
     proxy_jump: String,
+    proxy_command: String,
 }
 
 /// Cache of `ssh -G` keyed by ~/.ssh/config mtime — otherwise every ssh_list spawns ssh.exe per alias.
@@ -183,6 +324,7 @@ fn effective(alias: &str) -> Option<Effective> {
             "port" => e.port = v.into(),
             "identityfile" => e.identity_files.push(v.into()),
             "proxyjump" if v != "none" => e.proxy_jump = v.into(),
+            "proxycommand" if v != "none" => e.proxy_command = v.into(),
             _ => {}
         }
     }
@@ -466,6 +608,60 @@ host lower
         assert_eq!(app.group, "", "the group comment is used once");
         assert_eq!(hosts[3].hostname, "lower.example.com", "keywords are case-insensitive");
         assert_eq!(hosts[3].user, "", "Match blocks do not leak into the next Host");
+    }
+
+    #[test]
+    fn comments_and_directives() {
+        let conf = "
+# Global comment
+#Host commented-out-host-1
+# Host commented-out-host-2
+
+Host wiki    #Added by lazyssh
+    HostName 87.228.68.185 # comment on directive
+    User root # inline user comment
+    Port 2222
+    IdentityFile ~/.ssh/id_ed25519
+    ProxyCommand ssh -A -W 10.0.0.1:22 bastion # proxy
+
+Host inline-grp # group: staging
+    HostName 10.0.0.2
+
+Host quoted-vals
+    HostName \"quoted.example.com\"
+    User \"admin\"
+";
+        let hosts = parse_config_text(conf);
+        let names: Vec<_> = hosts.iter().map(|h| h.alias.as_str()).collect();
+        assert_eq!(names, ["wiki", "inline-grp", "quoted-vals"], "comments are not treated as hosts");
+        let w = &hosts[0];
+        assert_eq!(w.alias, "wiki");
+        assert_eq!(w.hostname, "87.228.68.185");
+        assert_eq!(w.user, "root");
+        assert_eq!(w.port, "2222");
+        assert_eq!(w.identity_file, "~/.ssh/id_ed25519");
+        assert_eq!(w.proxy_command, "ssh -A -W 10.0.0.1:22 bastion");
+        let ig = &hosts[1];
+        assert_eq!(ig.alias, "inline-grp");
+        assert_eq!(ig.group, "staging");
+        let q = &hosts[2];
+        assert_eq!(q.hostname, "quoted.example.com");
+        assert_eq!(q.user, "admin");
+    }
+
+    #[test]
+    fn include_parsing() {
+        let dir = std::env::temp_dir().join(format!("opsdeck_ssh_test_{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        let inc_file = dir.join("inc.conf");
+        let _ = std::fs::write(&inc_file, "Host inc-host\n    HostName 10.20.30.40\n");
+
+        let main_conf = format!("Include {}\nHost main-host\n    HostName 1.2.3.4\n", inc_file.display());
+        let hosts = parse_config_text(&main_conf);
+        let names: Vec<_> = hosts.iter().map(|h| h.alias.as_str()).collect();
+        assert!(names.contains(&"inc-host"));
+        assert!(names.contains(&"main-host"));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

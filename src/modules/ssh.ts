@@ -9,8 +9,8 @@ type SshHost = {
   id: string; name: string; group: string; host: string; port: number; user: string;
   identity_file: string; jump: string; auth: string; keepass_entry: string;
 };
-type Effective = { user: string; hostname: string; port: string; identity_files: string[]; proxy_jump: string };
-type ConfigHost = { alias: string; group: string; hostname: string; user: string; port: string; identity_file: string; proxy_jump: string; effective?: Effective };
+type Effective = { user: string; hostname: string; port: string; identity_files: string[]; proxy_jump: string; proxy_command?: string };
+type ConfigHost = { alias: string; group: string; hostname: string; user: string; port: string; identity_file: string; proxy_jump: string; proxy_command?: string; effective?: Effective };
 type SshList = { hosts: SshHost[]; config: ConfigHost[] };
 type Spec = { program: string; args: string[]; password_copied: boolean };
 
@@ -158,10 +158,11 @@ export function mountSsh(root: HTMLElement) {
     // no User anywhere for this host → ssh logs in as the local user, usually not what was meant
     const suspicious = !!e && !h.user && !!localUser && e.user === localUser;
     const warn = suspicious ? `<span class="ssh-warn" title="ssh подключится как «${esc(localUser)}»: для этого хоста не сработал ни один User. Если он задан в блоке «Match Host …» — замените на «Match originalhost …»: Match Host сравнивает уже подставленный HostName (IP), а не алиас.">⚠ пользователь ${esc(localUser)}?</span>` : "";
+    const proxy = (e?.proxy_jump || h.proxy_jump) ? ` через ${esc(e?.proxy_jump || h.proxy_jump)} · ` : (e?.proxy_command || h.proxy_command) ? ` через proxy · ` : "";
     return `<tr data-alias="${esc(h.alias)}">
           <td class="mt-name">${esc(h.alias)} <span class="ssh-src" title="из ~/.ssh/config">cfg</span></td>
           <td class="mono">${esc(user ? user + "@" : "")}${esc(host)}${port ? `<span class="muted">:${esc(port)}</span>` : ""}</td>
-          <td class="muted">${warn}${(e?.proxy_jump || h.proxy_jump) ? ` через ${esc(e?.proxy_jump || h.proxy_jump)} · ` : ""}${key ? ` ключ ${esc(key.split("/").pop())}` : ""}</td>
+          <td class="muted">${warn}${proxy}${key ? ` ключ ${esc(key.split("/").pop())}` : ""}</td>
           <td class="mt-acts">
             <button class="primary" data-a="connect-cfg">Подключиться</button>
             <button class="icon" data-a="group-cfg" title="Группа">${icon("folder", 14)}</button>
