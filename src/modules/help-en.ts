@@ -46,6 +46,7 @@ export const HELP_EN: Record<string, { title: string; html: string }> = {
       <p>OpsDeck keeps its own kubeconfig copies (a file per context) and doesn't touch your ~/.kube/config. Tables update live (watch).</p>
       <h4>What's where</h4>
       <ul>
+        <li>The <b>label filter</b> next to the plain one works like <code>kubectl -l</code>: <code>app=api</code>, <code>tier!=db</code>, <code>env in (prod,stage)</code>, <code>!canary</code>; terms separated by commas. <b>Nodes</b>: CPU and RAM refresh every 5 s — a usage bar and a chart of the last samples (metrics-server needed).</li>
         <li><b>＋</b> top left — add a cluster: tick contexts from ~/.kube/config, paste YAML or just drop a file into the window.</li>
         <li>Hover a context: <b>🔒</b> read-only (blocks apply/delete/scale/restart/exec), <b>🙈</b> hide, <b>🗑</b> delete the copy.</li>
         <li>On the left — resource types; at the bottom “Custom resources” — all the cluster's CRDs (with a filter).</li>
