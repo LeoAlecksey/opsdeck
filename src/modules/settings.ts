@@ -125,6 +125,7 @@ function mountAi(el: HTMLElement) {
 
 type Settings = {
   keepass_path: string; keepass_keyfile: string; keepass_lock_minutes: number; keepass_keep_open: boolean;
+  passbolt_lock_minutes: number; passbolt_keep_open: boolean;
   obsidian_vault: string; winbox_path: string; k8s_include_system: boolean; k8s_dirs: string[]; update_auto_check: boolean;
   ai_host: string; ai_port: string; ai_model: string;
   /** only sent when the user typed a new key; the saved one stays in the OS keyring */
@@ -154,6 +155,11 @@ export function mountSettings(root: HTMLElement) {
           <label class="check"><input type="checkbox" name="keepass_keep_open" /> Держать базу открытой до закрытия OpsDeck (пароль вводится один раз за запуск)</label>
           <label>Автоблокировка, минут без действий (0 — выключить; работает, если галочка выше снята) <input name="keepass_lock_minutes" type="number" min="0" max="1440" /></label>
           <p class="muted hint">Пока база открыта, OpsDeck следит за файлом .kdbx: изменения, сохранённые в KeePassXC или пришедшие синхронизацией, подтягиваются сами.</p>
+        </fieldset>
+        <fieldset><legend>Passbolt</legend>
+          <label class="check"><input type="checkbox" name="passbolt_keep_open" /> Держать Passbolt разблокированным до закрытия OpsDeck</label>
+          <label>Автоблокировка, минут без действий (0 — выключить; работает, если галочка выше снята) <input name="passbolt_lock_minutes" type="number" min="0" max="1440" /></label>
+          <p class="muted hint">Аккаунт подключается в разделе Passbolt (account kit). Список записей обновляется кнопкой ⟳ в разделе.</p>
         </fieldset>
         <fieldset class="hl-field"><legend>Терминал</legend>
           <label class="check"><input type="checkbox" data-hl="input" /> Подсветка команды при наборе (как в fish: несуществующая команда — красным)</label>
@@ -520,6 +526,8 @@ export function mountSettings(root: HTMLElement) {
       keepass_path: cleanPath(f("keepass_path").value), keepass_keyfile: cleanPath(f("keepass_keyfile").value),
       keepass_lock_minutes: Number(f("keepass_lock_minutes").value) || 0,
       keepass_keep_open: f("keepass_keep_open").checked,
+      passbolt_lock_minutes: Number(f("passbolt_lock_minutes").value) || 0,
+      passbolt_keep_open: f("passbolt_keep_open").checked,
       obsidian_vault: vaultPath, winbox_path: cleanPath(f("winbox_path").value),
       k8s_include_system: f("k8s_include_system").checked,
       k8s_dirs: [...k8sDirs],

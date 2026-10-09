@@ -1,0 +1,11 @@
+# Accepted risks for `cargo audit` (CI: checks → cargo audit). Every entry: why, and when to re-check.
+[advisories]
+ignore = [
+  # rsa 0.9 (via pgp, Passbolt integration): Marvin timing side channel in RSA private-key
+  # operations, no patched version. The Passbolt server key is RSA, but OpsDeck uses it only for
+  # public-key operations (encrypting the login challenge, verifying the server's signature), which
+  # the attack does not touch. A private RSA key is used only when the user's own Passbolt key is
+  # RSA, and then only locally — the advisory: "Local use on a non-compromised computer is fine".
+  # Re-check when the rsa crate gets a fix (RustCrypto/RSA#626).
+  "RUSTSEC-2023-0071",
+]
