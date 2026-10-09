@@ -215,6 +215,7 @@ pub fn run() {
             notes::vault_create,
             notes::vault_activate,
             notes::vault_forget,
+            notes::vault_validate_path,
             notes::notes_tags,
             tasks::tasks_list,
             tasks::task_update,

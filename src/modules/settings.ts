@@ -10,6 +10,7 @@ import { setSuggestEnabled, suggestEnabled } from "./suggest";
 import { AI_PROVIDERS, aiAgent, setAiAgent } from "./ai-agents";
 import { addThemes, allThemes, currentThemeName, isWindows, parseSchemes, setTheme } from "./themes";
 import { listen } from "@tauri-apps/api/event";
+import { cleanPath } from "./paths";
 
 const AUTHOR_TG = "https://t.me/sys_admin_expert";
 const REPO_URL = "https://github.com/LeoAlecksey/opsdeck";
@@ -56,7 +57,7 @@ function mountAi(el: HTMLElement) {
       <div class="row"><span>${ready ? `✓ Готов${st.running ? " · модель загружена в память" : ""} · на диске ${gb(st.size)}` : st.installing ? "Скачивается…" : `Не установлен · скачать ≈${gb(st.download_size)}`}</span>
         <span class="spacer"></span>
         ${st.installing ? `<button type="button" class="ghost" data-ai="cancel">Отменить</button>`
-          : ready ? `${custom ? "" : `<button type="button" class="ghost" data-ai="remove-model" data-id="${ms.selected}">Удалить модель</button>`}<button type="button" class="ghost" data-ai="remove">Удалить всё</button>`
+        : ready ? `${custom ? "" : `<button type="button" class="ghost" data-ai="remove-model" data-id="${ms.selected}">Удалить модель</button>`}<button type="button" class="ghost" data-ai="remove">Удалить всё</button>`
           : custom ? "" : `<button type="button" class="primary" data-ai="install">${st.size > 0 ? "Скачать" : "Установить"}</button>`}</div>
       ${others.length ? `<div class="muted ai-others">Ещё скачаны: ${others.map((m) => `${esc(t(m.title))} (${(m.size / GB).toFixed(1)} ${t("ГБ")}) <button type="button" class="link" data-ai="remove-model" data-id="${m.id}">удалить</button>`).join(", ")}</div>` : ""}
       <div class="upd-progress ai-prog" ${st.installing ? "" : "hidden"}><div class="upd-bar"></div></div>
@@ -133,9 +134,7 @@ type Settings = {
 };
 type WinShell = { id: string; label: string; program: string; args: string[] };
 type Detected = { keepass: string[]; obsidian: string[]; winbox: string[] };
-
-/** Paths pasted with Windows' "Copy as path" come in quotes: "C:\Program Files\WinBox\winbox64.exe". */
-const cleanPath = (v: string) => v.trim().replace(/^["']+|["']+$/g, "").trim();
+type VaultCheck = { ok: boolean; exists: boolean; is_dir: boolean; is_obsidian: boolean; md_count: number; path: string; err?: string | null };
 
 export function mountSettings(root: HTMLElement) {
   root.innerHTML = `
@@ -208,8 +207,14 @@ export function mountSettings(root: HTMLElement) {
             <p class="muted hint warn ai-remote-warn" hidden></p>
           </div>
         </fieldset>
-        <fieldset><legend>Заметки</legend>
-          <label>Папка с заметками (Obsidian vault или любая папка с .md) <input name="obsidian_vault" list="dl-ob" spellcheck="false" /></label>
+        <fieldset class="notes-field"><legend>Заметки</legend>
+          <label>Папка с заметками (Obsidian vault или любая папка с .md)
+            <span class="row">
+              <input name="obsidian_vault" list="dl-ob" spellcheck="false" placeholder="~/Documents/Notes" />
+              <button type="button" class="ghost" data-pick="obsidian_vault">Обзор…</button>
+            </span>
+          </label>
+          <p class="muted hint notes-path-status" hidden></p>
         </fieldset>
         <fieldset><legend>Kubernetes</legend>
           <label class="check"><input type="checkbox" name="k8s_include_system" /> Показывать и контексты из общего ~/.kube/config</label>
@@ -258,7 +263,7 @@ export function mountSettings(root: HTMLElement) {
   const langSel = root.querySelector<HTMLSelectElement>(".lang-sel")!;
   langSel.value = langSetting();
   langSel.onchange = () => setLang(langSel.value as "auto" | "ru" | "en");
-  invoke<string>("app_version").then((v) => (root.querySelector(".about-ver")!.textContent = `v${v}`)).catch(() => {});
+  invoke<string>("app_version").then((v) => (root.querySelector(".about-ver")!.textContent = `v${v}`)).catch(() => { });
   // links open in the system browser / Telegram, not inside the app window
   root.querySelector(".about")!.addEventListener("click", (e) => {
     const a = (e.target as HTMLElement).closest<HTMLAnchorElement>("a[data-ext]");
@@ -381,7 +386,7 @@ export function mountSettings(root: HTMLElement) {
   window.addEventListener("term-font-family", syncFontFamily);
   fillFonts();
   syncFontFamily();
-  invoke<string>("logs_path").then((p) => (root.querySelector(".log-path")!.textContent = p)).catch(() => {});
+  invoke<string>("logs_path").then((p) => (root.querySelector(".log-path")!.textContent = p)).catch(() => { });
   root.querySelector<HTMLElement>(".log-field")!.addEventListener("click", async (e) => {
     const act = (e.target as HTMLElement).closest<HTMLElement>("[data-log]")?.dataset.log;
     if (!act) return;
@@ -424,15 +429,99 @@ export function mountSettings(root: HTMLElement) {
     fill("dl-kp", d.keepass);
     fill("dl-ob", d.obsidian);
     fill("dl-wb", d.winbox);
+    await checkVaultPath(f("obsidian_vault").value);
   }
+
+  const notesStatus = root.querySelector<HTMLElement>(".notes-path-status")!;
+  const checkVaultPath = async (raw: string) => {
+    const cleaned = cleanPath(raw);
+    if (!cleaned) {
+      notesStatus.hidden = true;
+      notesStatus.textContent = "";
+      notesStatus.className = "muted hint notes-path-status";
+      return null;
+    }
+    const check = await invoke<VaultCheck>("vault_validate_path", { path: cleaned }).catch((err) => ({
+      ok: false,
+      exists: false,
+      is_dir: false,
+      is_obsidian: false,
+      md_count: 0,
+      path: cleaned,
+      err: String(err),
+    }));
+    notesStatus.hidden = false;
+    if (check.ok) {
+      notesStatus.className = "muted hint ok notes-path-status";
+      const parts = [t("✓ Папка найдена")];
+      if (check.is_obsidian) parts.push("Obsidian vault");
+      else parts.push(t("папка с заметками"));
+      if (check.md_count > 0) parts.push(`${check.md_count} ${t("заметок (.md)")}`);
+      else parts.push(t("файлов .md пока нет"));
+      notesStatus.textContent = parts.join(" · ");
+    } else {
+      notesStatus.className = "muted hint warn notes-path-status";
+      notesStatus.textContent = `⚠ ${check.err ? t(check.err) : t("Папка не найдена")}`;
+    }
+    return check;
+  };
+
+  f("obsidian_vault").addEventListener("input", () => checkVaultPath(f("obsidian_vault").value));
+  f("obsidian_vault").addEventListener("change", async () => {
+    const val = cleanPath(f("obsidian_vault").value);
+    if (!val) return;
+    const check = await checkVaultPath(val);
+    if (check && check.ok) {
+      try {
+        await invoke("vault_open", { path: val, name: null });
+        window.dispatchEvent(new Event("settings-changed"));
+        toast(t("Папка с заметками сохранена и подключена"));
+      } catch (e) {
+        toast(String(e), "err");
+      }
+    }
+  });
+
+  root.querySelector<HTMLElement>("[data-pick=obsidian_vault]")?.addEventListener("click", async () => {
+    const cur = cleanPath(f("obsidian_vault").value);
+    const picked = await invoke<string | null>("pick_folder", { start: cur || null }).catch(() => undefined);
+    if (picked) {
+      f("obsidian_vault").value = picked;
+      const check = await checkVaultPath(picked);
+      if (check && check.ok) {
+        try {
+          await invoke("vault_open", { path: cleanPath(picked), name: null });
+          window.dispatchEvent(new Event("settings-changed"));
+          toast(t("Папка с заметками сохранена и подключена"));
+        } catch (e) {
+          toast(String(e), "err");
+        }
+      }
+    }
+  });
 
   form.onsubmit = async (e) => {
     e.preventDefault();
+    const vaultPath = cleanPath(f("obsidian_vault").value);
+    if (vaultPath) {
+      const check = await checkVaultPath(vaultPath);
+      if (check && !check.ok) {
+        toast(check.err ? t(check.err) : t("Папка с заметками не найдена: укажите существующую папку"), "err");
+        f("obsidian_vault").focus();
+        return;
+      }
+      try {
+        await invoke("vault_open", { path: vaultPath, name: null });
+      } catch (e) {
+        toast(String(e), "err");
+        return;
+      }
+    }
     const settings: Settings = {
       keepass_path: cleanPath(f("keepass_path").value), keepass_keyfile: cleanPath(f("keepass_keyfile").value),
       keepass_lock_minutes: Number(f("keepass_lock_minutes").value) || 0,
       keepass_keep_open: f("keepass_keep_open").checked,
-      obsidian_vault: cleanPath(f("obsidian_vault").value), winbox_path: cleanPath(f("winbox_path").value),
+      obsidian_vault: vaultPath, winbox_path: cleanPath(f("winbox_path").value),
       k8s_include_system: f("k8s_include_system").checked,
       update_auto_check: f("update_auto_check").checked,
       ai_host: f("ai_host").value.trim(), ai_port: f("ai_port").value.trim(), ai_model: f("ai_model").value.trim(),
@@ -465,7 +554,7 @@ export function mountSettings(root: HTMLElement) {
   for (const n of ["ai_host", "ai_port", "ai_model"] as const) f(n).addEventListener("input", remoteWarn);
   root.querySelector<HTMLElement>("[data-ai-key-clear]")!.addEventListener("click", async () => {
     if ((await ask("Забыть API-ключ", "Удалить сохранённый ключ внешнего ИИ-сервера из хранилища паролей?", { ok: "Удалить", danger: true })) === null) return;
-    await invoke("ai_key_clear").catch(() => {});
+    await invoke("ai_key_clear").catch(() => { });
     toast("Ключ удалён");
     load();
   });

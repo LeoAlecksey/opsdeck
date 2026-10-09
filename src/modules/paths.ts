@@ -1,3 +1,20 @@
+export function cleanPath(v: string): string {
+  let s = v.trim().replace(/^["']+|["']+$/g, "").trim();
+  if (s.startsWith("file://")) {
+    try {
+      const u = new URL(s);
+      s = decodeURIComponent(u.pathname);
+      if (/^\/[a-zA-Z]:/.test(s)) s = s.slice(1);
+    } catch {
+      s = s.slice(7);
+    }
+  }
+  if (!/^[a-zA-Z]:\\/.test(s)) {
+    s = s.replace(/\\ /g, " ");
+  }
+  return s.trim();
+}
+
 /**
  * Paths as git reports them ("C:/Users/x/repo") and as the app builds them ("C:\Users\x\repo\src")
  * differ on Windows; compare them in one form.

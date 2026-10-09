@@ -20,11 +20,31 @@ pub struct Entry {
 }
 
 pub(crate) fn expand(path: &str) -> PathBuf {
-    match path.strip_prefix("~") {
-        Some(rest) if rest.is_empty() || rest.starts_with('/') => {
-            dirs::home_dir().unwrap_or_default().join(rest.trim_start_matches('/'))
+    let mut s = path.trim();
+    if (s.starts_with('"') && s.ends_with('"')) || (s.starts_with('\'') && s.ends_with('\'')) {
+        s = &s[1..s.len() - 1].trim();
+    }
+    let s = s.trim_matches(|c| c == '"' || c == '\'').trim();
+    if s.is_empty() {
+        return PathBuf::new();
+    }
+    let mut clean = s.to_string();
+    if let Some(rest) = clean.strip_prefix("file://") {
+        clean = rest.replace("%20", " ");
+        #[cfg(windows)]
+        if clean.starts_with('/') && clean.chars().nth(2) == Some(':') {
+            clean = clean.trim_start_matches('/').to_string();
         }
-        _ => PathBuf::from(path),
+    }
+    #[cfg(not(windows))]
+    if clean.contains(r"\ ") {
+        clean = clean.replace(r"\ ", " ");
+    }
+    match clean.strip_prefix("~") {
+        Some(rest) if rest.is_empty() || rest.starts_with('/') || rest.starts_with('\\') => {
+            dirs::home_dir().unwrap_or_default().join(rest.trim_start_matches(|c: char| c == '/' || c == '\\'))
+        }
+        _ => PathBuf::from(clean),
     }
 }
 
@@ -332,5 +352,7 @@ mod tests {
         assert_eq!(expand("~user/x"), PathBuf::from("~user/x"), "other users' homes are not guessed");
         assert_eq!(expand("/etc/hosts"), PathBuf::from("/etc/hosts"));
         assert_eq!(expand("rel/path"), PathBuf::from("rel/path"));
+        assert_eq!(expand("  \"~/notes/a.md\"  "), home.join("notes/a.md"));
+        assert_eq!(expand("'/etc/hosts'"), PathBuf::from("/etc/hosts"));
     }
 }

@@ -11,6 +11,7 @@ import { registerProvider } from "./palette";
 import { fileIcon, folderIcon } from "./fileicons";
 import { setFrontTags, tagsOf, taskDialog, ymd } from "./taskkit";
 import { AI_PROVIDERS, aiAgent, DEFAULT_AGENT, fileRef } from "./ai-agents";
+import { cleanPath } from "./paths";
 
 type VaultEntry = { name: string; path: string; exists: boolean; obsidian: boolean; found: boolean };
 type TagInfo = { tag: string; notes: string[] };
@@ -52,6 +53,7 @@ export function mountNotes(root: HTMLElement) {
         <button class="ghost" data-a="obsidian" disabled title="Открыть эту заметку в приложении Obsidian">Obsidian ↗</button>
       </div>
       <div class="note-tags" hidden></div>
+      <div class="notes-placeholder" hidden></div>
       <textarea class="note-editor" spellcheck="false" hidden></textarea>
       <article class="note-view md" hidden></article>
     </div>`;
@@ -71,16 +73,100 @@ export function mountNotes(root: HTMLElement) {
 
   let allTags: TagInfo[] = [];
   let tagFilter = "";
+  let lastRoot = "";
+  const ph = $(".notes-placeholder");
+
+  function resetView() {
+    current = null;
+    saved = editor.value = "";
+    editor.hidden = view.hidden = true;
+    $(".note-tags").hidden = true;
+    $(".note-path").textContent = i18nT("выберите заметку");
+    $(".note-path").classList.add("muted");
+    ["obsidian", "mention", "task"].forEach((a) => ($<HTMLButtonElement>(`[data-a=${a}]`).disabled = true));
+    markDirty();
+  }
+
+  function showEmptyPlaceholder() {
+    if (!vault) return;
+    ph.hidden = false;
+    editor.hidden = view.hidden = true;
+    if (vault.notes.length === 0) {
+      ph.innerHTML = `
+        <div class="notes-empty-state">
+          <div class="empty-icon">📝</div>
+          <h3>${i18nT("В хранилище пока нет заметок")}</h3>
+          <p class="muted">${i18nT("В этой папке пока нет файлов .md. Создайте первую заметку:")}</p>
+          <button type="button" class="primary" data-a="fix-new">${i18nT("＋ Новая заметка")}</button>
+        </div>`;
+    } else {
+      ph.innerHTML = `
+        <div class="notes-empty-state">
+          <div class="empty-icon">📝</div>
+          <p class="muted">${i18nT("Выберите заметку в списке слева или нажмите ＋ для создания новой.")}</p>
+        </div>`;
+    }
+  }
+
   async function loadVault() {
     try {
       vault = await invoke<Vault>("notes_list");
+      const rootChanged = lastRoot !== "" && lastRoot !== vault.root;
+      lastRoot = vault.root;
       $(".vault-name").textContent = vault.name;
-      $(".vault-btn").title = `${vault.root}\nХранилища: переключить, создать новое, открыть папку`;
+      $(".vault-btn").title = `${vault.root}\n${i18nT("Хранилища: переключить, создать новое, открыть папку")}`;
       allTags = await invoke<TagInfo[]>("notes_tags").catch(() => []);
+      if (rootChanged) {
+        current = null;
+        saved = editor.value = "";
+        editor.hidden = view.hidden = true;
+        $(".note-tags").hidden = true;
+        $(".note-path").textContent = i18nT("выберите заметку");
+        $(".note-path").classList.add("muted");
+        ["obsidian", "mention", "task"].forEach((a) => ($<HTMLButtonElement>(`[data-a=${a}]`).disabled = true));
+        markDirty();
+        openDirs.clear();
+        saveOpen();
+        tagFilter = "";
+        q.value = "";
+        showEmptyPlaceholder();
+      } else if (!current || !vault.notes.some((n) => n.path === current)) {
+        resetView();
+        showEmptyPlaceholder();
+      } else {
+        ph.hidden = true;
+      }
       drawList();
     } catch (e) {
       vault = null;
-      listEl.innerHTML = `<p class="muted pad">${esc(e)}</p>`;
+      lastRoot = "";
+      $(".vault-name").textContent = i18nT("Хранилище недоступно");
+      $(".vault-btn").title = i18nT("Хранилища: переключить, создать новое, открыть папку");
+      resetView();
+      $(".note-path").textContent = i18nT("хранилище недоступно");
+
+      listEl.innerHTML = `
+        <div class="notes-err-card">
+          <div class="notes-err-head"><span class="warn">⚠</span> <strong>${i18nT("Ошибка хранилища")}</strong></div>
+          <p class="notes-err-text">${esc(String(e))}</p>
+          <div class="notes-err-actions">
+            <button type="button" class="primary small" data-a="fix-pick">${i18nT("Выбрать папку…")}</button>
+            <button type="button" class="ghost small" data-a="fix-settings">${i18nT("Настройки")}</button>
+          </div>
+        </div>`;
+
+      ph.hidden = false;
+      ph.innerHTML = `
+        <div class="notes-empty-state notes-error-state">
+          <div class="empty-icon">📁</div>
+          <h3>${i18nT("Папка с заметками не найдена")}</h3>
+          <p class="muted notes-err-text">${esc(String(e))}</p>
+          <div class="row">
+            <button type="button" class="primary" data-a="fix-pick">${i18nT("Выбрать папку с заметками…")}</button>
+            <button type="button" class="ghost" data-a="fix-create">${i18nT("Создать новое хранилище")}</button>
+            <button type="button" class="ghost" data-a="fix-settings">${i18nT("Открыть настройки")}</button>
+          </div>
+        </div>`;
     }
   }
 
@@ -218,6 +304,7 @@ export function mountNotes(root: HTMLElement) {
     if (dirty() && (await ask("Несохранённые изменения", `Изменения в «${current}» будут потеряны. Продолжить?`, { ok: "Не сохранять", danger: true })) === null) return;
     try {
       const text = await invoke<string>("note_read", { path });
+      ph.hidden = true;
       current = path;
       eol = eolOf(text);
       saved = toLf(text);
@@ -230,7 +317,7 @@ export function mountNotes(root: HTMLElement) {
       $<HTMLButtonElement>("[data-a=task]").disabled = false;
       drawNoteTags();
       const fp = fullPath(path);
-      invoke("ide_editor", { editor: { uri: `file://${fp}`, filePath: fp, label: title(path), isActive: true, isDirty: false, languageId: "markdown" } }).catch(() => {});
+      invoke("ide_editor", { editor: { uri: `file://${fp}`, filePath: fp, label: title(path), isActive: true, isDirty: false, languageId: "markdown" } }).catch(() => { });
       markDirty();
       setMode(mode);
       listEl.querySelectorAll<HTMLElement>(".note-item").forEach((b) => b.classList.toggle("active", b.dataset.p === path));
@@ -398,10 +485,12 @@ export function mountNotes(root: HTMLElement) {
     selTimer = window.setTimeout(() => {
       const { selectionStart: a, selectionEnd: b, value } = editor;
       const fp = fullPath(current!);
-      invoke("ide_selection", { selection: {
-        text: value.slice(a, b), filePath: fp, fileUrl: `file://${fp}`,
-        selection: { start: lineCol(value, a), end: lineCol(value, b), isEmpty: a === b },
-      } }).catch(() => {});
+      invoke("ide_selection", {
+        selection: {
+          text: value.slice(a, b), filePath: fp, fileUrl: `file://${fp}`,
+          selection: { start: lineCol(value, a), end: lineCol(value, b), isEmpty: a === b },
+        }
+      }).catch(() => { });
     }, 250);
   });
   // "@ <agent>": the default AI agent (Settings → AI agent)
@@ -649,11 +738,55 @@ export function mountNotes(root: HTMLElement) {
     $(".note-path").textContent = i18nT("выберите заметку");
     $(".note-tags").hidden = true;
     tagFilter = "";
+    openDirs.clear();
+    saveOpen();
+    q.value = "";
     $(".vault-menu").hidden = true;
     window.dispatchEvent(new Event("settings-changed"));
     await loadVault();
     window.dispatchEvent(new Event("tasks-changed"));
   };
+  const createVaultFlow = async () => {
+    const name = await ask("Новое хранилище", "Название (так будет называться папка):", { input: "Заметки", ok: "Дальше" });
+    if (!name?.trim()) return;
+    toast("Выберите, где создать папку хранилища");
+    // null = cancelled in the system dialog; undefined = no dialog available → type the path
+    const picked = await invoke<string | null>("pick_folder", { start: null }).catch(() => undefined);
+    if (picked === null) return;
+    const parent = picked ?? await ask("Где создать", "Папка, внутри которой создать хранилище:", { input: "~/Documents", ok: "Создать" });
+    if (!parent) return;
+    await invoke("vault_create", { parent, name: name.trim() });
+    toast(`Хранилище «${name.trim()}» создано`);
+    return switched();
+  };
+
+  const openVaultFlow = async () => {
+    const picked = await invoke<string | null>("pick_folder", { start: null }).catch(() => undefined);
+    if (picked === null) return;
+    const dir = picked ?? await ask("Открыть хранилище", "Папка с заметками (.md) или Obsidian vault:", { input: "~/", ok: "Открыть" });
+    if (!dir) return;
+    await invoke("vault_open", { path: cleanPath(dir), name: null });
+    return switched();
+  };
+
+  root.addEventListener("click", (e) => {
+    const btn = (e.target as HTMLElement).closest<HTMLElement>("[data-a]");
+    if (!btn) return;
+    const a = btn.dataset.a;
+    if (a === "fix-pick") {
+      openVaultFlow();
+    } else if (a === "fix-create") {
+      createVaultFlow();
+    } else if (a === "fix-settings") {
+      document.querySelector<HTMLElement>('button[data-view="settings"]')?.click();
+      setTimeout(() => {
+        document.querySelector<HTMLInputElement>('input[name="obsidian_vault"]')?.focus();
+      }, 50);
+    } else if (a === "fix-new") {
+      newNote("");
+    }
+  });
+
   $(".vault-menu").addEventListener("click", async (e) => {
     const el = e.target as HTMLElement;
     const forget = el.closest<HTMLElement>("[data-forget]")?.dataset.forget;
@@ -661,27 +794,8 @@ export function mountNotes(root: HTMLElement) {
     const act = el.closest<HTMLElement>("[data-va]")?.dataset.va;
     if (dirty() && (act || el.closest("[data-v]")) && (await ask("Несохранённые изменения", `Изменения в «${current}» будут потеряны. Продолжить?`, { ok: "Не сохранять", danger: true })) === null) return;
     try {
-      if (act === "create") {
-        const name = await ask("Новое хранилище", "Название (так будет называться папка):", { input: "Заметки", ok: "Дальше" });
-        if (!name?.trim()) return;
-        toast("Выберите, где создать папку хранилища");
-        // null = cancelled in the system dialog; undefined = no dialog available → type the path
-        const picked = await invoke<string | null>("pick_folder", { start: null }).catch(() => undefined);
-        if (picked === null) return;
-        const parent = picked ?? await ask("Где создать", "Папка, внутри которой создать хранилище:", { input: "~/Documents", ok: "Создать" });
-        if (!parent) return;
-        await invoke("vault_create", { parent, name: name.trim() });
-        toast(`Хранилище «${name.trim()}» создано`);
-        return switched();
-      }
-      if (act === "open") {
-        const picked = await invoke<string | null>("pick_folder", { start: null }).catch(() => undefined);
-        if (picked === null) return;
-        const dir = picked ?? await ask("Открыть хранилище", "Папка с заметками (.md) или Obsidian vault:", { input: "~/", ok: "Открыть" });
-        if (!dir) return;
-        await invoke("vault_open", { path: dir, name: null });
-        return switched();
-      }
+      if (act === "create") return createVaultFlow();
+      if (act === "open") return openVaultFlow();
       const path = el.closest<HTMLElement>("[data-v]")?.dataset.v;
       if (path) { await invoke("vault_activate", { path }); return switched(); }
     } catch (err) { toast(String(err), "err"); }
@@ -699,7 +813,7 @@ export function mountNotes(root: HTMLElement) {
   q.oninput = () => { clearTimeout(t); t = window.setTimeout(drawList, 200); };
 
   setMode(mode);
-  window.addEventListener("view-shown", (e) => { if ((e as CustomEvent).detail === "notes" && !vault) loadVault(); });
+  window.addEventListener("view-shown", (e) => { if ((e as CustomEvent).detail === "notes") loadVault(); });
   window.addEventListener("settings-changed", loadVault);
   loadVault();
 }

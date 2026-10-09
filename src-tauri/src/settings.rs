@@ -89,7 +89,8 @@ fn filled() -> Settings {
     }
     s.ai_key_saved = store::secret_get(AI_KEY).is_some();
     // first run: pre-fill from what's on disk so things work without visiting settings
-    if s.keepass_path.is_empty() || s.obsidian_vault.is_empty() || s.winbox_path.is_empty() {
+    let first_run = !store::exists(FILE);
+    if first_run && (s.keepass_path.is_empty() || s.obsidian_vault.is_empty() || s.winbox_path.is_empty()) {
         let d = detect();
         if s.keepass_path.is_empty() {
             s.keepass_path = d.keepass.first().cloned().unwrap_or_default();
@@ -112,11 +113,26 @@ pub async fn current() -> Settings {
 }
 
 #[tauri::command]
-pub fn settings_set(settings: Settings) -> Result<(), String> {
+pub fn settings_set(mut settings: Settings) -> Result<(), String> {
     // a newly typed key goes to the keyring; an empty field keeps the saved one
     let key = settings.ai_api_key.trim();
     if !key.is_empty() {
         store::secret_set(AI_KEY, key).map_err(|e| format!("не удалось сохранить API-ключ в хранилище паролей: {e}"))?;
+    }
+    let vault_raw = settings.obsidian_vault.trim();
+    if !vault_raw.is_empty() {
+        let p = crate::editor::expand(vault_raw);
+        if !p.exists() {
+            return Err(format!("папка с заметками не найдена: «{}»", vault_raw));
+        }
+        if !p.is_dir() {
+            return Err(format!("путь к заметкам указывает на файл, а не папку: «{}»", vault_raw));
+        }
+        if let Ok(canon) = p.canonicalize().map(crate::store::clean_path_buf) {
+            let canon_str = canon.to_string_lossy().into_owned();
+            settings.obsidian_vault = canon_str.clone();
+            let _ = crate::notes::remember(&canon_str, None);
+        }
     }
     store::save_json(FILE, &settings)
 }
@@ -210,5 +226,12 @@ mod tests {
         let back: Settings = serde_json::from_str(r#"{"ai_api_key":"typed","ai_key_saved":true}"#).unwrap();
         assert_eq!(back.ai_api_key, "typed");
         assert!(!back.ai_key_saved);
+    }
+
+    #[test]
+    fn settings_vault_validation() {
+        let bad = Settings { obsidian_vault: "/nonexistent/path/for/sure/12345".into(), ..Default::default() };
+        let err = settings_set(bad).unwrap_err();
+        assert!(err.contains("папка с заметками не найдена"));
     }
 }
