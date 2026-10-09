@@ -689,11 +689,9 @@ fn build_entries(
     (out, unreadable, reasons)
 }
 
-/// The resource list with decrypted metadata, after the login (and MFA, if asked) succeeded.
-async fn load_list(state: &PassboltState) -> Result<(), String> {
-    let types = state
-        .get("/resource-types.json", "типы записей Passbolt")
-        .await?;
+/// The resources of `/resources.json` with their type slug from `/resource-types.json`, and the
+/// number of resources of an unknown type (left out).
+fn raws_from(types: &Value, resources: &Value) -> (Vec<Raw>, usize) {
     let slugs: HashMap<String, String> = types
         .as_array()
         .map(|t| {
@@ -702,21 +700,11 @@ async fn load_list(state: &PassboltState) -> Result<(), String> {
                 .collect()
         })
         .unwrap_or_default();
-    let resources = state.get("/resources.json", "записи Passbolt").await?;
-    let resources = resources.as_array().cloned().unwrap_or_default();
-    let mut warnings = Vec::new();
-    let folders = match state.get("/folders.json", "папки Passbolt").await {
-        Ok(f) => f.as_array().cloned().unwrap_or_default(),
-        Err(e) => {
-            warnings.push(format!(
-                "папки не загрузились, записи показаны без них: {e}"
-            ));
-            Vec::new()
-        }
-    };
     let mut unknown = 0;
-    let raws: Vec<Raw> = resources
-        .iter()
+    let raws = resources
+        .as_array()
+        .into_iter()
+        .flatten()
         .filter_map(|r| {
             let kind = slugs.get(&str_of(r, "resource_type_id")).cloned();
             if kind.is_none() {
@@ -745,6 +733,59 @@ async fn load_list(state: &PassboltState) -> Result<(), String> {
             })
         })
         .collect();
+    (raws, unknown)
+}
+
+/// The shared metadata keys of `/metadata/keys.json`, decrypted with the user's key, and warnings
+/// for the ones that do not decrypt.
+fn shared_keys_from(
+    user_key: &SignedSecretKey,
+    metadata_keys: &Value,
+) -> (HashMap<String, SignedSecretKey>, Vec<String>) {
+    let mut shared = HashMap::new();
+    let mut warnings = Vec::new();
+    for k in metadata_keys.as_array().into_iter().flatten() {
+        let id = str_of(k, "id");
+        let Some(data) = k["metadata_private_keys"]
+            .as_array()
+            .and_then(|p| p.first())
+            .and_then(|p| p["data"].as_str())
+        else {
+            continue;
+        };
+        let key = decrypt(user_key, data).and_then(|plain| {
+            let plain = Zeroizing::new(plain);
+            let v: Value = serde_json::from_slice(&plain).map_err(err)?;
+            let armored = Zeroizing::new(str_of(&v, "armored_key"));
+            parse_secret_key(&armored)
+        });
+        match key {
+            Ok(key) => {
+                shared.insert(id, key);
+            }
+            Err(e) => warnings.push(format!("ключ метаданных {id} не расшифровался: {e}")),
+        }
+    }
+    (shared, warnings)
+}
+
+/// The resource list with decrypted metadata, after the login (and MFA, if asked) succeeded.
+async fn load_list(state: &PassboltState) -> Result<(), String> {
+    let types = state
+        .get("/resource-types.json", "типы записей Passbolt")
+        .await?;
+    let resources = state.get("/resources.json", "записи Passbolt").await?;
+    let mut warnings = Vec::new();
+    let folders = match state.get("/folders.json", "папки Passbolt").await {
+        Ok(f) => f.as_array().cloned().unwrap_or_default(),
+        Err(e) => {
+            warnings.push(format!(
+                "папки не загрузились, записи показаны без них: {e}"
+            ));
+            Vec::new()
+        }
+    };
+    let (raws, unknown) = raws_from(&types, &resources);
     if unknown > 0 {
         warnings.push(format!(
             "записей неизвестного типа: {unknown} — не показаны"
@@ -797,32 +838,7 @@ async fn load_list(state: &PassboltState) -> Result<(), String> {
     };
     let (entries, unreadable, reasons, key_warnings) =
         tauri::async_runtime::spawn_blocking(move || {
-            let mut shared = HashMap::new();
-            let mut key_warnings = Vec::new();
-            for k in metadata_keys.as_array().into_iter().flatten() {
-                let id = str_of(k, "id");
-                let Some(data) = k["metadata_private_keys"]
-                    .as_array()
-                    .and_then(|p| p.first())
-                    .and_then(|p| p["data"].as_str())
-                else {
-                    continue;
-                };
-                let key = decrypt(&user_key, data).and_then(|plain| {
-                    let plain = Zeroizing::new(plain);
-                    let v: Value = serde_json::from_slice(&plain).map_err(err)?;
-                    let armored = Zeroizing::new(str_of(&v, "armored_key"));
-                    parse_secret_key(&armored)
-                });
-                match key {
-                    Ok(key) => {
-                        shared.insert(id, key);
-                    }
-                    Err(e) => {
-                        key_warnings.push(format!("ключ метаданных {id} не расшифровался: {e}"))
-                    }
-                }
-            }
+            let (shared, key_warnings) = shared_keys_from(&user_key, &metadata_keys);
             let (entries, unreadable, reasons) = build_entries(raws, &user_key, &shared);
             (entries, unreadable, reasons, key_warnings)
         })
@@ -1410,6 +1426,181 @@ pub fn spawn_autolock(app: AppHandle) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ---- without a server: keys and encrypted data are made here, API answers shaped as Passbolt's
+
+    /// A Passbolt-like key (Ed25519 primary, Curve25519 encryption subkey), armored; locked by
+    /// `passphrase` as in an account kit (none: as a metadata key or the server's).
+    fn test_key(passphrase: Option<&str>) -> (String, SignedPublicKey) {
+        use pgp::composed::{EncryptionCaps, KeyType, SecretKeyParamsBuilder, SubkeyParamsBuilder};
+        use pgp::crypto::ecc_curve::ECCCurve;
+        let mut rng = rand::thread_rng();
+        let mut key = SecretKeyParamsBuilder::default()
+            .key_type(KeyType::Ed25519Legacy)
+            .can_certify(true)
+            .can_sign(true)
+            .primary_user_id("Test <test@example.com>".into())
+            .subkeys(vec![SubkeyParamsBuilder::default()
+                .key_type(KeyType::ECDH(ECCCurve::Curve25519Legacy))
+                .can_encrypt(EncryptionCaps::All)
+                .build()
+                .unwrap()])
+            .build()
+            .unwrap()
+            .generate(&mut rng)
+            .unwrap();
+        let public = key.to_public_key();
+        if let Some(p) = passphrase {
+            let pw = Password::from(p);
+            key.primary_key.set_password(&mut rng, &pw).unwrap();
+            for sub in &mut key.secret_subkeys {
+                sub.key.set_password(&mut rng, &pw).unwrap();
+            }
+        }
+        (key.to_armored_string(Default::default()).unwrap(), public)
+    }
+
+    /// Encrypted to `to` as the Passbolt clients store metadata and secrets.
+    fn encrypt_to(text: &str, to: &SignedPublicKey) -> String {
+        let mut rng = rand::thread_rng();
+        let mut b = MessageBuilder::from_bytes("", text.as_bytes().to_vec())
+            .seipd_v1(&mut rng, SymmetricKeyAlgorithm::AES256);
+        b.encrypt_to_key(&mut rng, encryption_subkey(to).unwrap())
+            .unwrap();
+        b.to_armored_string(&mut rng, Default::default()).unwrap()
+    }
+
+    #[test]
+    fn the_key_unlocks_only_with_its_passphrase() {
+        let (armored, public) = test_key(Some("correct horse"));
+        let e = unlock_key(&armored, "wrong").unwrap_err();
+        assert!(e.contains("неверная парольная фраза"), "{e}");
+        let key = unlock_key(&armored, "correct horse").unwrap();
+        assert_eq!(decrypt(&key, &encrypt_to("ok", &public)).unwrap(), b"ok");
+    }
+
+    #[test]
+    fn the_list_from_api_answers_v4_and_v5() {
+        let (user_armored, user_pub) = test_key(Some("pass"));
+        let user = unlock_key(&user_armored, "pass").unwrap();
+        let (shared_armored, shared_pub) = test_key(None);
+        let types = json!([
+            { "id": "t-v4", "slug": "password-and-description" },
+            { "id": "t-v5", "slug": "v5-default" },
+        ]);
+        let meta = |name: &str, login: &str, uris: &[&str]| {
+            json!({
+                "object_type": "PASSBOLT_RESOURCE_METADATA", "resource_type_id": "t-v5",
+                "name": name, "username": login, "uris": uris, "description": "about",
+            })
+            .to_string()
+        };
+        let resources = json!([
+            { "id": "r1", "resource_type_id": "t-v4", "name": "Router v4", "username": "admin",
+              "uri": "https://router.example.com", "description": "v4 cleartext", "folder_parent_id": "f1" },
+            { "id": "r2", "resource_type_id": "t-v5", "metadata_key_id": null, "metadata_key_type": "user_key",
+              "metadata": encrypt_to(&meta("Server v5", "deploy", &["https://a.example.com", "https://b.example.com"]), &user_pub) },
+            { "id": "r3", "resource_type_id": "t-v5", "metadata_key_id": "mk1", "metadata_key_type": "shared_key",
+              "metadata": encrypt_to(&meta("Shared v5", "shared", &[]), &shared_pub) },
+            { "id": "r4", "resource_type_id": "t-v5", "metadata_key_id": "mk-unknown", "metadata_key_type": "shared_key",
+              "metadata": encrypt_to(&meta("No key", "x", &[]), &shared_pub) },
+            { "id": "r5", "resource_type_id": "t-unknown", "name": "A type this version does not know" },
+        ]);
+        // the shared metadata key comes encrypted to the user, as /metadata/keys.json gives it
+        let keys = json!([{ "id": "mk1", "metadata_private_keys": [
+            { "data": encrypt_to(&json!({ "armored_key": shared_armored }).to_string(), &user_pub) }
+        ] }]);
+
+        let (raws, unknown) = raws_from(&types, &resources);
+        assert_eq!((raws.len(), unknown), (4, 1));
+        let (shared, warnings) = shared_keys_from(&user, &keys);
+        assert!(warnings.is_empty(), "{warnings:?}");
+        let (entries, unreadable, reasons) = build_entries(raws, &user, &shared);
+        assert_eq!(unreadable, 1, "{reasons:?}");
+        assert!(reasons[0].contains("mk-unknown"), "{reasons:?}");
+        let by = |id: &str| entries.iter().find(|e| e.id == id).unwrap();
+        let v4 = by("r1");
+        assert_eq!(
+            (
+                v4.name.as_str(),
+                v4.username.as_str(),
+                v4.description.as_str()
+            ),
+            ("Router v4", "admin", "v4 cleartext")
+        );
+        assert_eq!(
+            (v4.uris.as_slice(), v4.folder.as_deref()),
+            (&["https://router.example.com".to_string()][..], Some("f1"))
+        );
+        let v5 = by("r2");
+        assert_eq!(
+            (v5.name.as_str(), v5.username.as_str(), v5.kind.as_str()),
+            ("Server v5", "deploy", "v5-default")
+        );
+        assert_eq!(v5.uris, ["https://a.example.com", "https://b.example.com"]);
+        assert_eq!(by("r3").name, "Shared v5");
+    }
+
+    #[test]
+    fn secrets_v4_and_v5_decrypt() {
+        let (armored, public) = test_key(Some("p"));
+        let key = unlock_key(&armored, "p").unwrap();
+        for (kind, plain, password, description) in [
+            ("password-string", "only-a-password".to_string(), "only-a-password", None),
+            (
+                "password-and-description",
+                json!({ "password": "v4-pass", "description": "v4 secret note" }).to_string(),
+                "v4-pass",
+                Some("v4 secret note"),
+            ),
+            (
+                "v5-default",
+                json!({ "object_type": "PASSBOLT_SECRET_DATA", "password": "v5-pass", "description": "v5 note" })
+                    .to_string(),
+                "v5-pass",
+                Some("v5 note"),
+            ),
+        ] {
+            let plain = decrypt(&key, &encrypt_to(&plain, &public)).unwrap();
+            let s = parse_secret(kind, &plain).unwrap();
+            assert_eq!(
+                (s.password.as_deref(), s.description.as_deref()),
+                (Some(password), description),
+                "{kind}"
+            );
+        }
+        // another key cannot read it
+        let (other, _) = test_key(None);
+        assert!(decrypt(
+            &parse_secret_key(&other).unwrap(),
+            &encrypt_to("x", &public)
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn only_answers_signed_by_the_server_key_are_accepted() {
+        let (user_armored, user_pub) = test_key(None);
+        let user = parse_secret_key(&user_armored).unwrap();
+        let (server_armored, server_pub) = test_key(None);
+        let server = parse_secret_key(&server_armored).unwrap();
+        let (other_armored, _) = test_key(None);
+        let other = parse_secret_key(&other_armored).unwrap();
+        // the login challenge goes signed by the user; the server's answer comes signed by the server
+        let to_server = sign_and_encrypt("challenge", &user, &server_pub).unwrap();
+        assert_eq!(
+            decrypt_verified(&server, &to_server, &user_pub).unwrap(),
+            b"challenge"
+        );
+        let answer = sign_and_encrypt("tokens", &server, &user_pub).unwrap();
+        assert_eq!(
+            decrypt_verified(&user, &answer, &server_pub).unwrap(),
+            b"tokens"
+        );
+        let forged = sign_and_encrypt("tokens", &other, &user_pub).unwrap();
+        let e = decrypt_verified(&user, &forged, &server_pub).unwrap_err();
+        assert!(e.contains("не подписан ключом сервера"), "{e}");
+    }
 
     #[tokio::test]
     async fn a_redirect_is_not_followed() {
