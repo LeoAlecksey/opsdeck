@@ -43,7 +43,8 @@ export type IconName =
   | "home"
   | "externalLink"
   | "menu"
-  ;
+  | "copy"
+;
 
 const ICONS: Record<IconName, string> = {
   activity: "<path d=\"M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2\" />",
@@ -73,6 +74,7 @@ const ICONS: Record<IconName, string> = {
   arrowRight: "<path d=\"M5 12h14\" /> <path d=\"m12 5 7 7-7 7\" />",
   home: "<path d=\"m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z\" /> <polyline points=\"9 22 9 12 15 12 15 22\" />",
   externalLink: "<path d=\"M15 3h6v6\" /> <path d=\"M10 14 21 3\" /> <path d=\"M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6\" />",
+  copy: "<rect width=\"14\" height=\"14\" x=\"8\" y=\"8\" rx=\"2\" ry=\"2\" /> <path d=\"M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2\" />",
   menu: "<line x1=\"4\" x2=\"20\" y1=\"12\" y2=\"12\" /> <line x1=\"4\" x2=\"20\" y1=\"6\" y2=\"6\" /> <line x1=\"4\" x2=\"20\" y1=\"18\" y2=\"18\" />",
   close: "<path d=\"M18 6 6 18\" /> <path d=\"m6 6 12 12\" />",
   play: "<polygon points=\"6 3 20 12 6 21 6 3\" fill=\"currentColor\" stroke=\"currentColor\" />",

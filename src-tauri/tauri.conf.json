@@ -33,8 +33,7 @@
         "base-uri": "'self'",
         "frame-src": "'none'",
         "form-action": "'none'"
-      },
-      "devCsp": null
+      }
     }
   },
   "bundle": {

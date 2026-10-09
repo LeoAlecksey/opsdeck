@@ -65,8 +65,8 @@ gtk = "0.18"
 webkit2gtk = "2.0"
 
 [target.'cfg(target_os = "macos")'.dependencies]
-objc2 = "0.6"
-objc2-app-kit = { version = "0.3", features = ["NSView", "NSWindow"] }
+# web panels: the WKWebView frame is placed directly (embed.rs)
+objc2-app-kit = { version = "0.3", features = ["NSView"] }
 objc2-foundation = { version = "0.3", features = ["NSGeometry"] }
 
 # Быстрее локальные сборки (tauri dev, cargo test): полная отладочная информация только для
