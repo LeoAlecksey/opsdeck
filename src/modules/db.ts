@@ -5,6 +5,7 @@ import { kpEntries, kpStatus, pickEntry } from "./keepass";
 import { ask, esc, toast } from "./ui";
 import { registerProvider } from "./palette";
 import { targets } from "./monitor";
+import { natCmp } from "./natsort";
 
 type Profile = {
   id: string; name: string; group: string; engine: string; host: string; port: number; database: string;
@@ -288,8 +289,8 @@ export function mountDb(root: HTMLElement) {
       return;
     }
     const groups = new Map<string, Profile[]>();
-    for (const p of shown.sort((a, b) => a.name.localeCompare(b.name))) groups.set(p.group, [...(groups.get(p.group) ?? []), p]);
-    treeEl.innerHTML = [...groups.entries()].sort(([a], [b]) => (a === "" ? 1 : b === "" ? -1 : a.localeCompare(b))).map(([g, ps]) => `
+    for (const p of shown.sort((a, b) => natCmp(a.name, b.name))) groups.set(p.group, [...(groups.get(p.group) ?? []), p]);
+    treeEl.innerHTML = [...groups.entries()].sort(([a], [b]) => (a === "" ? 1 : b === "" ? -1 : natCmp(a, b))).map(([g, ps]) => `
       ${g ? `<div class="side-head small">${esc(g)}</div>` : groups.size > 1 ? `<div class="side-head small">без группы</div>` : ""}
       ${ps.map((p) => {
         const open = openNodes.has(key(p.id, []));

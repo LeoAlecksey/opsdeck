@@ -38,6 +38,7 @@ import { diff } from "@codemirror/legacy-modes/mode/diff";
 import { properties } from "@codemirror/legacy-modes/mode/properties";
 import { nginx } from "@codemirror/legacy-modes/mode/nginx";
 import { parseAllDocuments } from "yaml";
+import { natCmp } from "./natsort";
 
 type Entry = { name: string; dir: boolean; link: boolean; size: number };
 type Git = { root: string; branch: string; files: Record<string, string>; error?: string };
@@ -642,7 +643,7 @@ export function mountCode(root: HTMLElement) {
     $(".cg-branch").textContent = git.root ? git.branch || "detached" : git.error ? "git недоступен" : "не git-репозиторий";
     $(".cg-branch").closest<HTMLElement>("button")!.title = git.error || "Ветки: переключить, создать, слить, удалить";
     $(".cg-commit-box").hidden = !git.root || !Object.keys(git.files).length;
-    const files = Object.entries(git.files).sort(([a], [b]) => a.localeCompare(b));
+    const files = Object.entries(git.files).sort(([a], [b]) => natCmp(a, b));
     $(".cg-changes").innerHTML = !git.root ? (git.error ? `<p class="err pad">${esc(git.error)}</p>` : "") : files.length
       ? files.map(([f, code]) => `<div class="cg-file ${stClass(code)}" data-file="${esc(f)}" title="${esc(f)} — показать изменения">
           <span class="ct-st">${esc(code.trim() || "M")}</span><span class="ct-ico">${fileIcon(f)}</span><span class="tree-label">${esc(base(f))}</span><span class="cg-dir muted">${esc(f.includes("/") ? f.slice(0, f.lastIndexOf("/")) : "")}</span></div>`).join("")

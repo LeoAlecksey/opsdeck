@@ -1048,8 +1048,10 @@ body.no-select, body.no-select * { user-select: none; -webkit-user-select: none;
 .theme-import textarea { width: 100%; font-family: var(--mono, monospace); font-size: 12px; }
 
 /* monitoring board */
-.mon-board { display: flex; flex-direction: column; gap: 14px; }
-.mon-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 10px; }
+/* groups flow side by side while there is room (a big screen no longer leaves a free half), a big group wraps into up to 4 columns */
+.mon-board { display: flex; flex-flow: row wrap; align-items: flex-start; gap: 14px 24px; }
+.mon-group { flex: 0 0 auto; max-width: 100%; }
+.mon-grid { display: grid; grid-template-columns: repeat(var(--cols, 1), minmax(0, 250px)); gap: 10px; }
 .mon-card { background: var(--panel); border: 1px solid var(--border); border-left: 3px solid var(--border); border-radius: 8px; padding: 10px 12px; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .mon-card.warn { border-left-color: #e6c07b; } .mon-card.bad { border-left-color: var(--danger); }
 .mon-head { display: flex; align-items: center; gap: 8px; min-width: 0; }

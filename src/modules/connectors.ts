@@ -4,6 +4,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { pickEntry } from "./keepass";
 import { ask, esc, toast, overlay } from "./ui";
 import { registerProvider } from "./palette";
+import { natCmp } from "./natsort";
 
 type Connector = { id: string; kind: string; name: string; group?: string; url: string; username: string; auth: string; keepass_entry?: string; ingest_token?: string; basic_user?: string };
 
@@ -304,8 +305,8 @@ export function mountConnectors(root: HTMLElement) {
     cards.innerHTML = list.length ? "" : `<p class="muted">Пока пусто — добавьте Grafana, ArgoCD или GitLab.</p>`;
     // rows like on a Grafana dashboard: one collapsible row per group, ungrouped panels first
     const rows = new Map<string, Connector[]>();
-    for (const c of [...list].sort((a, b) => a.name.localeCompare(b.name))) rows.set(c.group ?? "", [...(rows.get(c.group ?? "") ?? []), c]);
-    const order = [...rows.keys()].sort((a, b) => (a === "" ? -1 : b === "" ? 1 : a.localeCompare(b)));
+    for (const c of [...list].sort((a, b) => natCmp(a.name, b.name))) rows.set(c.group ?? "", [...(rows.get(c.group ?? "") ?? []), c]);
+    const order = [...rows.keys()].sort((a, b) => (a === "" ? -1 : b === "" ? 1 : natCmp(a, b)));
     const grouped = order.some((g) => g !== "");
     const containers = new Map<string, HTMLElement>();
     for (const g of order) {

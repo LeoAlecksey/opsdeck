@@ -48,6 +48,42 @@ pub(crate) fn expand(path: &str) -> PathBuf {
     }
 }
 
+/// Natural order for names, case-insensitive: "file2" < "file10", "TL-9" < "TL-10".
+pub(crate) fn natural_cmp(a: &str, b: &str) -> std::cmp::Ordering {
+    use std::cmp::Ordering;
+    let (mut a, mut b) = (a.chars().peekable(), b.chars().peekable());
+    loop {
+        match (a.peek().copied(), b.peek().copied()) {
+            (None, None) => return Ordering::Equal,
+            (None, Some(_)) => return Ordering::Less,
+            (Some(_), None) => return Ordering::Greater,
+            (Some(x), Some(y)) if x.is_ascii_digit() && y.is_ascii_digit() => {
+                let num = |it: &mut std::iter::Peekable<std::str::Chars>| {
+                    let mut s = String::new();
+                    while let Some(c) = it.next_if(char::is_ascii_digit) {
+                        s.push(c);
+                    }
+                    s.trim_start_matches('0').to_string()
+                };
+                let (na, nb) = (num(&mut a), num(&mut b));
+                // longer number = bigger; same length compares digit by digit
+                let o = na.len().cmp(&nb.len()).then_with(|| na.cmp(&nb));
+                if o != Ordering::Equal {
+                    return o;
+                }
+            }
+            (Some(x), Some(y)) => {
+                let o = x.to_lowercase().cmp(y.to_lowercase());
+                if o != Ordering::Equal {
+                    return o;
+                }
+                a.next();
+                b.next();
+            }
+        }
+    }
+}
+
 /// One directory level: folders first, then files, case-insensitive by name.
 #[tauri::command]
 pub async fn fs_list(path: String, hidden: bool) -> Result<Vec<Entry>, String> {
@@ -67,7 +103,7 @@ pub async fn fs_list(path: String, hidden: bool) -> Result<Vec<Entry>, String> {
             })
             .take(MAX_ENTRIES)
             .collect();
-        out.sort_by(|a, b| b.dir.cmp(&a.dir).then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase())));
+        out.sort_by(|a, b| b.dir.cmp(&a.dir).then_with(|| natural_cmp(&a.name, &b.name)));
         Ok(out)
     })
     .await
@@ -342,6 +378,13 @@ fn spawn_detached(program: &str, args: &[String], cwd: &Path) -> Result<(), Stri
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn natural_order_of_names() {
+        let mut v = vec!["TL-10", "tl-2", "TL-1", "b", "A", "file010", "file9", "file10", "TL-11", "TL-9"];
+        v.sort_by(|a, b| natural_cmp(a, b));
+        assert_eq!(v, ["A", "b", "file9", "file010", "file10", "TL-1", "tl-2", "TL-9", "TL-10", "TL-11"]);
+    }
+
     use super::*;
 
     #[test]

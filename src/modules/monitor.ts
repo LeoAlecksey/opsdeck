@@ -7,6 +7,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { helpBtn } from "./help";
 import { icon } from "./icons";
 import { ask, esc } from "./ui";
+import { natCmp } from "./natsort";
 
 type SshHost = { id: string; name: string; group: string; host: string; user: string };
 type ConfigHost = { alias: string; group: string; hostname: string; user: string };
@@ -117,7 +118,8 @@ export function mountMonitor(root: HTMLElement) {
     }
     const groups = new Map<string, Target[]>();
     for (const t of list) groups.set(t.group, [...(groups.get(t.group) ?? []), t]);
-    board.innerHTML = [...groups.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([g, ts]) => {
+    board.innerHTML = [...groups.entries()].sort(([a], [b]) => natCmp(a, b)).map(([g, tsRaw]) => {
+      const ts = [...tsRaw].sort((a, b) => natCmp(a.name, b.name));
       const fold = folded.has(g);
       // a folded group still says how it was last time: count of hosts by colour
       const tally = { bad: 0, warn: 0, ok: 0 };
@@ -127,7 +129,7 @@ export function mountMonitor(root: HTMLElement) {
         <div class="mon-ghead"><button class="ghost mon-fold" data-fold title="${fold ? "Развернуть" : "Свернуть"}">${fold ? "▸" : "▾"}</button>
           <span class="side-head small">${esc(g || "Без группы")}</span><span class="muted">${ts.length}</span>${fold ? sum : ""}
           <span class="spacer"></span><button class="icon mon-x" data-rmg title="Убрать группу с доски (профили SSH остаются)">${icon("close", 12)}</button></div>
-        ${fold ? "" : `<div class="mon-grid">${ts.map(card).join("")}</div>`}</section>`;
+        ${fold ? "" : `<div class="mon-grid" style="--cols:${Math.min(ts.length, 4)}">${ts.map(card).join("")}</div>`}</section>`;
     }).join("");
   }
 

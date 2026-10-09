@@ -4,6 +4,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { kpEntries, kpStatus, pickEntry } from "./keepass";
 import { registerProvider } from "./palette";
 import { ask, esc, toast } from "./ui";
+import { natCmp } from "./natsort";
 
 type SshHost = {
   id: string; name: string; group: string; host: string; port: number; user: string;
@@ -137,7 +138,7 @@ export function mountSsh(root: HTMLElement) {
   const closed = new Set<string>((() => { try { return JSON.parse(localStorage.getItem("opsdeck.ssh.closed") ?? "[]"); } catch { return []; } })());
   const saveClosed = () => { try { localStorage.setItem("opsdeck.ssh.closed", JSON.stringify([...closed])); } catch { /* ignore */ } };
   const CFG = "~/.ssh/config";
-  const allGroups = () => [...new Set([...data.hosts.map((h) => h.group), ...data.config.map((h) => h.group)].filter(Boolean))].sort((a, b) => a.localeCompare(b));
+  const allGroups = () => [...new Set([...data.hosts.map((h) => h.group), ...data.config.map((h) => h.group)].filter(Boolean))].sort(natCmp);
 
   const ownRow = (h: SshHost) => `
         <tr data-id="${esc(h.id)}">
@@ -173,7 +174,7 @@ export function mountSsh(root: HTMLElement) {
   function draw() {
     const q = filter.value.trim().toLowerCase();
     const match = (...xs: string[]) => !q || xs.join(" ").toLowerCase().includes(q);
-    const own = data.hosts.filter((h) => match(h.name, h.host, h.group, h.user)).sort((a, b) => a.name.localeCompare(b.name));
+    const own = data.hosts.filter((h) => match(h.name, h.host, h.group, h.user)).sort((a, b) => natCmp(a.name, b.name));
     const cfg = data.config.filter((h) => match(h.alias, h.group, h.hostname, h.user, h.effective?.hostname ?? "", h.effective?.user ?? ""));
     // one row per group; own profiles without a group first, ungrouped ~/.ssh/config hosts last
     const groups = new Map<string, string[]>();
@@ -181,7 +182,7 @@ export function mountSsh(root: HTMLElement) {
     own.forEach((h) => add(h.group, ownRow(h)));
     cfg.forEach((h) => add(h.group || CFG, cfgRow(h)));
     const order = [...groups.keys()].sort((a, b) =>
-      a === "" ? -1 : b === "" ? 1 : a === CFG ? 1 : b === CFG ? -1 : a.localeCompare(b));
+      a === "" ? -1 : b === "" ? 1 : a === CFG ? 1 : b === CFG ? -1 : natCmp(a, b));
     list.innerHTML = order.map((g) => `
       <details class="ssh-group" data-g="${esc(g)}" ${q || !closed.has(g) ? "open" : ""}>
         <summary><span class="ssh-group-title">${esc(g || "Без группы")}</span><span class="conn-row-count">${groups.get(g)!.length}</span>

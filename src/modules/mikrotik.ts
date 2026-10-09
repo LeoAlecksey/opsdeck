@@ -5,6 +5,7 @@ import { kpEntries, kpStatus, pickEntry } from "./keepass";
 import { ask, esc, toast } from "./ui";
 import { t } from "../i18n";
 import { registerProvider } from "./palette";
+import { natCmp } from "./natsort";
 
 type Device = {
   id: string; name: string; host: string; group: string; username: string;
@@ -125,8 +126,8 @@ export function mountMikrotik(root: HTMLElement) {
     const shown = devices.filter((d) => !q || [d.name, d.host, d.group].join(" ").toLowerCase().includes(q));
     if (!devices.length) { list.innerHTML = `<p class="muted">Пока пусто — добавьте первый роутер.</p>`; return; }
     const groups = new Map<string, Device[]>();
-    for (const d of shown.sort((a, b) => a.name.localeCompare(b.name))) groups.set(d.group, [...(groups.get(d.group) ?? []), d]);
-    list.innerHTML = [...groups.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([g, ds]) => `
+    for (const d of shown.sort((a, b) => natCmp(a.name, b.name))) groups.set(d.group, [...(groups.get(d.group) ?? []), d]);
+    list.innerHTML = [...groups.entries()].sort(([a], [b]) => natCmp(a, b)).map(([g, ds]) => `
       <div class="mt-group">${g ? `<div class="side-head small">${esc(g)}</div>` : ""}
       <table class="res mt-table"><tbody>${ds.map((d) => `
         <tr data-id="${esc(d.id)}">
