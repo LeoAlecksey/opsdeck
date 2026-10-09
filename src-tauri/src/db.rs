@@ -4,6 +4,7 @@
 //! an allow-list of read statements/commands everywhere else.
 
 use crate::{
+    dbtunnel::{self, TunnelState},
     keepass::{self, KeepassState},
     store::{self, err},
     tools::valid_host,
@@ -52,6 +53,9 @@ pub struct DbProfile {
     /// MongoDB: extra URI options ("authSource=admin&replicaSet=rs0")
     #[serde(default)]
     pub options: String,
+    /// reach the server through an SSH bastion: "" | "id:<SSH profile>" | "alias:<Host in ~/.ssh/config>"
+    #[serde(default)]
+    pub jump: String,
 }
 
 fn default_auth() -> String {
@@ -129,6 +133,9 @@ pub fn db_save(profile: DbProfile, secret: Option<String>) -> Result<(), String>
     if !["postgres", "mysql", "clickhouse", "redis", "mongodb"].contains(&profile.engine.as_str()) {
         return Err("неизвестный тип базы".into());
     }
+    if !profile.jump.is_empty() && !profile.jump.starts_with("id:") && !profile.jump.starts_with("alias:") {
+        return Err("неизвестный jump-хост".into());
+    }
     if profile.auth == "keepass" && profile.keepass_entry.is_empty() {
         return Err("выберите запись KeePass".into());
     }
@@ -144,7 +151,8 @@ pub fn db_save(profile: DbProfile, secret: Option<String>) -> Result<(), String>
 }
 
 #[tauri::command]
-pub fn db_delete(id: String) -> Result<(), String> {
+pub fn db_delete(tunnels: State<TunnelState>, id: String) -> Result<(), String> {
+    dbtunnel::close(&tunnels, &id);
     let mut list = load()?;
     list.retain(|d| d.id != id);
     store::secret_delete(&secret_key(&id));
@@ -158,10 +166,19 @@ struct Ctx {
     pass: String,
 }
 
-fn ctx(kp: &KeepassState, id: &str) -> Result<Ctx, String> {
+/// The profile with its credentials; with a jump host the address is the local end of an SSH tunnel.
+async fn ctx(kp: &KeepassState, tunnels: &TunnelState, id: &str) -> Result<Ctx, String> {
     let p = find(id)?;
     let (user, pass) = credentials(kp, &p)?;
-    Ok(Ctx { p, user, pass })
+    let mut c = Ctx { p, user, pass };
+    if !c.p.jump.is_empty() {
+        if c.p.tls == "verify" {
+            return Err("через jump-хост шифрование «verify» не работает: сертификат сверяется с адресом 127.0.0.1 — выберите «require»".into());
+        }
+        c.p.port = dbtunnel::open(tunnels, &c.p.id, &c.p.jump, &c.p.host, c.p.port).await?;
+        c.p.host = "127.0.0.1".into();
+    }
+    Ok(c)
 }
 
 async fn timed<T>(limit: Duration, f: impl std::future::Future<Output = Result<T, String>>) -> Result<T, String> {
@@ -170,8 +187,8 @@ async fn timed<T>(limit: Duration, f: impl std::future::Future<Output = Result<T
 
 /// Check the connection; returns the server version.
 #[tauri::command]
-pub async fn db_test(kp: State<'_, KeepassState>, id: String) -> Result<String, String> {
-    let c = ctx(&kp, &id)?;
+pub async fn db_test(kp: State<'_, KeepassState>, tunnels: State<'_, TunnelState>, id: String) -> Result<String, String> {
+    let c = ctx(&kp, &tunnels, &id).await?;
     let q = match c.p.engine.as_str() {
         "postgres" => "SELECT version()",
         "mysql" => "SELECT CONCAT(@@version_comment, ' ', VERSION())",
@@ -202,8 +219,8 @@ pub async fn db_test(kp: State<'_, KeepassState>, id: String) -> Result<String, 
 
 /// Run what the user typed. `database` is the database/schema chosen in the panel (Redis: "db3").
 #[tauri::command]
-pub async fn db_query(kp: State<'_, KeepassState>, id: String, query: String, database: Option<String>) -> Result<QueryResult, String> {
-    let c = ctx(&kp, &id)?;
+pub async fn db_query(kp: State<'_, KeepassState>, tunnels: State<'_, TunnelState>, id: String, query: String, database: Option<String>) -> Result<QueryResult, String> {
+    let c = ctx(&kp, &tunnels, &id).await?;
     let started = Instant::now();
     let mut r = timed(QUERY_TIMEOUT, run(&c, &query, database.filter(|d| !d.is_empty()).as_deref())).await?;
     r.elapsed_ms = started.elapsed().as_millis() as u64;
@@ -212,8 +229,8 @@ pub async fn db_query(kp: State<'_, KeepassState>, id: String, query: String, da
 
 /// Children of a node in the structure tree; `path` is empty for the top level.
 #[tauri::command]
-pub async fn db_tree(kp: State<'_, KeepassState>, id: String, path: Vec<String>) -> Result<Vec<Node>, String> {
-    let c = ctx(&kp, &id)?;
+pub async fn db_tree(kp: State<'_, KeepassState>, tunnels: State<'_, TunnelState>, id: String, path: Vec<String>) -> Result<Vec<Node>, String> {
+    let c = ctx(&kp, &tunnels, &id).await?;
     timed(TREE_TIMEOUT, async {
         match c.p.engine.as_str() {
             "postgres" => pg_tree(&c, &path).await,
