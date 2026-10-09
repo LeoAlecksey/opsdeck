@@ -1125,3 +1125,10 @@ body.no-select, body.no-select * { user-select: none; -webkit-user-select: none;
 .notes-err-actions { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 2px; }
 .notes-path-status.ok { color: var(--accent); }
 .notes-path-status.warn { color: #e6c07b; }
+
+/* Settings → Kubernetes: folders with kubeconfig files */
+.k8s-dirs-box { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; align-items: flex-start; }
+.k8s-dirs { display: flex; flex-direction: column; gap: 2px; width: 100%; }
+.k8s-dir { display: flex; align-items: center; gap: 6px; }
+.k8s-dir .mono { font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.k8s-dir .icon { width: 22px; height: 22px; padding: 0; }

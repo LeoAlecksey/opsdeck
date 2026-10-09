@@ -125,7 +125,7 @@ function mountAi(el: HTMLElement) {
 
 type Settings = {
   keepass_path: string; keepass_keyfile: string; keepass_lock_minutes: number; keepass_keep_open: boolean;
-  obsidian_vault: string; winbox_path: string; k8s_include_system: boolean; update_auto_check: boolean;
+  obsidian_vault: string; winbox_path: string; k8s_include_system: boolean; k8s_dirs: string[]; update_auto_check: boolean;
   ai_host: string; ai_port: string; ai_model: string;
   /** only sent when the user typed a new key; the saved one stays in the OS keyring */
   ai_api_key?: string; ai_key_saved?: boolean;
@@ -218,6 +218,11 @@ export function mountSettings(root: HTMLElement) {
         </fieldset>
         <fieldset><legend>Kubernetes</legend>
           <label class="check"><input type="checkbox" name="k8s_include_system" /> Показывать и контексты из общего ~/.kube/config</label>
+          <div class="k8s-dirs-box">
+            <div class="muted">Папки с kubeconfig — файлы из них читаются на месте и появляются в списке кластеров</div>
+            <div class="k8s-dirs"></div>
+            <button type="button" class="ghost" data-k8s-dir>＋ Папка…</button>
+          </div>
           <p class="muted hint">Выключено: OpsDeck работает только со своими копиями (＋ в разделе Kubernetes → «Добавить из ~/.kube/config»), и kubectl во вкладках OpsDeck видит только их. Ваш ~/.kube/config не меняется.</p>
         </fieldset>
         <fieldset><legend>Обновления</legend>
@@ -412,6 +417,8 @@ export function mountSettings(root: HTMLElement) {
     f("ai_api_key").placeholder = s.ai_key_saved ? "сохранён — введите новый, чтобы заменить" : "необязательно";
     root.querySelector<HTMLElement>("[data-ai-key-clear]")!.hidden = !s.ai_key_saved;
     remoteWarn();
+    k8sDirs = [...(s.k8s_dirs ?? [])];
+    drawK8sDirs();
     if (isWindows()) {
       const shells = await invoke<WinShell[]>("win_shells").catch(() => [] as WinShell[]);
       const sel = f("term_shell") as unknown as HTMLSelectElement;
@@ -515,6 +522,7 @@ export function mountSettings(root: HTMLElement) {
       keepass_keep_open: f("keepass_keep_open").checked,
       obsidian_vault: vaultPath, winbox_path: cleanPath(f("winbox_path").value),
       k8s_include_system: f("k8s_include_system").checked,
+      k8s_dirs: [...k8sDirs],
       update_auto_check: f("update_auto_check").checked,
       ai_host: f("ai_host").value.trim(), ai_port: f("ai_port").value.trim(), ai_model: f("ai_model").value.trim(),
       ai_api_key: f("ai_api_key").value.trim(),
@@ -583,6 +591,31 @@ export function mountSettings(root: HTMLElement) {
   });
   // shells, WSL and Windows Terminal: only where they exist
   root.querySelector<HTMLElement>(".win-field")!.hidden = !isWindows();
+
+  // ----- Kubernetes: folders with kubeconfig files (#44) -----
+  let k8sDirs: string[] = [];
+  const k8sDirsEl = root.querySelector<HTMLElement>(".k8s-dirs")!;
+  function drawK8sDirs() {
+    k8sDirsEl.innerHTML = k8sDirs.length
+      ? k8sDirs.map((d, i) => `<div class="k8s-dir"><span class="mono">${esc(d)}</span><button type="button" class="icon" data-k8s-rm="${i}" title="${esc(t("Убрать папку"))}">×</button></div>`).join("")
+      : `<div class="muted small">${esc(t("не добавлено — кластеры только из OpsDeck"))}</div>`;
+  }
+  k8sDirsEl.addEventListener("click", (e) => {
+    const i = (e.target as HTMLElement).closest<HTMLElement>("[data-k8s-rm]")?.dataset.k8sRm;
+    if (i === undefined) return;
+    k8sDirs.splice(Number(i), 1);
+    drawK8sDirs();
+  });
+  root.querySelector<HTMLElement>("[data-k8s-dir]")!.addEventListener("click", async () => {
+    // null: cancelled; undefined: no system dialog — type the path
+    const picked = await invoke<string | null>("pick_folder", { start: null }).catch(() => undefined);
+    if (picked === null) return;
+    const dir = cleanPath(picked ?? (await ask(t("Папка с kubeconfig"), t("Путь к папке:"), { input: "~/.kube/clusters", ok: t("Добавить") })) ?? "");
+    if (!dir || k8sDirs.includes(dir)) return;
+    k8sDirs.push(dir);
+    drawK8sDirs();
+    toast(t("Папка добавлена — нажмите «Сохранить»"));
+  });
 
   // ----- moving to another computer -----
   type Part = { id: string; label: string; files: number; bytes: number; default: boolean; warn: string };

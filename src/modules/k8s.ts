@@ -412,7 +412,9 @@ export function mountK8s(root: HTMLElement) {
       const own = file === "opsdeck";
       g.innerHTML = own
         ? `<div class="ctx-file" title="~/.config/opsdeck/kubeconfigs"><span>OpsDeck</span></div>`
-        : `<div class="ctx-file" title="${esc(file)}"><span>${esc(list[0].label)}</span><span class="badge warn" title="Общий kubeconfig: изменения затронут и обычный kubectl">общий</span></div>`;
+        : list[0].source === "dir"
+          ? `<div class="ctx-file" title="${esc(file)}"><span>${esc(list[0].label)}</span><span class="badge" title="${esc(t("Из папки в ⚙ → Kubernetes; файл читается на месте"))}">${esc(t("папка"))}</span></div>`
+          : `<div class="ctx-file" title="${esc(file)}"><span>${esc(list[0].label)}</span><span class="badge warn" title="Общий kubeconfig: изменения затронут и обычный kubectl">общий</span></div>`;
       g.querySelector<HTMLElement>(".del")?.addEventListener("click", async () => {
         if ((await ask("Удалить kubeconfig", `Удалить импортированный файл «${list[0].label}»?`, { ok: "Удалить", danger: true })) === null) return;
         await invoke("k8s_remove_source", { file }).catch((e) => toast(String(e), "err"));

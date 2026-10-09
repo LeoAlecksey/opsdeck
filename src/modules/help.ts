@@ -52,6 +52,7 @@ const HELP: Record<string, { title: string; html: string }> = {
       <p>OpsDeck хранит свои копии kubeconfig (по файлу на контекст) и не трогает ваш ~/.kube/config. Таблицы обновляются вживую (watch).</p>
       <h4>Что где</h4>
       <ul>
+        <li><b>Папки с kubeconfig</b> (⚙ → Kubernetes, как во Freelens): все kubeconfig из папки (и подпапок до двух уровней) появляются в списке кластеров с пометкой «папка» и читаются на месте — новый файл виден после ⟳ или при следующем открытии раздела.</li>
         <li><b>Фильтр по меткам</b> рядом с обычным — как <code>kubectl -l</code>: <code>app=api</code>, <code>tier!=db</code>, <code>env in (prod,stage)</code>, <code>!canary</code>; условия через запятую. <b>Ноды</b>: CPU и RAM обновляются каждые 5 с — полоска загрузки и график последних замеров (нужен metrics-server).</li>
         <li><b>＋</b> слева вверху — добавить кластер: отметить контексты из ~/.kube/config, вставить YAML или просто перетащить файл в окно.</li>
         <li>Наведите на контекст: <b>🔒</b> только чтение (запрет apply/delete/scale/restart/exec), <b>🙈</b> скрыть, <b>🗑</b> удалить копию.</li>

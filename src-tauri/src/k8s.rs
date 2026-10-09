@@ -97,9 +97,62 @@ fn store_files() -> Vec<PathBuf> {
     files
 }
 
+/// A file that may be a kubeconfig: *.yaml, *.yml, *.conf, *.kubeconfig, or named "config".
+fn kubeconfig_name(p: &Path) -> bool {
+    let name = p.file_name().and_then(|n| n.to_str()).unwrap_or("");
+    name == "config" || matches!(p.extension().and_then(|e| e.to_str()), Some("yaml" | "yml" | "conf" | "kubeconfig"))
+}
+
+/// Kubeconfig files in the folders from Settings → Kubernetes (#44), read in place: a file added
+/// or edited there shows up on the next refresh. Two levels of subfolders, hidden ones skipped;
+/// files that are not kubeconfigs (manifests…) have no contexts and drop out in contexts_of.
+fn dir_files(dirs: &[String]) -> Vec<(PathBuf, &'static str)> {
+    const MAX_FILES: usize = 500;
+    const MAX_SIZE: u64 = 2 * 1024 * 1024;
+    fn walk(dir: &Path, depth: u8, out: &mut Vec<PathBuf>) {
+        let Ok(rd) = fs::read_dir(dir) else { return };
+        let mut entries: Vec<_> = rd.flatten().collect();
+        entries.sort_by_key(|e| e.file_name());
+        for e in entries {
+            if out.len() >= MAX_FILES {
+                return;
+            }
+            let p = e.path();
+            if e.file_name().to_string_lossy().starts_with('.') {
+                continue;
+            }
+            let Ok(meta) = fs::metadata(&p) else { continue };
+            if meta.is_dir() {
+                if depth > 0 {
+                    walk(&p, depth - 1, out);
+                }
+            } else if meta.len() <= MAX_SIZE && kubeconfig_name(&p) {
+                out.push(p);
+            }
+        }
+    }
+    let mut out: Vec<(PathBuf, &'static str)> = Vec::new();
+    for d in dirs.iter().map(|d| d.trim()).filter(|d| !d.is_empty()) {
+        let mut found = Vec::new();
+        walk(&crate::editor::expand(d), 2, &mut found);
+        for p in found {
+            if !out.iter().any(|(x, _)| *x == p) {
+                out.push((p, "dir"));
+            }
+        }
+    }
+    out
+}
+
 fn sources() -> Vec<(PathBuf, &'static str)> {
-    let mut out = if crate::settings::load().k8s_include_system { system_files() } else { Vec::new() };
+    let s = crate::settings::load();
+    let mut out = if s.k8s_include_system { system_files() } else { Vec::new() };
     out.extend(store_files().into_iter().map(|p| (p, "opsdeck")));
+    for f in dir_files(&s.k8s_dirs) {
+        if !out.iter().any(|(x, _)| *x == f.0) {
+            out.push(f);
+        }
+    }
     out
 }
 
@@ -1310,6 +1363,30 @@ pub async fn k8s_object_events(state: State<'_, K8sState>, ctx: Ctx, namespace: 
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn kubeconfigs_from_folders() {
+        let root = std::env::temp_dir().join(format!("opsdeck-k8s-dirs-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(root.join("team/prod")).unwrap();
+        fs::create_dir_all(root.join(".git")).unwrap();
+        fs::create_dir_all(root.join("a/b/c/d")).unwrap();
+        let kc = |ctx: &str| format!("apiVersion: v1\nkind: Config\ncurrent-context: {ctx}\nclusters:\n- name: c\n  cluster:\n    server: https://{ctx}.example.com\ncontexts:\n- name: {ctx}\n  context:\n    cluster: c\n    user: u\nusers:\n- name: u\n  user: {{}}\n");
+        fs::write(root.join("dev.yaml"), kc("dev")).unwrap();
+        fs::write(root.join("team/prod/config"), kc("prod")).unwrap();
+        fs::write(root.join("team/deploy.yaml"), "apiVersion: apps/v1\nkind: Deployment\nmetadata: {name: x}\n").unwrap();
+        fs::write(root.join("README.md"), "not yaml").unwrap();
+        fs::write(root.join("broken.yml"), ": : :").unwrap();
+        fs::write(root.join(".git/config"), "[core]").unwrap();
+        fs::write(root.join("a/b/c/d/deep.yaml"), kc("deep")).unwrap();
+        let files = dir_files(&[root.to_string_lossy().into_owned(), "  ".into(), root.to_string_lossy().into_owned()]);
+        let names: Vec<String> = files.iter().map(|(p, _)| p.strip_prefix(&root).unwrap().to_string_lossy().replace('\\', "/")).collect();
+        assert_eq!(names, ["broken.yml", "dev.yaml", "team/deploy.yaml", "team/prod/config"], "hidden and too deep skipped, listed once");
+        assert!(files.iter().all(|(_, s)| *s == "dir"));
+        let ctx: Vec<String> = contexts_of(files).into_iter().map(|c| c.context).collect();
+        assert_eq!(ctx, ["dev", "prod"], "manifests and broken files have no contexts");
+        let _ = fs::remove_dir_all(&root);
+    }
     use super::*;
 
     #[test]

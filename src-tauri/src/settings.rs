@@ -18,6 +18,8 @@ pub struct Settings {
     pub winbox_path: String,
     /// Also list contexts from ~/.kube/config and $KUBECONFIG (off: OpsDeck uses only its own store).
     pub k8s_include_system: bool,
+    /// Folders whose kubeconfig files are listed as clusters, read in place (like Freelens' sync, #44)
+    pub k8s_dirs: Vec<String>,
     /// check GitHub Releases for a newer version at startup
     pub update_auto_check: bool,
     /// External AI server (Ollama, vLLM, LM Studio…): used instead of the built-in
@@ -46,6 +48,7 @@ impl Default for Settings {
             obsidian_vault: String::new(),
             winbox_path: String::new(),
             k8s_include_system: false,
+            k8s_dirs: Vec::new(),
             update_auto_check: true,
             ai_host: String::new(),
             ai_port: String::new(),
