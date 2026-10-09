@@ -13,6 +13,7 @@ mod embed;
 mod i18n;
 mod ide;
 mod k8s;
+mod k8s_events;
 mod keepass;
 mod mikrotik;
 mod notes;
@@ -65,6 +66,7 @@ pub fn run() {
         .manage(alerts::AlertsState::default())
         .manage(sysmon::SysState::default())
         .manage(ai::AiState::default())
+        .manage(k8s_events::EventsState::default())
         .manage(aichat::ChatState::default())
         .setup(|app| {
             diag::install_panic_hook();
@@ -74,6 +76,7 @@ pub fn run() {
             keepass::spawn_autolock(app.handle().clone());
             tasks::spawn_reminders(app.handle().clone());
             ai::spawn_idle_stop(app.handle().clone());
+            k8s_events::spawn(app.handle().clone());
             ide::start(app.handle().clone());
             embed::install(app.handle());
             alerts::load_data(&app.state::<alerts::AlertsState>());
@@ -181,6 +184,9 @@ pub fn run() {
             ai::ai_test,
             winshell::win_shells,
             aichat::ai_chat,
+            k8s_events::k8s_history,
+            k8s_events::k8s_history_set,
+            k8s_events::k8s_history_clear,
             transfer::transfer_parts,
             transfer::transfer_export,
             transfer::transfer_pick,
@@ -263,6 +269,7 @@ pub fn run() {
         .expect("error while building OpsDeck")
         .run(|app, event| {
             if let tauri::RunEvent::Exit = event {
+                k8s_events::flush(app);
                 log::info!("OpsDeck exiting");
                 ide::cleanup(app);
                 ai::shutdown(app);

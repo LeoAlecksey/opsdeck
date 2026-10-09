@@ -1132,3 +1132,9 @@ body.no-select, body.no-select * { user-select: none; -webkit-user-select: none;
 .k8s-dir { display: flex; align-items: center; gap: 6px; }
 .k8s-dir .mono { font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .k8s-dir .icon { width: 22px; height: 22px; padding: 0; }
+
+/* Kubernetes: event history */
+.hist-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 6px 12px; border-bottom: 1px solid var(--border); font-size: 12.5px; }
+.hist-bar .chip { cursor: pointer; font-size: 12px; padding: 1px 8px; }
+.hist-detail { padding: 10px 14px; display: flex; flex-direction: column; gap: 6px; }
+.hist-detail pre { white-space: pre-wrap; margin: 0; }

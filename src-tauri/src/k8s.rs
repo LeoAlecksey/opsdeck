@@ -33,8 +33,8 @@ pub struct K8sState {
 
 #[derive(Deserialize, Clone)]
 pub struct Ctx {
-    file: String,
-    context: String,
+    pub(crate) file: String,
+    pub(crate) context: String,
 }
 
 fn err(e: impl std::fmt::Display) -> String {
@@ -467,7 +467,7 @@ fn ensure_writable(ctx: &Ctx) -> Result<(), String> {
 
 // ---------- API access ----------
 
-async fn client(state: &K8sState, ctx: &Ctx) -> Result<Client, String> {
+pub(crate) async fn client(state: &K8sState, ctx: &Ctx) -> Result<Client, String> {
     let key = (ctx.file.clone(), ctx.context.clone());
     if let Some(c) = state.clients.lock().await.get(&key) {
         return Ok(c.clone());
