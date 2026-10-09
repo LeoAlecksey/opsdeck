@@ -261,6 +261,31 @@ test.describe("other sections", () => {
     await app.called("web_embed_show");
   });
 
+  test("a page being created is shown once at a time and not over a dialog (from feedback)", async ({ app, page }) => {
+    // the first show creates the page and takes a while; meanwhile the window resizes and a dialog opens
+    await page.evaluate(() => {
+      const w = window as any;
+      w.__embed = { now: 0, max: 0 };
+      w.__DEMO_OVERRIDES.web_embed_show = async () => {
+        w.__embed.max = Math.max(w.__embed.max, ++w.__embed.now);
+        await new Promise((r) => setTimeout(r, 400));
+        w.__embed.now--;
+      };
+    });
+    await app.view("web");
+    await page.locator(".card", { hasText: "Grafana" }).locator("[data-act=open]").click();
+    await app.called("web_embed_show");
+    await page.setViewportSize({ width: 1300, height: 860 });
+    await page.evaluate(() => window.dispatchEvent(new Event("overlay-open")));
+    const hides = (await app.calls("web_embed_hide")).length;
+    await expect.poll(async () => (await app.calls("web_embed_hide")).length, { message: "the page that finished showing under a dialog is hidden again" }).toBeGreaterThan(hides);
+    expect(await page.evaluate(() => (window as any).__embed.max), "never two web_embed_show at once").toBe(1);
+    await page.evaluate(() => window.dispatchEvent(new Event("overlay-close")));
+    await expect.poll(async () => (await app.calls("web_embed_show")).at(-1)?.args.rect).toMatchObject({ w: expect.any(Number) });
+    await expect.poll(() => page.evaluate(() => (window as any).__embed.now)).toBe(0);
+    expect(await page.evaluate(() => (window as any).__embed.max)).toBe(1);
+  });
+
   test("＋ opens another panel straight from a tab (two Grafanas, from feedback)", async ({ app, page }) => {
     await app.view("web");
     await page.locator(".card", { hasText: "Grafana" }).locator("[data-act=open]").click();
