@@ -5,6 +5,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { PtyTerminal, SpawnOpts, termFontSize, termFontStep } from "./pty";
 import { Block, fmtDuration } from "./blocks";
+import { pickSshHost } from "./hostpick";
 import { registerProvider } from "./palette";
 import { hlPrefs, setHlPrefs } from "./highlight";
 import { addSnippet } from "./snippets";
@@ -21,13 +22,14 @@ export type OpenTerminalDetail = SpawnOpts & { title?: string; keepOpen?: boolea
 
 /** `spawn`: what runs in the pane (started again on reconnect); `exited`: a kept-open pane whose
  *  process ended; `lastConn`: the last failed connection command typed in a shell (ssh, kubectl exec…) */
-type Pane = { pty: PtyTerminal; el: HTMLElement; tab: Tab; keepOpen: boolean; recording?: string; spawn: SpawnOpts; exited?: boolean; lastConn?: string };
+type Pane = { pty: PtyTerminal; el: HTMLElement; tab: Tab; keepOpen: boolean; recording?: string; spawn: SpawnOpts; exited?: boolean; lastConn?: string; title?: string; termTitle?: string };
 
 /** Commands that connect somewhere: when one fails, «⟳ Повторить» / Ctrl+Shift+R run it again. */
 export const CONNECT_CMD = /^\s*(sudo\s+)?(ssh|mosh|telnet|sftp|autossh|kubectl\s+(exec|attach|port-forward|logs\s+-f)|docker\s+(exec|attach)|podman\s+exec|wsl)\b/;
 type Tab = { btn: HTMLElement; host: HTMLElement; label: HTMLElement; panes: Pane[]; active: Pane | null; dir: "row" | "column" };
 
-const MAX_PANES = 4;
+/** panes in one tab: two side by side or stacked, three and more form a grid */
+const MAX_PANES = 6;
 
 function load(key: string, fallback: string) {
   try { return localStorage.getItem(key) ?? fallback; } catch { return fallback; }
@@ -63,6 +65,7 @@ export function mountTerminal(root: HTMLElement) {
         <button class="icon wsl-btn" data-act="wsl" title="Новая вкладка WSL: выбрать дистрибутив" hidden>WSL</button>
         <button class="icon" data-act="split-r" title="Разделить вправо (Ctrl+Shift+D)">${icon("splitH", 16)}</button>
         <button class="icon" data-act="split-d" title="Разделить вниз (Ctrl+Shift+E)">${icon("splitV", 16)}</button>
+        <button class="icon" data-act="split-host" title="Новая панель с SSH-хостом: рядом с текущими, до 6 в одной вкладке. Вкладку можно и перетащить на область терминала — она встанет панелью">${icon("server", 16)}</button>
         <button class="icon rec-btn" data-act="rec" title="Записывать эту панель в файл (вкл/выкл)">${icon("record", 16)}</button>
         <button class="icon" data-act="records" title="Открыть папку с записями сессий">${icon("folderOpen", 16)}</button>
         <span class="font-ctl" title="Размер шрифта терминала: Ctrl+= / Ctrl+- / Ctrl+0, или Ctrl+колесо">
@@ -191,7 +194,10 @@ export function mountTerminal(root: HTMLElement) {
     const { title, keepOpen, ...spawn } = opts;
     const el = document.createElement("div");
     el.className = "pane";
-    el.innerHTML = `<div class="pane-term"></div>
+    el.innerHTML = `<div class="pane-head"><span class="pane-title"></span>
+        <button class="icon" data-ph="out" title="Вынести в отдельную вкладку">${icon("externalLink", 12)}</button>
+        <button class="icon" data-ph="x" title="Закрыть панель (Ctrl+Shift+W)">${icon("close", 12)}</button></div>
+      <div class="pane-term"></div>
       <div class="blk-bar" hidden>
         <span class="blk-status"></span>
         <button data-b="cmd" title="Скопировать команду">⧉ команда</button>
@@ -207,9 +213,17 @@ export function mountTerminal(root: HTMLElement) {
         <button data-rc="close" class="ghost" title="Ctrl+Shift+W">Закрыть</button></div>`;
     tab.host.appendChild(el);
 
-    const pane: Pane = { pty: null as unknown as PtyTerminal, el, tab, keepOpen: !!keepOpen, spawn };
+    const pane: Pane = { pty: null as unknown as PtyTerminal, el, tab, keepOpen: !!keepOpen, spawn, title };
     tab.panes.push(pane);
     if (title) tab.label.textContent = title;
+    paneTitle(pane);
+    el.querySelector<HTMLElement>(".pane-head")!.addEventListener("click", (e) => {
+      const a = (e.target as HTMLElement).closest<HTMLElement>("[data-ph]")?.dataset.ph;
+      if (a === "x") closePane(pane);
+      else if (a === "out") detachPane(pane);
+      else focusPane(pane);
+    });
+    layoutTab(tab);
     mountPty(pane);
     wireBlocks(pane);
     el.querySelector<HTMLElement>(".reconnect-bar")!.addEventListener("click", (e) => {
@@ -234,7 +248,10 @@ export function mountTerminal(root: HTMLElement) {
     pane.pty = pty;
     pane.exited = false;
     attachPathLinks(pty);
-    pty.term.onTitleChange((t) => { if (pane.tab.active === pane && t && !isProgramPath(t, pane.spawn.program)) pane.tab.label.textContent = t; });
+    pty.term.onTitleChange((t) => {
+      if (t && !isProgramPath(t, pane.spawn.program)) { pane.termTitle = t; paneTitle(pane); }
+      if (pane.tab.active === pane && t && !isProgramPath(t, pane.spawn.program)) pane.tab.label.textContent = t;
+    });
     pty.term.textarea?.addEventListener("focus", () => focusPane(pane));
     // a connection tab stays open when it ends: the reason is on screen, and it can be reconnected
     pty.onExit = () => {
@@ -278,20 +295,143 @@ export function mountTerminal(root: HTMLElement) {
     p.pty.dispose();
     p.el.remove();
     if (!tab.panes.length) return closeTab(tab);
+    layoutTab(tab);
     focusPane(tab.panes[Math.max(0, i - 1)]);
     requestAnimationFrame(() => { tab.panes.forEach((x) => x.pty.resize()); tab.active?.pty.term.focus(); });
   }
 
-  function split(dir: "row" | "column") {
+  /** Two panes sit in a row or a column, three and more in a grid (two columns up to four panes, three after). */
+  function layoutTab(tab: Tab) {
+    const n = tab.panes.length;
+    const grid = n >= 3;
+    const cols = n <= 4 ? 2 : 3;
+    tab.host.classList.toggle("grid", grid);
+    tab.host.classList.toggle("multi", n > 1);
+    tab.host.style.flexDirection = tab.dir;
+    tab.host.style.setProperty("--cols", String(cols));
+    tab.panes.forEach((p, i) => {
+      // the last pane takes the free cells of the last row
+      const span = grid && i === n - 1 ? cols - ((n - 1) % cols) : 1;
+      p.el.style.gridColumn = span > 1 ? `span ${span}` : "";
+    });
+  }
+
+  /** Shown in the header of a pane (when the tab has several): the host's name, else what the terminal says. */
+  function paneTitle(p: Pane) {
+    p.el.querySelector<HTMLElement>(".pane-title")!.textContent = p.title || p.termTitle || "shell";
+  }
+
+  function split(dir: "row" | "column", opts?: OpenTerminalDetail) {
     const tab = activeTab;
     if (!tab) return;
     if (tab.panes.length >= MAX_PANES) return toast(`Не больше ${MAX_PANES} панелей во вкладке`, "err");
-    if (tab.panes.length > 1 && tab.dir !== dir) return toast("Во вкладке уже есть разделение в другую сторону", "err");
-    tab.dir = dir;
-    tab.host.style.flexDirection = dir;
+    if (tab.panes.length < 2) tab.dir = dir;
     // like Windows Terminal: a WSL pane splits into the same distribution, others into a local shell
     const l = tab.active?.pty.launched ?? null;
-    addPane(tab, l && isWsl(l) ? { program: l.program, args: l.args } : { cwd: cwd() });
+    addPane(tab, opts ?? (l && isWsl(l) ? { program: l.program, args: l.args } : { cwd: cwd() }));
+  }
+
+  /** A new pane that runs ssh to a host chosen in a dialog. */
+  async function splitHost() {
+    if (activeTab && activeTab.panes.length >= MAX_PANES) return toast(`Не больше ${MAX_PANES} панелей во вкладке`, "err");
+    const host = await pickSshHost();
+    if (!host) return;
+    try {
+      const spec = await invoke<{ program: string; args: string[]; password_copied: boolean }>("ssh_connect", {
+        id: host.key.startsWith("id:") ? host.key.slice(3) : null,
+        alias: host.key.startsWith("alias:") ? host.key.slice(6) : null,
+      });
+      split("row", { title: `ssh ${host.name}`, program: spec.program, args: spec.args, keepOpen: true });
+      if (spec.password_copied) toast("Пароль в буфере на 30 с — вставьте Ctrl+Shift+V");
+    } catch (e) { toast(String(e), "err"); }
+  }
+
+  /** The panes of tab `src` join tab `dst`: left/top before its panes, otherwise after. The sessions go on running. */
+  function movePanes(src: Tab, dst: Tab, where: "left" | "right" | "top" | "bottom" | "end") {
+    if (src === dst || !tabs.includes(src) || !tabs.includes(dst)) return;
+    if (src.panes.length + dst.panes.length > MAX_PANES) return toast(`Не больше ${MAX_PANES} панелей во вкладке`, "err");
+    const moved = src.panes.splice(0);
+    if (dst.panes.length < 2) dst.dir = where === "top" || where === "bottom" ? "column" : "row";
+    dst.panes = where === "left" || where === "top" ? [...moved, ...dst.panes] : [...dst.panes, ...moved];
+    moved.forEach((p) => (p.tab = dst));
+    dst.panes.forEach((p) => dst.host.appendChild(p.el));
+    tabs.splice(tabs.indexOf(src), 1);
+    src.btn.remove();
+    src.host.remove();
+    layoutTab(dst);
+    activate(dst);
+    focusPane(moved[0]);
+    requestAnimationFrame(() => { dst.panes.forEach((p) => p.pty.resize()); moved[0].pty.term.focus(); });
+  }
+
+  /** A pane of a tab with several goes to a tab of its own. */
+  function detachPane(p: Pane) {
+    const src = p.tab;
+    if (src.panes.length < 2) return;
+    src.panes.splice(src.panes.indexOf(p), 1);
+    src.active = src.panes[0];
+    layoutTab(src);
+    const t = createTab(p.title || p.termTitle || "shell");
+    t.panes.push(p);
+    p.tab = t;
+    t.host.appendChild(p.el);
+    layoutTab(t);
+    activate(t);
+    focusPane(p);
+    requestAnimationFrame(() => { src.panes.forEach((x) => x.pty.resize()); p.pty.resize(); p.pty.term.focus(); });
+  }
+
+  // a tab dragged by the mouse onto the terminal area becomes a pane there (Termius-style): the edges split, the middle appends
+  let justDragged = false;
+  function startTabDrag(e: PointerEvent, tab: Tab) {
+    if (e.button !== 0 || (e.target as HTMLElement).closest(".x")) return;
+    const sx = e.clientX, sy = e.clientY;
+    let ghost: HTMLElement | null = null, zoneEl: HTMLElement | null = null;
+    let zone: "left" | "right" | "top" | "bottom" | "end" | null = null;
+    const target = () => (activeTab && activeTab !== tab ? activeTab : null);
+    const move = (ev: PointerEvent) => {
+      if (!ghost) {
+        if (Math.hypot(ev.clientX - sx, ev.clientY - sy) < 8) return;
+        document.body.style.userSelect = "none"; // no text selection while the tab is dragged
+        ghost = document.createElement("div");
+        ghost.className = "tab-ghost";
+        ghost.textContent = tab.label.textContent;
+        document.body.appendChild(ghost);
+        zoneEl = document.createElement("div");
+        zoneEl.className = "drop-zone";
+        zoneEl.hidden = true;
+        hostsEl.appendChild(zoneEl);
+      }
+      ghost.style.left = `${ev.clientX + 12}px`;
+      ghost.style.top = `${ev.clientY + 8}px`;
+      const r = hostsEl.getBoundingClientRect();
+      const inside = target() && ev.clientX >= r.left && ev.clientX <= r.right && ev.clientY >= r.top && ev.clientY <= r.bottom;
+      if (!inside) { zone = null; zoneEl!.hidden = true; return; }
+      const fx = (ev.clientX - r.left) / r.width, fy = (ev.clientY - r.top) / r.height;
+      zone = fx < 0.3 ? "left" : fx > 0.7 ? "right" : fy < 0.3 ? "top" : fy > 0.7 ? "bottom" : "end";
+      const box = { left: [0, 0, 50, 100], right: [50, 0, 50, 100], top: [0, 0, 100, 50], bottom: [0, 50, 100, 50], end: [10, 10, 80, 80] }[zone];
+      zoneEl!.style.cssText = `left:${box[0]}%;top:${box[1]}%;width:${box[2]}%;height:${box[3]}%`;
+      zoneEl!.dataset.zone = zone;
+      zoneEl!.hidden = false;
+    };
+    const up = () => {
+      document.removeEventListener("pointermove", move);
+      document.removeEventListener("pointerup", up);
+      document.removeEventListener("pointercancel", up);
+      const dst = target();
+      document.body.style.userSelect = "";
+      ghost?.remove();
+      zoneEl?.remove();
+      if (ghost) {
+        // the click that ends a drag must not switch to the dragged tab
+        justDragged = true;
+        setTimeout(() => (justDragged = false), 0);
+        if (zone && dst) movePanes(tab, dst, zone);
+      }
+    };
+    document.addEventListener("pointermove", move);
+    document.addEventListener("pointerup", up);
+    document.addEventListener("pointercancel", up);
   }
 
   function cyclePane(step: 1 | -1) {
@@ -315,7 +455,7 @@ export function mountTerminal(root: HTMLElement) {
     else if (activeTab === t) activate(tabs[Math.max(0, i - 1)]);
   }
 
-  function newTab(opts: OpenTerminalDetail = {}) {
+  function createTab(title?: string): Tab {
     const host = document.createElement("div");
     host.className = "term-host";
     hostsEl.appendChild(host);
@@ -324,11 +464,17 @@ export function mountTerminal(root: HTMLElement) {
     btn.innerHTML = `<span class="label"></span><span class="x" title="Закрыть">×</span>`;
     tabsEl.appendChild(btn);
     const label = btn.querySelector<HTMLElement>(".label")!;
-    label.textContent = `shell ${tabs.length + 1}`;
+    label.textContent = title ?? `shell ${tabs.length + 1}`;
     const tab: Tab = { btn, host, label, panes: [], active: null, dir: "row" };
-    btn.onclick = () => activate(tab);
+    btn.onclick = () => { if (!justDragged) activate(tab); };
+    btn.addEventListener("pointerdown", (e) => startTabDrag(e, tab));
     btn.querySelector<HTMLElement>(".x")!.onclick = (e) => { e.stopPropagation(); closeTab(tab); };
     tabs.push(tab);
+    return tab;
+  }
+
+  function newTab(opts: OpenTerminalDetail = {}) {
+    const tab = createTab();
     // a plain new tab starts where the current one is
     addPane(tab, opts.program ? opts : { cwd: cwd(), ...opts });
     activate(tab);
@@ -593,6 +739,7 @@ export function mountTerminal(root: HTMLElement) {
   };
   $("[data-act=split-r]").onclick = () => split("row");
   $("[data-act=split-d]").onclick = () => split("column");
+  $("[data-act=split-host]").onclick = () => splitHost();
   $("[data-act=rec]").onclick = toggleRec;
   $("[data-act=records]").onclick = () => { invoke("pty_records_open").catch((e) => toast(String(e), "err")); };
   $("[data-act=font-up]").onclick = () => termFontStep(1);

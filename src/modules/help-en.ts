@@ -28,7 +28,8 @@ export const HELP_EN: Record<string, { title: string; html: string }> = {
       <ul>
         <li>${kbd("Ctrl+Shift+T")} new tab, ${kbd("Ctrl+Shift+W")} close pane/tab</li>
         <li>${kbd("Alt+1")}…${kbd("Alt+9")} go to a tab by number (${kbd("Alt+9")} — the last one), ${kbd("Alt+←/→")} or ${kbd("Ctrl+Tab")} / ${kbd("Ctrl+Shift+Tab")} — previous / next tab</li>
-        <li>${kbd("Ctrl+Shift+D")} / ${kbd("Ctrl+Shift+E")} split right / down (a WSL pane — into the same distribution), ${kbd("Ctrl+Shift+←/→")} between panes</li>
+        <li>${kbd("Ctrl+Shift+D")} / ${kbd("Ctrl+Shift+E")} split right / down (a WSL pane — into the same distribution), ${kbd("Ctrl+Shift+←/→")} between panes. Up to 6 panes in a tab: two sit side by side or stacked, three and more form a grid; with several, each has its own header with the host's name (⇱ — move to a tab of its own, × — close)</li>
+        <li><b>Different hosts in one tab</b>: the ▤ button next to the split buttons (<i>A new pane with an SSH host</i>) — pick a host from the SSH profiles and <code>~/.ssh/config</code>, it opens as a new pane. Or do it the Termius way: open the target tab, take another tab with the mouse and drag it onto the terminal area — an edge (left, right, top, bottom) splits the window, the middle adds to the grid. The sessions keep running, nothing reconnects.</li>
         <li>${kbd("Ctrl+Shift+↑/↓")} to the previous / next command</li>
         <li>${kbd("Ctrl+=")} / ${kbd("Ctrl+-")} / ${kbd("Ctrl+0")} font size</li>
         <li>${kbd("Ctrl+Shift+C/V")} copy / paste, ${kbd("Ctrl+Shift+A")} selection → AI, ${kbd("Ctrl+Shift+I")} AI panel</li>
