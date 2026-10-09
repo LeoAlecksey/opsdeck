@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isWsl, shellName } from "../../src/modules/shellkind";
+import { isProgramPath, isWsl, shellName } from "../../src/modules/shellkind";
 
 const WSL = "C:\\Windows\\System32\\wsl.exe";
 
@@ -23,5 +23,16 @@ describe("pane shell", () => {
     expect(shellName({ program: "claude", args: [] })).toBeNull();
     expect(shellName(null)).toBeNull();
     expect(isWsl(null)).toBe(false);
+  });
+
+  it("ConPTY's title = the program's path, not a name for the tab", () => {
+    expect(isProgramPath("C:\\WINDOWS\\System32\\wsl.exe", WSL)).toBe(true);
+    expect(isProgramPath("C:\\Windows\\System32\\OpenSSH\\ssh.exe", "ssh")).toBe(true);
+    expect(isProgramPath("\\\\server\\tools\\wsl.exe", WSL)).toBe(true);
+    // the shell's own title, another program, a plain shell tab (the program is chosen by the backend)
+    expect(isProgramPath("user@host: ~/src", WSL)).toBe(false);
+    expect(isProgramPath("C:\\Windows\\System32\\cmd.exe", WSL)).toBe(false);
+    expect(isProgramPath("C:\\WINDOWS\\System32\\wsl.exe", undefined)).toBe(false);
+    expect(isProgramPath("wsl", WSL)).toBe(false);
   });
 });
