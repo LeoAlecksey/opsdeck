@@ -205,6 +205,7 @@
  "{}/{} ({}): число реплик": "{}/{} ({}): number of replicas",
  "{}/{} → localhost. Формат: локальный:удалённый": "{}/{} → localhost. Format: local:remote",
  "{}: HTTP {}, ответ не JSON Passbolt: {}": "{}: HTTP {}, the answer is not Passbolt JSON: {}",
+ "{}: HTTP {}, сервер переадресует на {} — запросы идут только на адрес Passbolt, без переадресаций; подключитесь с адресом, который открывается в браузере": "{}: HTTP {}, the server redirects to {} — requests go only to the Passbolt address, without redirects; connect with the address that opens in the browser",
  "{}: {} МБ": "{}: {} MB",
  "{}: {} из {} МБ": "{}: {} of {} MB",
  "{}: {}{} МБ": "{}: {}{} MB",

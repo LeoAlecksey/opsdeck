@@ -300,6 +300,9 @@ fn sign_and_encrypt(
 fn http_client() -> Result<reqwest::Client, String> {
     reqwest::Client::builder()
         .timeout(TIMEOUT)
+        // requests go only to the Passbolt address of the account: a redirect is an error, not a hop
+        // to another host with the tokens
+        .redirect(reqwest::redirect::Policy::none())
         .user_agent(concat!(
             env!("CARGO_PKG_NAME"),
             "/",
@@ -333,6 +336,16 @@ fn cookie(resp: &reqwest::Response, name: &str) -> Option<String> {
 /// `body` of a Passbolt JSON answer, or its error message with the validation details.
 async fn passbolt_body(resp: reqwest::Response, what: &str) -> Result<Value, String> {
     let status = resp.status();
+    if status.is_redirection() {
+        let to = resp
+            .headers()
+            .get(reqwest::header::LOCATION)
+            .and_then(|l| l.to_str().ok())
+            .unwrap_or("?");
+        return Err(format!(
+            "{what}: HTTP {status}, сервер переадресует на {to} — запросы идут только на адрес Passbolt, без переадресаций; подключитесь с адресом, который открывается в браузере"
+        ));
+    }
     let text = resp.text().await.map_err(|e| format!("{what}: {e}"))?;
     let v: Value = serde_json::from_str(&text).map_err(|_| {
         let head: String = text.chars().take(120).collect();
@@ -1397,6 +1410,40 @@ pub fn spawn_autolock(app: AppHandle) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn a_redirect_is_not_followed() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let requests = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let seen = requests.clone();
+        tokio::spawn(async move {
+            while let Ok((mut sock, _)) = listener.accept().await {
+                seen.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                let mut buf = [0u8; 4096];
+                assert!(sock.read(&mut buf).await.unwrap() > 0, "an empty request");
+                let answer = format!("HTTP/1.1 302 Found\r\nLocation: http://{addr}/elsewhere\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
+                sock.write_all(answer.as_bytes()).await.unwrap();
+            }
+        });
+        let resp = http_client()
+            .unwrap()
+            .get(format!("http://{addr}/settings.json"))
+            .send()
+            .await
+            .unwrap();
+        let e = passbolt_body(resp, "настройки").await.unwrap_err();
+        assert!(
+            e.contains("переадресует на http://") && e.contains("/elsewhere"),
+            "{e}"
+        );
+        assert_eq!(
+            requests.load(std::sync::atomic::Ordering::SeqCst),
+            1,
+            "the redirect was followed"
+        );
+    }
 
     #[test]
     fn secrets_by_kind() {
