@@ -1079,6 +1079,8 @@
  "Январь": "January",
  "авто": "auto",
  "автоблокировка {}": "auto-lock {}",
+ "адрес Passbolt «{}» не разобран": "could not parse the Passbolt address «{}»",
+ "адрес Passbolt «{}» — не https: токены входа пошли бы по сети открытым текстом": "the Passbolt address «{}» is not https: sign-in tokens would cross the network in plain text",
  "адрес «{}» не совпадает с адресом, на который настроен сервер Passbolt («{}») — укажите тот же адрес, что открываете в браузере": "the address “{}” differs from the one the Passbolt server is set up with (“{}”) — use the address you open in the browser",
  "адрес не найден": "address not found",
  "адрес не относится к этому коннектору": "the address does not belong to this connector",

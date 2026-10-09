@@ -152,7 +152,23 @@ fn locked_err() -> String {
 
 fn load_account() -> Result<Option<Account>, String> {
     let a: Account = store::load_json(ACCOUNT_FILE)?;
-    Ok((!a.user_id.is_empty()).then_some(a))
+    if a.user_id.is_empty() {
+        return Ok(None);
+    }
+    check_domain(&a.domain)?;
+    Ok(Some(a))
+}
+
+/// Tokens and the "remember for 30 days" cookie travel in HTTP headers: only https, plain http
+/// just for a Passbolt on this computer (a test stand).
+fn check_domain(domain: &str) -> Result<(), String> {
+    let url = reqwest::Url::parse(domain).map_err(|_| format!("адрес Passbolt «{domain}» не разобран"))?;
+    let local = matches!(url.host_str(), Some("127.0.0.1" | "localhost" | "[::1]"));
+    match url.scheme() {
+        "https" => Ok(()),
+        "http" if local => Ok(()),
+        _ => Err(format!("адрес Passbolt «{domain}» — не https: токены входа пошли бы по сети открытым текстом")),
+    }
 }
 
 fn status_of(state: &PassboltState) -> Status {
@@ -1057,6 +1073,7 @@ async fn read_kit(path: &str) -> Result<Account, String> {
     };
     uuid::Uuid::parse_str(&account.user_id)
         .map_err(|_| "в account kit нет ID пользователя".to_string())?;
+    check_domain(&account.domain)?;
     let http = http_client()?;
     check_server(&http, &account.domain).await?;
     let (_, live_fp) = server_key(&http, &account.domain).await?;
@@ -1472,6 +1489,17 @@ mod tests {
         b.encrypt_to_key(&mut rng, encryption_subkey(to).unwrap())
             .unwrap();
         b.to_armored_string(&mut rng, Default::default()).unwrap()
+    }
+
+    #[test]
+    fn only_https_or_a_local_stand() {
+        assert!(check_domain("https://passbolt.example.com").is_ok());
+        assert!(check_domain("http://127.0.0.1:8090").is_ok());
+        assert!(check_domain("http://localhost:8090").is_ok());
+        assert!(check_domain("http://passbolt.example.com").unwrap_err().contains("не https"));
+        assert!(check_domain("http://127.0.0.1.example.com").is_err());
+        assert!(check_domain("file:///etc/passwd").is_err());
+        assert!(check_domain("passbolt.example.com").is_err());
     }
 
     #[test]

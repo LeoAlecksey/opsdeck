@@ -59,7 +59,7 @@ function mfaForm(el: HTMLElement, st: PbStatus, done: () => void) {
     <form class="kp-unlock">
       <div class="kp-lock-icon">${icon("lock", 48)}</div>
       <div class="muted kp-path"></div>
-      ${st.mfa.length > 1 ? `<select name="provider">${st.mfa.map((p) => `<option value="${p}">${MFA_LABEL[p] ?? p}</option>`).join("")}</select>` : ""}
+      ${st.mfa.length > 1 ? `<select name="provider">${st.mfa.map((p) => `<option value="${esc(p)}">${esc(MFA_LABEL[p] ?? p)}</option>`).join("")}</select>` : ""}
       <input name="code" autocomplete="one-time-code" spellcheck="false" />
       <label class="check"><input type="checkbox" name="remember" /> Запомнить на этом компьютере на 30 дней</label>
       <p class="err kp-err"></p>
