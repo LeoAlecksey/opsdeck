@@ -22,22 +22,22 @@ export function mountConnectors(root: HTMLElement) {
   root.classList.add("web");
   root.innerHTML = `
     <div class="tabbar web-tabs">
-      <div class="tab active" data-t="home" title="Все панели: открыть другую, добавить, изменить">☰ Панели</div>
+      <div class="tab active" data-t="home" title="Все панели: открыть другую, добавить, изменить">${icon("menu", 14)} Панели</div>
       <div class="tabs web-tablist"></div>
       <button class="icon web-pick" data-act="pick" title="Открыть ещё панель (вторую Grafana и т.п.)">${icon("plus", 16)}</button>
       <span class="spacer"></span>
       ${helpBtn("web")}
       <span class="web-nav" hidden>
-        <button class="icon" data-n="back" title="Назад">←</button>
-        <button class="icon" data-n="forward" title="Вперёд">→</button>
+        <button class="icon" data-n="back" title="Назад">${icon("arrowLeft", 16)}</button>
+        <button class="icon" data-n="forward" title="Вперёд">${icon("arrowRight", 16)}</button>
         <button class="icon" data-n="reload" title="Обновить">${icon("refresh", 16)}</button>
-        <button class="icon" data-n="home" title="На стартовую страницу">⌂</button>
+        <button class="icon" data-n="home" title="На стартовую страницу">${icon("home", 16)}</button>
         <span class="web-zoom">
-          <button class="icon" data-z="-1" title="Мельче">−</button>
+          <button class="icon" data-z="-1" title="Мельче">${icon("minus", 14)}</button>
           <button class="ghost web-zoom-val" data-z="auto" title="Масштаб. Нажмите — вернуть «авто» (подгонка под ширину экрана)">авто</button>
-          <button class="icon" data-z="1" title="Крупнее">+</button>
+          <button class="icon" data-z="1" title="Крупнее">${icon("plus", 14)}</button>
         </span>
-        <button class="icon" data-n="window" title="Открыть в отдельном окне">⧉</button>
+        <button class="icon" data-n="window" title="Открыть в отдельном окне">${icon("externalLink", 16)}</button>
       </span>
     </div>
     <div class="web-slot" hidden></div>
@@ -157,7 +157,7 @@ export function mountConnectors(root: HTMLElement) {
   }
 
   let ingestPort = 9095;
-  invoke<{ ingest_port: number }>("alerts_config_get").then((c) => (ingestPort = c.ingest_port)).catch(() => {});
+  invoke<{ ingest_port: number }>("alerts_config_get").then((c) => (ingestPort = c.ingest_port)).catch(() => { });
 
   /** Connection guide for an AI analyzer: push to loopback with the connector's token, or pull a feed. */
   function renderAiHelp() {
@@ -183,11 +183,11 @@ export function mountConnectors(root: HTMLElement) {
     box.innerHTML = `
       <div class="side-head small">Push — анализатор на этом компьютере</div>
       <p class="muted">OpsDeck принимает находки только с 127.0.0.1 (из сети недоступен). Можно слать массив или {"findings": [...]}; алерты в формате Alertmanager — на /api/v1/alerts.</p>
-      <div class="kv"><span>Адрес</span><code>${esc(endpoint)}</code><button type="button" class="icon" data-copy="${esc(endpoint)}" title="Скопировать">⧉</button></div>
+      <div class="kv"><span>Адрес</span><code>${esc(endpoint)}</code><button type="button" class="icon" data-copy="${esc(endpoint)}" title="Скопировать">${icon("externalLink", 14)}</button></div>
       <div class="kv"><span>Токен</span>${token
-        ? `<code>${esc(token)}</code><button type="button" class="icon" data-copy="${esc(token)}" title="Скопировать">⧉</button><button type="button" class="ghost" data-regen>новый</button>`
+        ? `<code>${esc(token)}</code><button type="button" class="icon" data-copy="${esc(token)}" title="Скопировать">${icon("externalLink", 14)}</button><button type="button" class="ghost" data-regen>новый</button>`
         : `<span class="muted">появится после сохранения</span>`}</div>
-      <div class="kv-block"><div class="row"><span class="muted">Проверка</span><span class="spacer"></span><button type="button" class="icon" data-copy="${esc(curl)}" title="Скопировать">⧉</button></div><pre>${esc(curl)}</pre></div>
+      <div class="kv-block"><div class="row"><span class="muted">Проверка</span><span class="spacer"></span><button type="button" class="icon" data-copy="${esc(curl)}" title="Скопировать">${icon("externalLink", 14)}</button></div><pre>${esc(curl)}</pre></div>
       <details><summary class="muted">Формат находки</summary><pre>${esc(format)}</pre></details>
       <div class="side-head small">Pull — анализатор на другой машине</div>
       <p class="muted">Укажите выше URL, по которому он отдаёт JSON с теми же объектами (массив или {"findings": [...]}). OpsDeck будет опрашивать его вместе с Grafana (интервал — в ⚙ раздела «Алерты»); находки, пропавшие из ленты, закрываются. Авторизация — как выбрано выше.</p>`;
@@ -275,7 +275,7 @@ export function mountConnectors(root: HTMLElement) {
     try {
       await invoke("connector_save", { connector, secret: f("secret").value || null, basicSecret: f("basic_secret").value || null });
       // settings changed: the embedded panel is recreated with them on next show
-      if (editing) invoke("web_embed_close", { id: connector.id }).catch(() => {});
+      if (editing) invoke("web_embed_close", { id: connector.id }).catch(() => { });
       if (connector.kind === "ai" && !editing?.ingest_token) {
         // first save of an analyzer: keep the dialog open to show its token and the curl example
         const saved = (await invoke<Connector[]>("connectors_list")).find((c) => c.id === connector.id);
@@ -331,7 +331,7 @@ export function mountConnectors(root: HTMLElement) {
         <div class="card-url muted"></div>
         <div class="card-actions">
           <button class="primary" data-act="open">Открыть</button>
-          <button class="ghost" data-act="window" title="Открыть в отдельном окне">⧉</button>
+          <button class="ghost" data-act="window" title="Открыть в отдельном окне">${icon("externalLink", 14)}</button>
           <span class="spacer"></span>
           <button class="icon" data-act="edit" title="Изменить">${icon("edit", 14)}</button>
           <button class="icon danger" data-act="del" title="Удалить">${icon("trash", 14)}</button>
@@ -366,6 +366,7 @@ export function mountConnectors(root: HTMLElement) {
   const homeTab = root.querySelector<HTMLElement>("[data-t=home]")!;
   let tabs: WebTab[] = (() => { try { return JSON.parse(localStorage.getItem("opsdeck.web.tabs") ?? "[]"); } catch { return []; } })();
   let active = "home";
+  let lastActiveTab: string | null = null;
   let pendingUrl: { id: string; url: string } | null = null;
   let overlays = 0;
   const saveTabs = () => { try { localStorage.setItem("opsdeck.web.tabs", JSON.stringify(tabs)); } catch { /* ignore */ } };
@@ -447,6 +448,7 @@ export function mountConnectors(root: HTMLElement) {
 
   function activate(id: string) {
     active = id;
+    if (id !== "home") lastActiveTab = id;
     slot.hidden = id === "home";
     home.hidden = id !== "home";
     drawTabs();
@@ -467,7 +469,10 @@ export function mountConnectors(root: HTMLElement) {
     if (i < 0) return;
     tabs.splice(i, 1);
     saveTabs();
-    invoke("web_embed_close", { id }).catch(() => {});
+    invoke("web_embed_close", { id }).catch(() => { });
+    if (lastActiveTab === id) {
+      lastActiveTab = tabs[Math.max(0, i - 1)]?.id ?? null;
+    }
     if (active === id) activate(tabs[Math.max(0, i - 1)]?.id ?? "home");
     else drawTabs();
   }
@@ -544,10 +549,18 @@ export function mountConnectors(root: HTMLElement) {
   new ResizeObserver(place).observe(slot);
   window.addEventListener("resize", place);
   window.addEventListener("view-shown", (e) => {
-    if ((e as CustomEvent).detail === "web") { place(); if (active === "home") refresh(); }
-    else invoke("web_embed_hide", { id: null }).catch(() => {});
+    if ((e as CustomEvent).detail === "web") {
+      if (active === "home" && lastActiveTab && tabs.some((t) => t.id === lastActiveTab)) {
+        activate(lastActiveTab);
+      } else {
+        place();
+        if (active === "home") refresh();
+      }
+    } else {
+      invoke("web_embed_hide", { id: null }).catch(() => { });
+    }
   });
-  window.addEventListener("overlay-open", () => { overlays++; invoke("web_embed_hide", { id: null }).catch(() => {}); });
+  window.addEventListener("overlay-open", () => { overlays++; invoke("web_embed_hide", { id: null }).catch(() => { }); });
   window.addEventListener("overlay-close", () => { overlays = Math.max(0, overlays - 1); place(); });
 
   root.querySelector<HTMLElement>("[data-act=add]")!.onclick = () => openDialog(null);
@@ -557,11 +570,19 @@ export function mountConnectors(root: HTMLElement) {
     activate("home");
     openDialog(null, (e as CustomEvent<string>).detail);
   });
-  registerProvider(async () => (await invoke<Connector[]>("connectors_list")).flatMap((c) => [
-    { group: KINDS[c.kind]?.label ?? "Веб", title: `Открыть: ${c.name}`, hint: c.url, run: () => openTab(c) },
-    { group: KINDS[c.kind]?.label ?? "Веб", title: `Открыть в окне: ${c.name}`, hint: c.url,
-      run: () => { invoke("connector_open", { id: c.id }).catch((e) => toast(String(e), "err")); } },
-  ]));
+  registerProvider(async () => {
+    const list = await invoke<Connector[]>("connectors_list").catch(() => [] as Connector[]);
+    return [
+      { group: "Веб", title: "Веб-панели: все панели (список)", run: () => { window.dispatchEvent(new CustomEvent("show-view", { detail: "web" })); activate("home"); } },
+      ...list.flatMap((c) => [
+        { group: KINDS[c.kind]?.label ?? "Веб", title: `Открыть: ${c.name}`, hint: c.url, run: () => openTab(c) },
+        {
+          group: KINDS[c.kind]?.label ?? "Веб", title: `Открыть в окне: ${c.name}`, hint: c.url,
+          run: () => { invoke("connector_open", { id: c.id }).catch((e) => toast(String(e), "err")); }
+        },
+      ]),
+    ];
+  });
   drawTabs();
   refresh().then(async () => {
     // drop remembered tabs whose connectors no longer exist
