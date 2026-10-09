@@ -67,6 +67,12 @@ keyring = { version = "3", features = ["sync-secret-service", "crypto-rust", "ve
 gtk = "0.18"
 webkit2gtk = "2.0"
 
+[dev-dependencies]
+# TOTP codes for the live tests of the Passbolt integration (tests/passbolt)
+hmac = "0.12"
+sha1 = "0.10"
+data-encoding = "2"
+
 # Быстрее локальные сборки (tauri dev, cargo test): полная отладочная информация только для
 # своего кода (номера строк в трейсах остаются), зависимости — без неё; линковка заметно легче.
 [profile.dev]

@@ -996,6 +996,10 @@ impl PassboltState {
     }
 }
 
+// live tests against the test server of tests/passbolt (ignored by default)
+#[cfg(test)]
+mod live_tests;
+
 // ---------- commands ----------
 
 #[tauri::command]
