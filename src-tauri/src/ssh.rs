@@ -506,7 +506,7 @@ pub fn ssh_connect(app: AppHandle, kp: State<KeepassState>, id: Option<String>, 
     let h = load()?.into_iter().find(|h| h.id == id).ok_or("профиль не найден")?;
     let (user, pass) = match h.auth.as_str() {
         "keepass" => {
-            let (u, p) = keepass::credentials(&kp, &h.keepass_entry)?;
+            let (u, p) = keepass::credentials(&kp, &h.keepass_entry, keepass::Use::User)?;
             (if h.user.is_empty() { u } else { h.user.clone() }, p)
         }
         "password" => (h.user.clone(), store::secret_get(&secret_key(&h.id)).unwrap_or_default()),

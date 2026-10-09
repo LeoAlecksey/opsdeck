@@ -109,19 +109,34 @@ fn parse_id(id: &str) -> Result<EntryId, String> {
     uuid::Uuid::parse_str(id).map(EntryId::from).map_err(|_| "bad entry id".to_string())
 }
 
-/// Runs `f` against an entry of the unlocked database and refreshes the auto-lock timer.
-fn with_entry<T>(state: &KeepassState, id: &str, f: impl FnOnce(EntryRef) -> T) -> Result<T, String> {
+/// Who reads an entry. Only the user's own actions keep the database open: alert polling takes a
+/// connector's password every minute and would otherwise defeat the auto-lock for good.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum Use {
+    User,
+    Background,
+}
+
+/// Runs `f` against an entry of the unlocked database; a use by the user refreshes the auto-lock timer.
+fn with_entry<T>(
+    state: &KeepassState,
+    id: &str,
+    used: Use,
+    f: impl FnOnce(EntryRef) -> T,
+) -> Result<T, String> {
     let id = parse_id(id)?;
     let mut inner = state.inner.lock().unwrap();
     let u = inner.as_mut().ok_or_else(locked_err)?;
-    u.last_used = Instant::now();
+    if used == Use::User {
+        u.last_used = Instant::now();
+    }
     let e = u.db.entry(id).ok_or("запись не найдена в базе")?;
     Ok(f(e))
 }
 
 /// (username, password) for other modules.
-pub fn credentials(state: &KeepassState, id: &str) -> Result<(String, String), String> {
-    with_entry(state, id, |e| {
+pub fn credentials(state: &KeepassState, id: &str, used: Use) -> Result<(String, String), String> {
+    with_entry(state, id, used, |e| {
         (e.get_username().unwrap_or_default().to_string(), e.get_password().unwrap_or_default().to_string())
     })
 }
@@ -223,7 +238,9 @@ pub async fn kp_copy(app: AppHandle, state: State<'_, KeepassState>, id: String,
         "notes" => "Notes",
         _ => return Err("unknown field".into()),
     };
-    let value = with_entry(&state, &id, |e| e.get(key).unwrap_or_default().to_string())?;
+    let value = with_entry(&state, &id, Use::User, |e| {
+        e.get(key).unwrap_or_default().to_string()
+    })?;
     if field == "password" {
         copy_secret(&app, value)
     } else {
@@ -233,12 +250,16 @@ pub async fn kp_copy(app: AppHandle, state: State<'_, KeepassState>, id: String,
 
 #[tauri::command]
 pub fn kp_reveal(state: State<KeepassState>, id: String) -> Result<String, String> {
-    with_entry(&state, &id, |e| e.get_password().unwrap_or_default().to_string())
+    with_entry(&state, &id, Use::User, |e| {
+        e.get_password().unwrap_or_default().to_string()
+    })
 }
 
 #[tauri::command]
 pub fn kp_notes(state: State<KeepassState>, id: String) -> Result<String, String> {
-    with_entry(&state, &id, |e| e.get("Notes").unwrap_or_default().to_string())
+    with_entry(&state, &id, Use::User, |e| {
+        e.get("Notes").unwrap_or_default().to_string()
+    })
 }
 
 #[tauri::command]
@@ -350,6 +371,52 @@ pub async fn clip_read(app: AppHandle) -> String {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
+    /// An unlocked in-memory database with one entry, last used `idle` ago.
+    fn unlocked(idle: Duration) -> (KeepassState, String) {
+        let mut db = Database::new();
+        let id = {
+            let mut root = db.root_mut();
+            let mut e = root.add_entry();
+            e.set_unprotected("UserName", "grafana");
+            e.set_protected("Password", "s3cret");
+            e.id().to_string()
+        };
+        let u = Unlocked {
+            db,
+            path: String::new(),
+            last_used: Instant::now() - idle,
+            key: DatabaseKey::new(),
+            stamp: None,
+            reload_fails: 0,
+        };
+        (
+            KeepassState {
+                inner: Mutex::new(Some(u)),
+            },
+            id,
+        )
+    }
+    fn idle(state: &KeepassState) -> Duration {
+        state.inner.lock().unwrap().as_ref().unwrap().last_used.elapsed()
+    }
+
+    #[test]
+    fn background_reads_do_not_keep_the_database_open() {
+        let (state, id) = unlocked(Duration::from_secs(600));
+        assert_eq!(
+            credentials(&state, &id, Use::Background).unwrap(),
+            ("grafana".into(), "s3cret".into())
+        );
+        assert!(
+            idle(&state) >= Duration::from_secs(600),
+            "alert polling must not reset the auto-lock timer"
+        );
+        credentials(&state, &id, Use::User).unwrap();
+        assert!(idle(&state) < Duration::from_secs(5), "the user's own action does");
+    }
+
     #[test]
     fn entry_ids() {
         assert!(super::parse_id("3f2b9c1e-7a4d-4f6b-9a1e-0c2d3e4f5a6b").is_ok());

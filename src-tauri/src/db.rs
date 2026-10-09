@@ -109,7 +109,7 @@ fn find(id: &str) -> Result<DbProfile, String> {
 fn credentials(kp: &KeepassState, p: &DbProfile) -> Result<(String, String), String> {
     match p.auth.as_str() {
         "keepass" => {
-            let (u, pw) = keepass::credentials(kp, &p.keepass_entry)?;
+            let (u, pw) = keepass::credentials(kp, &p.keepass_entry, keepass::Use::User)?;
             Ok((if p.username.is_empty() { u } else { p.username.clone() }, pw))
         }
         "password" => Ok((p.username.clone(), store::secret_get(&secret_key(&p.id)).unwrap_or_default())),
