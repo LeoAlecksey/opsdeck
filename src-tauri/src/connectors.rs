@@ -163,11 +163,15 @@ pub fn all() -> Result<Vec<Connector>, String> {
 }
 
 /// (username, password-or-token) of a connector; empty when it has no credentials.
-pub fn credentials(kp: &KeepassState, c: &Connector) -> Result<(String, String), String> {
+pub fn credentials(
+    kp: &KeepassState,
+    c: &Connector,
+    used: keepass::Use,
+) -> Result<(String, String), String> {
     Ok(match c.auth.as_str() {
         "none" => (c.username.clone(), String::new()),
         "keepass" => {
-            let (user, pass) = keepass::credentials(kp, &c.keepass_entry)?;
+            let (user, pass) = keepass::credentials(kp, &c.keepass_entry, used)?;
             (if c.username.is_empty() { user } else { c.username.clone() }, pass)
         }
         _ => (c.username.clone(), store::secret_get(&secret_key(&c.id)).unwrap_or_default()),
@@ -181,7 +185,7 @@ pub fn prepare(kp: &KeepassState, id: &str) -> Result<(Connector, Url, Option<St
     let secret = match c.auth.as_str() {
         "none" => String::new(),
         "keepass" => {
-            let (user, pass) = keepass::credentials(kp, &c.keepass_entry)?;
+            let (user, pass) = keepass::credentials(kp, &c.keepass_entry, keepass::Use::User)?;
             if c.username.is_empty() {
                 c.username = user;
             }

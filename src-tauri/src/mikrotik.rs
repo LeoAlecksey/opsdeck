@@ -66,7 +66,7 @@ fn find(id: &str) -> Result<Device, String> {
 fn credentials(kp: &KeepassState, d: &Device) -> Result<(String, String), String> {
     match d.auth.as_str() {
         "keepass" => {
-            let (u, p) = keepass::credentials(kp, &d.keepass_entry)?;
+            let (u, p) = keepass::credentials(kp, &d.keepass_entry, keepass::Use::User)?;
             Ok((if d.username.is_empty() { u } else { d.username.clone() }, p))
         }
         "password" => Ok((d.username.clone(), store::secret_get(&secret_key(&d.id)).unwrap_or_default())),

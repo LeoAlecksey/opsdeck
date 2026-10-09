@@ -7,7 +7,11 @@
 //!
 //! Current items are keyed by fingerprint; a bounded event history is kept on disk.
 
-use crate::{connectors, keepass::KeepassState, store};
+use crate::{
+    connectors,
+    keepass::{self, KeepassState},
+    store,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{
@@ -712,9 +716,14 @@ async fn zabbix_problems(
 }
 
 /// Current alerts of one source, with a human explanation on failure.
-async fn fetch_source(client: &reqwest::Client, kp: &KeepassState, c: &connectors::Connector) -> Result<Vec<Alert>, String> {
+async fn fetch_source(
+    client: &reqwest::Client,
+    kp: &KeepassState,
+    c: &connectors::Connector,
+    used: keepass::Use,
+) -> Result<Vec<Alert>, String> {
     let url = poll_url(c).ok_or("этот тип коннектора не является источником алертов")?;
-    let (user, pass) = connectors::credentials(kp, c)?;
+    let (user, pass) = connectors::credentials(kp, c, used)?;
     if c.kind == "zabbix" {
         return fetch_zabbix(client, c, &user, &pass).await;
     }
@@ -784,7 +793,7 @@ async fn poll_once(app: &AppHandle) -> Vec<String> {
         if c.kind == "grafana" && c.auth == "none" {
             continue;
         }
-        match fetch_source(&client, &kp, &c).await {
+        match fetch_source(&client, &kp, &c, keepass::Use::Background).await {
             Ok(alerts) => apply_snapshot(app, &c.name, alerts),
             Err(e) => errors.push(format!("{}: {e}", c.name)),
         }
@@ -796,7 +805,7 @@ async fn poll_once(app: &AppHandle) -> Vec<String> {
 #[tauri::command]
 pub async fn alerts_test_source(app: AppHandle, kp: State<'_, KeepassState>, id: String) -> Result<usize, String> {
     let c = connectors::all()?.into_iter().find(|c| c.id == id).ok_or("коннектор не найден")?;
-    let alerts = fetch_source(&http_client()?, &kp, &c).await?;
+    let alerts = fetch_source(&http_client()?, &kp, &c, keepass::Use::User).await?;
     let n = alerts.len();
     apply_snapshot(&app, &c.name, alerts);
     Ok(n)
