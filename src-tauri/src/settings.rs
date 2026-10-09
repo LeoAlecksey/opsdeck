@@ -18,6 +18,8 @@ pub struct Settings {
     pub winbox_path: String,
     /// Also list contexts from ~/.kube/config and $KUBECONFIG (off: OpsDeck uses only its own store).
     pub k8s_include_system: bool,
+    /// Folders whose kubeconfig files are listed as clusters, read in place (like Freelens' sync, #44)
+    pub k8s_dirs: Vec<String>,
     /// check GitHub Releases for a newer version at startup
     pub update_auto_check: bool,
     /// External AI server (Ollama, vLLM, LM Studio…): used instead of the built-in
@@ -46,6 +48,7 @@ impl Default for Settings {
             obsidian_vault: String::new(),
             winbox_path: String::new(),
             k8s_include_system: false,
+            k8s_dirs: Vec::new(),
             update_auto_check: true,
             ai_host: String::new(),
             ai_port: String::new(),
@@ -89,7 +92,8 @@ fn filled() -> Settings {
     }
     s.ai_key_saved = store::secret_get(AI_KEY).is_some();
     // first run: pre-fill from what's on disk so things work without visiting settings
-    if s.keepass_path.is_empty() || s.obsidian_vault.is_empty() || s.winbox_path.is_empty() {
+    let first_run = !store::exists(FILE);
+    if first_run && (s.keepass_path.is_empty() || s.obsidian_vault.is_empty() || s.winbox_path.is_empty()) {
         let d = detect();
         if s.keepass_path.is_empty() {
             s.keepass_path = d.keepass.first().cloned().unwrap_or_default();
@@ -112,13 +116,29 @@ pub async fn current() -> Settings {
 }
 
 #[tauri::command]
-pub fn settings_set(settings: Settings) -> Result<(), String> {
+pub fn settings_set(mut settings: Settings) -> Result<(), String> {
     // a newly typed key goes to the keyring; an empty field keeps the saved one
     let key = settings.ai_api_key.trim();
     if !key.is_empty() {
         store::secret_set(AI_KEY, key).map_err(|e| format!("не удалось сохранить API-ключ в хранилище паролей: {e}"))?;
     }
+    if let Some(canon) = vault_dir(&settings.obsidian_vault) {
+        let _ = crate::notes::remember(&canon, None);
+        settings.obsidian_vault = canon;
+    }
     store::save_json(FILE, &settings)
+}
+
+/// The notes folder as an absolute path, if it exists. A folder that is missing now (an unmounted
+/// network drive, a USB disk) is kept as typed: it must not block saving the other settings —
+/// the Notes section explains what is wrong.
+fn vault_dir(raw: &str) -> Option<String> {
+    let raw = raw.trim();
+    if raw.is_empty() {
+        return None;
+    }
+    let p = crate::editor::expand(raw);
+    p.is_dir().then(|| p.canonicalize().map(crate::store::clean_path_buf).ok()).flatten().map(|c| c.to_string_lossy().into_owned())
 }
 
 #[derive(Serialize, Default)]
@@ -210,5 +230,17 @@ mod tests {
         let back: Settings = serde_json::from_str(r#"{"ai_api_key":"typed","ai_key_saved":true}"#).unwrap();
         assert_eq!(back.ai_api_key, "typed");
         assert!(!back.ai_key_saved);
+    }
+
+    #[test]
+    fn notes_folder_path() {
+        // an existing folder becomes absolute; a missing one is not an error (and not rewritten)
+        let dir = std::env::temp_dir().join(format!("opsdeck-vault-dir-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let got = vault_dir(&format!("  \"{}\"  ", dir.display())).unwrap();
+        assert_eq!(std::path::PathBuf::from(&got), crate::store::clean_path_buf(dir.canonicalize().unwrap()), "absolute, without \\\\?\\ on Windows");
+        assert_eq!(vault_dir("/nonexistent/path/for/sure/12345"), None);
+        assert_eq!(vault_dir("   "), None);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

@@ -411,11 +411,15 @@ export function mountConnectors(root: HTMLElement) {
   }, 1500);
 
   let placing = false;
+  // one web_embed_show at a time: while the first one still creates the page, a second one would not
+  // find it and create it again ("a webview with label … already exists"); it runs after instead
+  let showing = false, again = false;
   function place() {
     if (placing) return;
     placing = true;
     requestAnimationFrame(async () => {
       placing = false;
+      if (showing) { again = true; return; }
       if (!visible()) return;
       const s = slot.getBoundingClientRect();
       const bar = root.querySelector(".web-tabs")!.getBoundingClientRect();
@@ -428,8 +432,16 @@ export function mountConnectors(root: HTMLElement) {
       const { z, manual } = zoomFor(active, r.width);
       zoomVal.textContent = `${manual ? "" : "авто "}${Math.round(z * 100)}%`;
       zoomVal.classList.toggle("manual", manual);
-      await invoke("web_embed_show", { id: active, rect: { x: r.left, y: r.top, w: r.width, h: r.height }, url, zoom: z })
-        .catch((e) => { toast(String(e), "err"); });
+      showing = true;
+      const id = active;
+      await invoke("web_embed_show", { id, rect: { x: r.left, y: r.top, w: r.width, h: r.height }, url, zoom: z })
+        .catch((e) => { toast(String(e), "err"); })
+        .finally(async () => {
+          showing = false;
+          // a dialog, another tab or section came up while the page was being shown: it must not stay on top
+          if (!visible() || id !== active) await invoke("web_embed_hide", { id }).catch((e) => { toast(String(e), "err"); });
+          if (again) { again = false; place(); }
+        });
     });
   }
 

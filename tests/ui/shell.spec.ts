@@ -28,6 +28,19 @@ test.describe("start and modules", () => {
     await expect(page.locator(".modules-pop")).toHaveCount(0);
   });
 
+  test("the ⊞ menu is not covered by an open web panel (from feedback)", async ({ app, page }) => {
+    await app.view("web");
+    await page.locator(".card", { hasText: "Grafana" }).locator("[data-act=open]").click();
+    await app.called("web_embed_show");
+    const shows = (await app.calls("web_embed_show")).length;
+    await page.click(".modules-btn");
+    await expect(page.locator(".modules-pop")).toBeVisible();
+    expect((await app.calls("web_embed_hide")).length, "the native page hides under the menu").toBeGreaterThan(0);
+    await page.click(".modules-btn");
+    await expect(page.locator(".modules-pop")).toHaveCount(0);
+    await expect.poll(async () => (await app.calls("web_embed_show")).length, { message: "the page comes back" }).toBeGreaterThan(shows);
+  });
+
   test.describe("a module another one needs", () => {
     test.use({ demo: { modules: ["ssh", "notes"] } });
     test("is turned on by itself (SSH opens a terminal tab)", async ({ app, page }) => {

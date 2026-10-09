@@ -228,6 +228,19 @@ test.describe("settings", () => {
     await expect(page.locator(".ai-remote-warn")).toContainText("на этом компьютере");
   });
 
+  test("a missing notes folder is reported but the other settings are still saved (PR #56)", async ({ app, page }) => {
+    await page.evaluate(() => { (window as any).__DEMO_OVERRIDES.vault_validate_path = { ok: false, exists: false, is_dir: false, is_obsidian: false, md_count: 0, path: "/mnt/nas/notes", err: "папка не существует: /mnt/nas/notes" }; });
+    const vault = page.locator("input[name=obsidian_vault]");
+    await vault.fill("/mnt/nas/notes");
+    await expect(page.locator(".notes-path-status")).toContainText("папка не существует");
+    await page.locator("input[name=ai_host]").fill("localhost");
+    await view(page).locator("button[type=submit]", { hasText: "Сохранить" }).click();
+    const set = (await app.called("settings_set")).args as any;
+    expect(set.settings.ai_host).toBe("localhost");
+    expect(set.settings.obsidian_vault).toBe("/mnt/nas/notes");
+    await expect(page.locator(".toast").first()).toContainText("остальные настройки сохранены");
+  });
+
   test("save sends a new API key once and never shows it back", async ({ app, page }) => {
     await page.locator("input[name=ai_api_key]").fill("sk-demo");
     await view(page).locator("button[type=submit]", { hasText: "Сохранить" }).click();
@@ -259,6 +272,31 @@ test.describe("other sections", () => {
     expect((await app.called("connector_open")).args).toEqual({ id: "c2" });
     await page.locator(".card", { hasText: "Grafana" }).locator("[data-act=open]").click();
     await app.called("web_embed_show");
+  });
+
+  test("a page being created is shown once at a time and not over a dialog (from feedback)", async ({ app, page }) => {
+    // the first show creates the page and takes a while; meanwhile the window resizes and a dialog opens
+    await page.evaluate(() => {
+      const w = window as any;
+      w.__embed = { now: 0, max: 0 };
+      w.__DEMO_OVERRIDES.web_embed_show = async () => {
+        w.__embed.max = Math.max(w.__embed.max, ++w.__embed.now);
+        await new Promise((r) => setTimeout(r, 400));
+        w.__embed.now--;
+      };
+    });
+    await app.view("web");
+    await page.locator(".card", { hasText: "Grafana" }).locator("[data-act=open]").click();
+    await app.called("web_embed_show");
+    await page.setViewportSize({ width: 1300, height: 860 });
+    await page.evaluate(() => window.dispatchEvent(new Event("overlay-open")));
+    const hides = (await app.calls("web_embed_hide")).length;
+    await expect.poll(async () => (await app.calls("web_embed_hide")).length, { message: "the page that finished showing under a dialog is hidden again" }).toBeGreaterThan(hides);
+    expect(await page.evaluate(() => (window as any).__embed.max), "never two web_embed_show at once").toBe(1);
+    await page.evaluate(() => window.dispatchEvent(new Event("overlay-close")));
+    await expect.poll(async () => (await app.calls("web_embed_show")).at(-1)?.args.rect).toMatchObject({ w: expect.any(Number) });
+    await expect.poll(() => page.evaluate(() => (window as any).__embed.now)).toBe(0);
+    expect(await page.evaluate(() => (window as any).__embed.max)).toBe(1);
   });
 
   test("＋ opens another panel straight from a tab (two Grafanas, from feedback)", async ({ app, page }) => {

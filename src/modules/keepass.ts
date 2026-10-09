@@ -196,14 +196,30 @@ export function mountKeepass(root: HTMLElement) {
       ${e.url ? row("URL", e.url, "url") : ""}
       ${e.tags.length ? row("Теги", e.tags.join(", ")) : ""}
       ${e.has_notes ? `<div class="kp-field"><div class="muted">Заметки</div><pre class="kp-notes">…</pre></div>` : ""}`;
+    let shown = false, hideTimer = 0, reveals = 0;
     d.onclick = async (ev) => {
       const t = ev.target as HTMLElement;
       const field = t.closest<HTMLElement>("[data-c]")?.dataset.c;
       if (field) return copy(e, field);
-      if (t.closest("[data-r]")) {
+      const eye = t.closest<HTMLElement>("[data-r]");
+      if (eye) {
         const span = d.querySelector<HTMLElement>(".kp-secret")!;
-        span.textContent = await invoke<string>("kp_reveal", { id: e.id }).catch((x) => String(x));
-        setTimeout(() => (span.textContent = "••••••••••"), 10000);
+        // a toggle: a second click hides the password (it used to fetch it again and start one more timer)
+        const hide = () => {
+          clearTimeout(hideTimer);
+          shown = false;
+          span.textContent = "••••••••••";
+          eye.title = "Показать на 10 с";
+        };
+        if (shown) return hide();
+        shown = true;
+        eye.title = "Скрыть";
+        const ticket = ++reveals;
+        const pw = await invoke<string>("kp_reveal", { id: e.id }).catch((x) => String(x));
+        // hidden (or shown anew) while the password was being fetched: this answer is stale
+        if (!shown || ticket !== reveals) return;
+        span.textContent = pw;
+        hideTimer = window.setTimeout(hide, 10000);
       }
     };
     if (e.has_notes) d.querySelector(".kp-notes")!.textContent = await invoke<string>("kp_notes", { id: e.id }).catch((x) => String(x));

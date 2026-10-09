@@ -701,8 +701,22 @@ pub fn remote_base(host: &str, port: &str) -> Option<String> {
     if host.is_empty() {
         return None;
     }
+    // the base is the server itself: "/v1/…" is added to it, so an address copied together with
+    // "/v1" (as most services show it) or with "/v1/chat/completions" would become ".../v1/v1/..." (#58)
+    let strip = |u: &str| -> String {
+        let mut u = u.trim_end_matches('/');
+        for tail in ["/chat/completions", "/completions", "/models", "/v1"] {
+            if let Some(rest) = u.strip_suffix(tail) {
+                u = rest.trim_end_matches('/');
+            }
+        }
+        u.to_string()
+    };
     Some(if host.starts_with("http://") || host.starts_with("https://") {
-        host.trim_end_matches('/').to_string()
+        strip(host)
+    } else if host.contains('/') {
+        // "ohmylama.ru/v1": a host with a path but no scheme — https, the port is in the URL if any
+        strip(&format!("https://{host}"))
     } else {
         format!("http://{host}:{}", port.trim().parse::<u16>().unwrap_or(11434))
     })
@@ -884,6 +898,13 @@ mod tests {
         assert_eq!(remote_base("host", "нет"), Some("http://host:11434".into()));
         assert_eq!(remote_base("http://x.local/", ""), Some("http://x.local".into()));
         assert_eq!(remote_base("  ", ""), None);
+        // #58: an address copied with /v1 or the whole endpoint
+        assert_eq!(remote_base("https://ohmylama.ru/v1", ""), Some("https://ohmylama.ru".into()));
+        assert_eq!(remote_base("https://ohmylama.ru/v1/", ""), Some("https://ohmylama.ru".into()));
+        assert_eq!(remote_base("https://api.example.com/v1/chat/completions", ""), Some("https://api.example.com".into()));
+        assert_eq!(remote_base("https://gw.example.com/openai/v1", ""), Some("https://gw.example.com/openai".into()), "a path before /v1 stays");
+        assert_eq!(remote_base("ohmylama.ru/v1", ""), Some("https://ohmylama.ru".into()));
+        assert_eq!(remote_base("http://10.0.0.5:8000/v1", ""), Some("http://10.0.0.5:8000".into()));
     }
 
     #[test]

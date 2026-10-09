@@ -47,6 +47,8 @@ export const HELP_EN: Record<string, { title: string; html: string }> = {
       <p>OpsDeck keeps its own kubeconfig copies (a file per context) and doesn't touch your ~/.kube/config. Tables update live (watch).</p>
       <h4>What's where</h4>
       <ul>
+        <li><b>Event history</b> (Cluster → Event history): Kubernetes keeps events for about an hour, so by morning “what fell over at night” is gone. “Record this cluster's events” — while OpsDeck runs it watches events of all namespaces and keeps them for a week; repeats fold into one row (×N). At the top — what fell over most in 24 h (click to filter); a row opens its message and “⇢ AI”.</li>
+        <li><b>Kubeconfig folders</b> (⚙ → Kubernetes, like in Freelens): every kubeconfig in the folder (and subfolders two levels deep) is listed as clusters marked “folder” and read in place — a new file shows up after ⟳ or the next time the section opens.</li>
         <li>The <b>label filter</b> next to the plain one works like <code>kubectl -l</code>: <code>app=api</code>, <code>tier!=db</code>, <code>env in (prod,stage)</code>, <code>!canary</code>; terms separated by commas. <b>Nodes</b>: CPU and RAM refresh every 5 s — a usage bar and a chart of the last samples (metrics-server needed).</li>
         <li><b>＋</b> top left — add a cluster: tick contexts from ~/.kube/config, paste YAML or just drop a file into the window.</li>
         <li>Hover a context: <b>🔒</b> read-only (blocks apply/delete/scale/restart/exec), <b>🙈</b> hide, <b>🗑</b> delete the copy.</li>
@@ -249,7 +251,7 @@ export const HELP_EN: Record<string, { title: string; html: string }> = {
       <p>The .kdbx database is opened read-only, decrypted only in memory. The password is entered once: the database stays open until OpsDeck closes (in ⚙ you can switch to auto-lock after idle instead). Make edits in KeePassXC — OpsDeck notices the file changed and re-reads it within a couple of seconds, without asking for the password again. If the master password changed, re-reading fails — you'll get a message; lock and open the database again.</p>
       <h4>What's where</h4>
       <ul><li>👤 / 🔑 in a row — copy the login / password; the password is wiped from the clipboard after 30 seconds.</li>
-      <li>Click a row — details: 👁 show the password for 10 seconds, the entry's notes.</li>
+      <li>Click a row — details: 👁 show the password for 10 seconds (click again to hide it), the entry's notes.</li>
       <li>KeePass entries can be bound to web panels, SSH hosts and MikroTik routers — then passwords are taken from here.</li>
       <li>While the database is open, passwords are in the palette ${kbd("Ctrl+Shift+P")} → “Password: …”.</li></ul>`,
   },

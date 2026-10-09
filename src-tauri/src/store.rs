@@ -24,6 +24,21 @@ pub fn load_json<T: DeserializeOwned + Default>(name: &str) -> Result<T, String>
     serde_json::from_str(&raw).map_err(|e| format!("{}: {e}", path.display()))
 }
 
+pub fn exists(name: &str) -> bool {
+    config_dir().map(|d| d.join(name).exists()).unwrap_or(false)
+}
+
+pub fn clean_path_buf(p: PathBuf) -> PathBuf {
+    let s = p.to_string_lossy();
+    if let Some(stripped) = s.strip_prefix(r"\\?\UNC\") {
+        PathBuf::from(format!(r"\\{stripped}"))
+    } else if let Some(stripped) = s.strip_prefix(r"\\?\") {
+        PathBuf::from(stripped)
+    } else {
+        p
+    }
+}
+
 pub fn save_json<T: Serialize>(name: &str, value: &T) -> Result<(), String> {
     let path = config_dir()?.join(name);
     fs::write(&path, serde_json::to_string_pretty(value).map_err(err)?).map_err(err)?;

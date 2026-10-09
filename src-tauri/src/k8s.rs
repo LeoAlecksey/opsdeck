@@ -17,7 +17,7 @@ use std::{
     path::{Path, PathBuf},
     time::Duration,
 };
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 use tokio::sync::{oneshot, Mutex};
 
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(20);
@@ -33,8 +33,8 @@ pub struct K8sState {
 
 #[derive(Deserialize, Clone)]
 pub struct Ctx {
-    file: String,
-    context: String,
+    pub(crate) file: String,
+    pub(crate) context: String,
 }
 
 fn err(e: impl std::fmt::Display) -> String {
@@ -97,9 +97,62 @@ fn store_files() -> Vec<PathBuf> {
     files
 }
 
+/// A file that may be a kubeconfig: *.yaml, *.yml, *.conf, *.kubeconfig, or named "config".
+fn kubeconfig_name(p: &Path) -> bool {
+    let name = p.file_name().and_then(|n| n.to_str()).unwrap_or("");
+    name == "config" || matches!(p.extension().and_then(|e| e.to_str()), Some("yaml" | "yml" | "conf" | "kubeconfig"))
+}
+
+/// Kubeconfig files in the folders from Settings → Kubernetes (#44), read in place: a file added
+/// or edited there shows up on the next refresh. Two levels of subfolders, hidden ones skipped;
+/// files that are not kubeconfigs (manifests…) have no contexts and drop out in contexts_of.
+fn dir_files(dirs: &[String]) -> Vec<(PathBuf, &'static str)> {
+    const MAX_FILES: usize = 500;
+    const MAX_SIZE: u64 = 2 * 1024 * 1024;
+    fn walk(dir: &Path, depth: u8, out: &mut Vec<PathBuf>) {
+        let Ok(rd) = fs::read_dir(dir) else { return };
+        let mut entries: Vec<_> = rd.flatten().collect();
+        entries.sort_by_key(|e| e.file_name());
+        for e in entries {
+            if out.len() >= MAX_FILES {
+                return;
+            }
+            let p = e.path();
+            if e.file_name().to_string_lossy().starts_with('.') {
+                continue;
+            }
+            let Ok(meta) = fs::metadata(&p) else { continue };
+            if meta.is_dir() {
+                if depth > 0 {
+                    walk(&p, depth - 1, out);
+                }
+            } else if meta.len() <= MAX_SIZE && kubeconfig_name(&p) {
+                out.push(p);
+            }
+        }
+    }
+    let mut out: Vec<(PathBuf, &'static str)> = Vec::new();
+    for d in dirs.iter().map(|d| d.trim()).filter(|d| !d.is_empty()) {
+        let mut found = Vec::new();
+        walk(&crate::editor::expand(d), 2, &mut found);
+        for p in found {
+            if !out.iter().any(|(x, _)| *x == p) {
+                out.push((p, "dir"));
+            }
+        }
+    }
+    out
+}
+
 fn sources() -> Vec<(PathBuf, &'static str)> {
-    let mut out = if crate::settings::load().k8s_include_system { system_files() } else { Vec::new() };
+    let s = crate::settings::load();
+    let mut out = if s.k8s_include_system { system_files() } else { Vec::new() };
     out.extend(store_files().into_iter().map(|p| (p, "opsdeck")));
+    for f in dir_files(&s.k8s_dirs) {
+        if !out.iter().any(|(x, _)| *x == f.0) {
+            out.push(f);
+        }
+    }
     out
 }
 
@@ -414,7 +467,7 @@ fn ensure_writable(ctx: &Ctx) -> Result<(), String> {
 
 // ---------- API access ----------
 
-async fn client(state: &K8sState, ctx: &Ctx) -> Result<Client, String> {
+pub(crate) async fn client(state: &K8sState, ctx: &Ctx) -> Result<Client, String> {
     let key = (ctx.file.clone(), ctx.context.clone());
     if let Some(c) = state.clients.lock().await.get(&key) {
         return Ok(c.clone());
@@ -422,7 +475,7 @@ async fn client(state: &K8sState, ctx: &Ctx) -> Result<Client, String> {
     let kc = Kubeconfig::read_from(&ctx.file).map_err(err)?;
     let opts = KubeConfigOptions { context: Some(ctx.context.clone()), ..Default::default() };
     let mut cfg = Config::from_custom_kubeconfig(kc, &opts).await.map_err(err)?;
-    cfg.connect_timeout = Some(Duration::from_secs(5));
+    cfg.connect_timeout = Some(Duration::from_secs(15));
     // log follow streams can be silent for a long time; per-request timeouts are applied below
     cfg.read_timeout = None;
     let c = Client::try_from(cfg).map_err(err)?;
@@ -975,6 +1028,8 @@ pub async fn k8s_watch_start(
         let _ = old.send(());
     }
     let event = format!("k8s-watch-{id}");
+    let ctx_key = (ctx.file.clone(), ctx.context.clone());
+    let app_handle = app.clone();
     tauri::async_runtime::spawn(async move {
         let mut stream = watcher(api, watcher::Config::default()).default_backoff().boxed();
         let mut init: Vec<Value> = Vec::new();
@@ -987,8 +1042,8 @@ pub async fn k8s_watch_start(
             tokio::select! {
                 _ = &mut stop => break,
                 _ = tick.tick() => {
-                    if !applied.is_empty() { let _ = app.emit(&event, json!({ "type": "apply", "items": std::mem::take(&mut applied) })); }
-                    if !deleted.is_empty() { let _ = app.emit(&event, json!({ "type": "delete", "uids": std::mem::take(&mut deleted) })); }
+                    if !applied.is_empty() { let _ = app_handle.emit(&event, json!({ "type": "apply", "items": std::mem::take(&mut applied) })); }
+                    if !deleted.is_empty() { let _ = app_handle.emit(&event, json!({ "type": "delete", "uids": std::mem::take(&mut deleted) })); }
                 }
                 ev = stream.next() => match ev {
                     None => break,
@@ -999,7 +1054,10 @@ pub async fn k8s_watch_start(
                         let msg = e.to_string();
                         let denied = ["401", "403", "Unauthorized", "Forbidden", "forbidden"].iter().any(|k| msg.contains(k));
                         if (!listed || denied) && !errored {
-                            let _ = app.emit(&event, json!({ "type": "error", "message": msg }));
+                            let _ = app_handle.emit(&event, json!({ "type": "error", "message": msg, "retrying": !denied }));
+                        }
+                        if !listed {
+                            app_handle.state::<K8sState>().clients.lock().await.remove(&ctx_key);
                         }
                         errored = true;
                     }
@@ -1012,7 +1070,7 @@ pub async fn k8s_watch_start(
                                 listed = true;
                                 applied.clear();
                                 deleted.clear();
-                                let _ = app.emit(&event, json!({ "type": "reset", "items": std::mem::take(&mut init) }));
+                                let _ = app_handle.emit(&event, json!({ "type": "reset", "items": std::mem::take(&mut init) }));
                             }
                             watcher::Event::Apply(o) => applied.extend(to_value(o)),
                             watcher::Event::Delete(o) => deleted.extend(o.metadata.uid),
@@ -1305,6 +1363,30 @@ pub async fn k8s_object_events(state: State<'_, K8sState>, ctx: Ctx, namespace: 
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn kubeconfigs_from_folders() {
+        let root = std::env::temp_dir().join(format!("opsdeck-k8s-dirs-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(root.join("team/prod")).unwrap();
+        fs::create_dir_all(root.join(".git")).unwrap();
+        fs::create_dir_all(root.join("a/b/c/d")).unwrap();
+        let kc = |ctx: &str| format!("apiVersion: v1\nkind: Config\ncurrent-context: {ctx}\nclusters:\n- name: c\n  cluster:\n    server: https://{ctx}.example.com\ncontexts:\n- name: {ctx}\n  context:\n    cluster: c\n    user: u\nusers:\n- name: u\n  user: {{}}\n");
+        fs::write(root.join("dev.yaml"), kc("dev")).unwrap();
+        fs::write(root.join("team/prod/config"), kc("prod")).unwrap();
+        fs::write(root.join("team/deploy.yaml"), "apiVersion: apps/v1\nkind: Deployment\nmetadata: {name: x}\n").unwrap();
+        fs::write(root.join("README.md"), "not yaml").unwrap();
+        fs::write(root.join("broken.yml"), ": : :").unwrap();
+        fs::write(root.join(".git/config"), "[core]").unwrap();
+        fs::write(root.join("a/b/c/d/deep.yaml"), kc("deep")).unwrap();
+        let files = dir_files(&[root.to_string_lossy().into_owned(), "  ".into(), root.to_string_lossy().into_owned()]);
+        let names: Vec<String> = files.iter().map(|(p, _)| p.strip_prefix(&root).unwrap().to_string_lossy().replace('\\', "/")).collect();
+        assert_eq!(names, ["broken.yml", "dev.yaml", "team/deploy.yaml", "team/prod/config"], "hidden and too deep skipped, listed once");
+        assert!(files.iter().all(|(_, s)| *s == "dir"));
+        let ctx: Vec<String> = contexts_of(files).into_iter().map(|c| c.context).collect();
+        assert_eq!(ctx, ["dev", "prod"], "manifests and broken files have no contexts");
+        let _ = fs::remove_dir_all(&root);
+    }
     use super::*;
 
     #[test]

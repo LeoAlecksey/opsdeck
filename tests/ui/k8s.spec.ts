@@ -1,7 +1,7 @@
 import { test, expect } from "./fixtures";
 import type { Page } from "@playwright/test";
 
-const rows = (page: Page) => page.locator(".k8s-main .table-wrap tbody tr");
+const rows = (page: Page) => page.locator(".k8s-main .table-wrap tbody tr:not(.skeleton-row)");
 const ctxItem = (page: Page, name: string) => page.locator(".ctx-item", { has: page.locator(".ctx-name", { hasText: name }) });
 
 test.describe("kubernetes", () => {

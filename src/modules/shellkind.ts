@@ -8,6 +8,11 @@ function stem(program: string): string {
 
 export const isWsl = (l: Launched | null): boolean => !!l && stem(l.program) === "wsl";
 
+/** On Windows the console host (ConPTY) reports the program's path as the title until the program sets its own:
+ *  "C:\\WINDOWS\\System32\\wsl.exe" for a WSL tab. Not worth replacing the tab's name with. */
+export const isProgramPath = (title: string, program: string | undefined): boolean =>
+  !!program && /^([a-z]:\\|\\\\)/i.test(title) && stem(title) === stem(program);
+
 const SHELLS = ["bash", "zsh", "fish", "sh", "powershell", "pwsh", "cmd"];
 
 /** The pane's shell for the AI context: "pwsh", "bash", "wsl:<distro>"; null when unknown (ssh, other programs). */

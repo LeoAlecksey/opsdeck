@@ -1,5 +1,6 @@
 import { helpBtn } from "./help";
 import { icon } from "./icons";
+import { sshTarget as parseSshTarget } from "./sshargs";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { PtyTerminal, SpawnOpts, termFontSize, termFontStep } from "./pty";
@@ -13,7 +14,7 @@ import { t } from "../i18n";
 import { isWindows } from "./themes";
 import { AI_PROVIDERS, aiAgent, setAiAgent } from "./ai-agents";
 import { LocalChat } from "./aichat";
-import { isWsl, shellName } from "./shellkind";
+import { isProgramPath, isWsl, shellName } from "./shellkind";
 
 /** Other modules open a tab via: window.dispatchEvent(new CustomEvent("open-terminal", { detail })) */
 export type OpenTerminalDetail = SpawnOpts & { title?: string; keepOpen?: boolean };
@@ -233,7 +234,7 @@ export function mountTerminal(root: HTMLElement) {
     pane.pty = pty;
     pane.exited = false;
     attachPathLinks(pty);
-    pty.term.onTitleChange((t) => { if (pane.tab.active === pane && t) pane.tab.label.textContent = t; });
+    pty.term.onTitleChange((t) => { if (pane.tab.active === pane && t && !isProgramPath(t, pane.spawn.program)) pane.tab.label.textContent = t; });
     pty.term.textarea?.addEventListener("focus", () => focusPane(pane));
     // a connection tab stays open when it ends: the reason is on screen, and it can be reconnected
     pty.onExit = () => {
@@ -497,27 +498,11 @@ export function mountTerminal(root: HTMLElement) {
   const upt = (s: number) => (s >= 86400 ? `${Math.floor(s / 86400)}д ${Math.floor((s % 86400) / 3600)}ч` : `${Math.floor(s / 3600)}ч ${Math.floor((s % 3600) / 60)}м`);
 
   /** ssh destination + safe options of the active pane, if it is in an interactive SSH session. */
-  const SSH_VALUE_OPTS = new Set(["-p", "-l", "-i", "-J", "-o", "-F", "-E", "-c", "-m", "-b", "-L", "-R", "-D", "-W", "-S", "-O", "-Q", "-w", "-e", "-B", "-I"]);
   function sshTarget(p: Pane | null): string[] | null {
     if (!p) return null;
-    const tokens = p.pty.spawn.program === "ssh" ? [...(p.pty.spawn.args ?? [])]
-      : (p.pty.blocks.running ?? "").trim().split(/\s+/).filter(Boolean);
-    if (p.pty.spawn.program !== "ssh") {
-      if (tokens[0] !== "ssh") return null;
-      tokens.shift();
-    }
-    const keep: string[] = [];
-    let dest: string | null = null;
-    for (let i = 0; i < tokens.length; i++) {
-      const t = tokens[i];
-      if (dest) return null; // a remote command follows: not an interactive session
-      if (SSH_VALUE_OPTS.has(t)) {
-        const v = tokens[++i];
-        if (["-p", "-l", "-i", "-J"].includes(t) && v) keep.push(t, v);
-      } else if (t.startsWith("-")) continue;
-      else dest = t;
-    }
-    return dest ? [...keep, dest] : null;
+    if (p.pty.spawn.program === "ssh") return parseSshTarget(p.pty.spawn.args ?? []);
+    const tokens = (p.pty.blocks.running ?? "").trim().split(/\s+/).filter(Boolean);
+    return tokens[0] === "ssh" ? parseSshTarget(tokens.slice(1)) : null;
   }
 
   let sysBusy = false;

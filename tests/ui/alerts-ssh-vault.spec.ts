@@ -148,4 +148,20 @@ test.describe("keepass", () => {
     await rows.first().locator("[data-c=password]").click();
     await app.called("kp_copy");
   });
+
+  test("👁 shows the password, a second click hides it (from feedback)", async ({ app, page }) => {
+    await page.evaluate(() => { (window as any).__DEMO_OVERRIDES.kp_reveal = () => "s3cret"; });
+    await app.view("vault");
+    await page.locator(".kp-table tbody tr", { hasText: "Grafana admin" }).click();
+    const secret = page.locator(".kp-detail .kp-secret"), eye = page.locator(".kp-detail [data-r]");
+    await eye.click();
+    await expect(secret).toHaveText("s3cret");
+    await eye.click();
+    await expect(secret).toHaveText("••••••••••");
+    expect(await app.calls("kp_reveal"), "the second click does not fetch the password again").toHaveLength(1);
+    // the hint follows the state
+    await expect(eye).toHaveAttribute("title", "Показать на 10 с");
+    await eye.click();
+    await expect(eye).toHaveAttribute("title", "Скрыть");
+  });
 });

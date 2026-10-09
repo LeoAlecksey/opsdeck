@@ -1,6 +1,6 @@
 import { helpBtn } from "./help";
 import { icon } from "./icons";
-import { t } from "../i18n";
+import { locale, t } from "../i18n";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
@@ -72,7 +72,7 @@ function memBytes(q?: string): number {
 }
 const fmtMem = (b: number) => (b >= 1024 ** 3 ? `${(b / 1024 ** 3).toFixed(1)}Gi` : `${Math.round(b / 1024 ** 2)}Mi`);
 
-type KindDef = { id: string; label: string; group: string; namespaced: boolean; cols: Col[]; source?: "helm"; crd?: boolean };
+type KindDef = { id: string; label: string; group: string; namespaced: boolean; cols: Col[]; source?: "helm" | "history"; crd?: boolean };
 type CrdInfo = { id: string; group: string; version: string; kind: string; plural: string; namespaced: boolean;
   columns: { name: string; type: string; jsonPath: string }[] };
 
@@ -92,6 +92,15 @@ function crdKind(c: CrdInfo): KindDef {
   cols.push(ageCol);
   return { id: c.id, label: c.kind, group: c.group, namespaced: c.namespaced, cols, crd: true };
 }
+
+const eventCols: Col[] = [
+  { h: "Когда", v: (o) => age(o.lastTimestamp ?? o.eventTime ?? o.metadata.creationTimestamp), sort: (o) => -ts(o.lastTimestamp ?? o.eventTime ?? o.metadata.creationTimestamp) },
+  { h: "Тип", v: (o) => o.type ?? "", cls: (o) => (o.type === "Warning" ? "warn" : "muted") },
+  ns,
+  { h: "Объект", v: (o) => `${o.involvedObject?.kind ?? ""}/${o.involvedObject?.name ?? ""}` },
+  { h: "Причина", v: (o) => o.reason ?? "" },
+  { h: "Сообщение", v: (o) => o.message ?? "", cls: () => "wrap" },
+  { h: "×", v: (o) => o.count ?? 1, sort: (o) => -(o.count ?? 1) }];
 
 const KINDS: KindDef[] = [
   { id: "pods", label: "Pods", group: "Workloads", namespaced: true, cols: [
@@ -170,14 +179,9 @@ const KINDS: KindDef[] = [
     ageCol] },
   { id: "namespaces", label: "Namespaces", group: "Кластер", namespaced: false, cols: [
     name, { h: "Статус", v: (o) => o.status?.phase ?? "", cls: (o) => statusClass(o.status?.phase ?? "") }, ageCol] },
-  { id: "events", label: "Events", group: "Кластер", namespaced: true, cols: [
-    { h: "Когда", v: (o) => age(o.lastTimestamp ?? o.eventTime ?? o.metadata.creationTimestamp), sort: (o) => -ts(o.lastTimestamp ?? o.eventTime ?? o.metadata.creationTimestamp) },
-    { h: "Тип", v: (o) => o.type ?? "", cls: (o) => (o.type === "Warning" ? "warn" : "muted") },
-    ns,
-    { h: "Объект", v: (o) => `${o.involvedObject?.kind ?? ""}/${o.involvedObject?.name ?? ""}` },
-    { h: "Причина", v: (o) => o.reason ?? "" },
-    { h: "Сообщение", v: (o) => o.message ?? "", cls: () => "wrap" },
-    { h: "×", v: (o) => o.count ?? 1 }] },
+  { id: "events", label: "Events", group: "Кластер", namespaced: true, cols: eventCols },
+  // recorded by OpsDeck (k8s_events.rs): events kept for a week instead of the cluster's hour (#55)
+  { id: "event-history", label: "История событий", group: "Кластер", namespaced: true, source: "history", cols: eventCols },
   { id: "applications", label: "Applications", group: "Argo CD", namespaced: true, cols: [
     name, ns,
     { h: "Sync", v: argoSync, cls: (o) => (argoSync(o) === "Synced" ? "ok" : argoSync(o) === "OutOfSync" ? "warn" : "muted") },
@@ -273,6 +277,14 @@ export function mountK8s(root: HTMLElement) {
         ${helpBtn("k8s")}
       </div>
       <div class="k8s-err err" hidden></div>
+      <div class="hist-bar" hidden>
+        <span class="hist-state"></span>
+        <button class="ghost" data-act="hist-toggle"></button>
+        <label class="check muted"><input type="checkbox" class="hist-warn" checked /> только Warning</label>
+        <span class="hist-top"></span>
+        <span class="spacer"></span>
+        <button class="ghost" data-act="hist-clear" title="Забыть записанные события этого кластера">Очистить</button>
+      </div>
       <div class="table-wrap"><table class="res"><thead></thead><tbody></tbody></table></div>
       <div class="drawer" hidden>
         <div class="drawer-head">
@@ -308,6 +320,7 @@ export function mountK8s(root: HTMLElement) {
   const $ = <T extends HTMLElement = HTMLElement>(s: string) => root.querySelector<T>(s)!;
   const ctxList = $(".ctx-list"), kindList = $(".kind-list"), nsSel = $<HTMLSelectElement>(".ns-select");
   const lfilterIn = $<HTMLInputElement>(".lfilter");
+  const histBar = $(".hist-bar");
   const filterIn = $<HTMLInputElement>(".filter"), errBox = $(".k8s-err"), thead = $("thead"), tbody = $("tbody");
   const drawer = $(".drawer"), drawerBody = $(".drawer-body"), countEl = $(".count"), autoCb = $<HTMLInputElement>(".auto-cb");
 
@@ -412,7 +425,9 @@ export function mountK8s(root: HTMLElement) {
       const own = file === "opsdeck";
       g.innerHTML = own
         ? `<div class="ctx-file" title="~/.config/opsdeck/kubeconfigs"><span>OpsDeck</span></div>`
-        : `<div class="ctx-file" title="${esc(file)}"><span>${esc(list[0].label)}</span><span class="badge warn" title="Общий kubeconfig: изменения затронут и обычный kubectl">общий</span></div>`;
+        : list[0].source === "dir"
+          ? `<div class="ctx-file" title="${esc(file)}"><span>${esc(list[0].label)}</span><span class="badge" title="${esc(t("Из папки в ⚙ → Kubernetes; файл читается на месте"))}">${esc(t("папка"))}</span></div>`
+          : `<div class="ctx-file" title="${esc(file)}"><span>${esc(list[0].label)}</span><span class="badge warn" title="Общий kubeconfig: изменения затронут и обычный kubectl">общий</span></div>`;
       g.querySelector<HTMLElement>(".del")?.addEventListener("click", async () => {
         if ((await ask("Удалить kubeconfig", `Удалить импортированный файл «${list[0].label}»?`, { ok: "Удалить", danger: true })) === null) return;
         await invoke("k8s_remove_source", { file }).catch((e) => toast(String(e), "err"));
@@ -473,6 +488,7 @@ export function mountK8s(root: HTMLElement) {
     $(".ctx-title").classList.remove("muted");
     closeDrawer();
     items = [];
+    root.classList.add("loading");
     render();
     await Promise.all([loadNamespaces(), loadCrds()]);
     usage.clear();
@@ -528,6 +544,7 @@ export function mountK8s(root: HTMLElement) {
     sortCol = 0; sortDir = 1;
     closeDrawer();
     items = [];
+    root.classList.add("loading");
     renderKinds();
     render();
     startWatch();
@@ -608,20 +625,40 @@ export function mountK8s(root: HTMLElement) {
     watchId = "";
   }
 
-  type WatchMsg = { type: "reset" | "apply" | "delete" | "error"; items?: Obj[]; uids?: string[]; message?: string };
+  type WatchMsg = { type: "reset" | "apply" | "delete" | "error"; items?: Obj[]; uids?: string[]; message?: string; retrying?: boolean };
 
   async function startWatch() {
     stopWatch();
     if (!ctx) return;
-    if (kind.source === "helm" || !autoCb.checked) return refresh();
+    if (kind.source === "helm" || kind.source === "history" || !autoCb.checked) return refresh();
     const id = `w${++loadSeq}`;
     watchId = id;
     root.classList.add("loading");
     const un = await listen<WatchMsg>(`k8s-watch-${id}`, (e) => {
       if (watchId !== id) return;
       const m = e.payload;
-      if (m.type === "error") { errBox.hidden = false; errBox.textContent = m.message ?? "ошибка watch"; root.classList.remove("loading"); return; }
+      if (m.type === "error") {
+        errBox.hidden = false;
+        if (m.retrying) {
+          errBox.classList.add("reconnecting");
+          errBox.classList.remove("err");
+          root.classList.add("loading");
+          errBox.innerHTML = `<span>Нестабильное соединение с кластером, повторное подключение… <span class="muted">(${esc(m.message ?? "")})</span></span> <button class="ghost" data-act="watch-retry" style="margin-left:8px;padding:2px 8px;font-size:11.5px">Повторить</button>`;
+          const btn = errBox.querySelector<HTMLButtonElement>("[data-act=watch-retry]");
+          if (btn) btn.onclick = () => startWatch();
+        } else {
+          errBox.classList.remove("reconnecting");
+          errBox.classList.add("err");
+          errBox.textContent = m.message ?? "ошибка watch";
+          root.classList.remove("loading");
+          render();
+        }
+        return;
+      }
       errBox.hidden = true;
+      errBox.classList.remove("reconnecting");
+      errBox.classList.add("err");
+      errBox.textContent = "";
       if (m.type === "reset") { items = m.items ?? []; root.classList.remove("loading"); }
       if (m.type === "apply") {
         const byUid = new Map(items.map((o) => [o.metadata.uid, o]));
@@ -634,7 +671,7 @@ export function mountK8s(root: HTMLElement) {
     if (watchId !== id) { un(); return; }
     unlistenWatch = un;
     invoke("k8s_watch_start", { ctx: ref(), id, kind: kind.id, namespace: currentNs() || null })
-      .catch((err) => { errBox.hidden = false; errBox.textContent = String(err); root.classList.remove("loading"); });
+      .catch((err) => { errBox.hidden = false; errBox.textContent = String(err); root.classList.remove("loading"); render(); });
   }
 
   async function refresh() {
@@ -645,6 +682,7 @@ export function mountK8s(root: HTMLElement) {
     try {
       const list = kind.source === "helm"
         ? await invoke<Obj[]>("k8s_helm_releases", { ctx: ref(), namespace: currentNs() || null })
+        : kind.source === "history" ? await loadHistory()
         : await invoke<Obj[]>("k8s_list", { ctx: ref(), kind: kind.id, namespace: currentNs() || null });
       if (seq !== loadSeq) return;
       items = list;
@@ -654,11 +692,55 @@ export function mountK8s(root: HTMLElement) {
       if (seq !== loadSeq) return;
       errBox.hidden = false;
       errBox.textContent = String(e);
+      render();
     } finally {
       loading = false;
       root.classList.remove("loading");
     }
   }
+
+  // ----- event history (#55) -----
+  const histWarn = $<HTMLInputElement>(".hist-warn");
+  let histOn = false;
+  async function loadHistory(): Promise<Obj[]> {
+    const h = await invoke<{ enabled: boolean; rows: Obj[] }>("k8s_history", { ctx: ref(), warnings: histWarn.checked });
+    histOn = h.enabled;
+    const rows = currentNs() ? h.rows.filter((r) => r.metadata.namespace === currentNs()) : h.rows;
+    drawHistBar(rows);
+    return rows;
+  }
+  /** Recording state, and what fell over most in the last 24 h. */
+  function drawHistBar(rows: Obj[]) {
+    histBar.querySelector(".hist-state")!.innerHTML = histOn
+      ? `<span class="ok">● ${esc(t("Запись идёт"))}</span> <span class="muted">${esc(t("— пока OpsDeck открыт, события хранятся неделю"))}</span>`
+      : `<span class="muted">${esc(t("Запись выключена: Kubernetes хранит события около часа"))}</span>`;
+    histBar.querySelector<HTMLElement>("[data-act=hist-toggle]")!.textContent = histOn ? t("Остановить запись") : t("Записывать события этого кластера");
+    histBar.querySelector<HTMLElement>("[data-act=hist-toggle]")!.className = histOn ? "ghost" : "primary";
+    const day = Date.now() - 24 * 3600 * 1000;
+    const by = new Map<string, number>();
+    for (const r of rows) if (new Date(r.lastTimestamp).getTime() >= day) by.set(r.reason ?? "", (by.get(r.reason ?? "") ?? 0) + (r.count ?? 1));
+    const top = [...by.entries()].sort((a, b) => b[1] - a[1]).slice(0, 6);
+    histBar.querySelector(".hist-top")!.innerHTML = top.length
+      ? `<span class="muted">${esc(t("за 24 ч"))}:</span> ` + top.map(([r, n]) => `<button class="chip" data-reason="${esc(r)}" title="${esc(t("Показать только"))} ${esc(r)}">${esc(r)} ×${n}</button>`).join(" ")
+      : "";
+  }
+  histBar.addEventListener("click", async (e) => {
+    const el = e.target as HTMLElement;
+    const reason = el.closest<HTMLElement>("[data-reason]")?.dataset.reason;
+    if (reason !== undefined) { filterIn.value = reason; render(); return; }
+    const act = el.closest<HTMLElement>("[data-act]")?.dataset.act;
+    if (!ctx) return;
+    if (act === "hist-toggle") {
+      await invoke("k8s_history_set", { ctx: ref(), on: !histOn }).catch((err) => toast(String(err), "err"));
+      if (!histOn) toast(t("Запись событий включена — новые события появятся здесь"));
+      refresh();
+    }
+    if (act === "hist-clear" && (await ask(t("Очистить историю"), t("Забыть записанные события этого кластера? Запись (если включена) продолжится."), { ok: t("Очистить"), danger: true })) !== null) {
+      await invoke("k8s_history_clear", { ctx: ref() }).catch((err) => toast(String(err), "err"));
+      refresh();
+    }
+  });
+  histWarn.onchange = () => refresh();
 
   // ----- metrics-server -----
 
@@ -723,13 +805,37 @@ export function mountK8s(root: HTMLElement) {
     ];
   };
 
+  function skeletonRows(cols: Col[]): string {
+    const w = [
+      [65, 45, 30, 45, 25, 55, 45, 35],
+      [50, 35, 30, 40, 20, 60, 40, 30],
+      [75, 50, 30, 45, 25, 45, 45, 35],
+      [55, 40, 30, 35, 20, 50, 40, 30],
+      [70, 35, 30, 40, 25, 55, 45, 35],
+      [60, 45, 30, 35, 20, 40, 40, 30],
+    ];
+    return w.map((row) =>
+      `<tr class="skeleton-row">${cols.map((_, i) =>
+        `<td><span class="skeleton-cell" style="width:${row[i % row.length]}%"></span></td>`
+      ).join("")}</tr>`
+    ).join("");
+  }
+
   function render() {
+    histBar.hidden = kind.source !== "history";
     const base = kind.namespaced && currentNs() ? kind.cols.filter((c) => c !== ns) : kind.cols;
     // metrics go right before the age column
     const mc = metricCols();
     const cols = mc.length ? [...base.slice(0, -1), ...mc, base[base.length - 1]] : base;
     if (sortCol >= cols.length) sortCol = 0;
     thead.innerHTML = `<tr>${cols.map((c, i) => `<th data-i="${i}" class="${i === sortCol ? (sortDir > 0 ? "asc" : "desc") : ""}">${esc(c.h)}</th>`).join("")}</tr>`;
+    if (items.length === 0 && root.classList.contains("loading")) {
+      tbody.innerHTML = skeletonRows(cols);
+      countEl.textContent = "";
+      openPending();
+      syncDetails();
+      return;
+    }
     const q = filterIn.value.trim().toLowerCase();
     let sel: Term[] = [];
     try {
@@ -795,6 +901,23 @@ export function mountK8s(root: HTMLElement) {
     const objNs: string = o.metadata.namespace ?? "";
     $(".obj-title").textContent = `${kind.label.replace(/s$/, "")} ${objNs ? objNs + "/" : ""}${o.metadata.name}`;
 
+    if (kind.source === "history") {
+      // a recorded event: its text and where it came from; the object itself may be long gone
+      $(".obj-title").textContent = `${o.involvedObject?.kind ?? ""} ${objNs ? objNs + "/" : ""}${o.involvedObject?.name ?? ""}`;
+      $(".drawer-tabs").innerHTML = "";
+      drawerBody.innerHTML = `<div class="hist-detail">
+        <div><b class="${o.type === "Warning" ? "warn" : "muted"}">${esc(o.type ?? "")}</b> · ${esc(o.reason ?? "")} · ×${esc(String(o.count ?? 1))}</div>
+        <div class="muted">${esc(t("впервые"))}: ${esc(new Date(o.firstTimestamp).toLocaleString(locale()))} · ${esc(t("последний раз"))}: ${esc(new Date(o.lastTimestamp).toLocaleString(locale()))}</div>
+        <pre class="ro-text">${esc(o.message ?? "")}</pre></div>`;
+      const actions = $(".drawer-actions");
+      actions.innerHTML = "";
+      const ai = document.createElement("button");
+      ai.className = "ghost";
+      ai.textContent = "⇢ AI";
+      ai.onclick = () => window.dispatchEvent(new CustomEvent("send-to-ai", { detail: `Событие Kubernetes (${ctx?.context}): ${o.type} ${o.reason} ×${o.count ?? 1} у ${o.involvedObject?.kind}/${o.involvedObject?.name} в ${objNs || "кластере"}, с ${o.firstTimestamp} по ${o.lastTimestamp}:\n${o.message ?? ""}` }));
+      actions.appendChild(ai);
+      return;
+    }
     const tabs: [string, () => void][] = kind.source === "helm"
       ? [["Values", () => showHelm(o, "values")], ["История", () => showHelm(o, "history")], ["Manifest", () => showHelm(o, "manifest")], ["Notes", () => showHelm(o, "notes")]]
       : [["YAML", () => showYaml(o)]];
@@ -1306,7 +1429,7 @@ export function mountK8s(root: HTMLElement) {
 
   // Helm has no watch API: poll it; metrics are sampled by metrics-server every ~15 s anyway
   setInterval(() => {
-    if (!root.hidden && autoCb.checked && !document.hidden && kind.source === "helm") refresh();
+    if (!root.hidden && autoCb.checked && !document.hidden && (kind.source === "helm" || kind.source === "history")) refresh();
   }, 30000);
   // only while the view is open: an unreachable cluster shouldn't be hammered in the background
   // nodes: every 5 s (live view); pods: every 15 s
@@ -1316,7 +1439,7 @@ export function mountK8s(root: HTMLElement) {
     // leaving the view: stop the live watch (it resumes on return), no reconnect loop in the background
     if ((e as CustomEvent).detail !== "k8s") { stopWatch(); return; }
     loadContexts();
-    if (ctx && !watchId && kind.source !== "helm") startWatch();
+    if (ctx && !watchId && !kind.source) startWatch();
     render();
     loadMetrics();
   });
