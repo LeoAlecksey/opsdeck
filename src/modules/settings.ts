@@ -169,8 +169,9 @@ export function mountSettings(root: HTMLElement) {
           <label>Шрифт терминала <select class="term-font-family"></select></label>
           <label class="term-font-custom-row" hidden>Название шрифта <input class="term-font-custom" maxlength="128" spellcheck="false" placeholder="например, Iosevka" data-no-i18n /></label>
           <p class="muted hint term-font-warn" hidden></p>
-          <div class="theme-row"><label>Цветовая схема <select class="term-theme"></select></label>
+          <div class="theme-row"><label>Цветовая схема терминала <select class="term-theme"></select></label>
             <button type="button" class="ghost" data-theme-import>Импорт JSON…</button></div>
+          <p class="muted hint">Меняются только цвета терминала и применяются сразу; остальной интерфейс OpsDeck пока тёмный (светлой темы нет).</p>
           <div class="theme-import" hidden>
             <textarea class="theme-json" rows="6" spellcheck="false" data-no-i18n placeholder='{"name": "My scheme", "background": "#101010", "foreground": "#e0e0e0", "red": "#ff5555", …}'></textarea>
             <div class="row"><button type="button" class="primary" data-theme-add>Добавить схемы</button><button type="button" class="ghost" data-theme-cancel>Отмена</button></div>
