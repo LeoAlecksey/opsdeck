@@ -22,7 +22,7 @@ pub struct Entry {
 pub(crate) fn expand(path: &str) -> PathBuf {
     let mut s = path.trim();
     if (s.starts_with('"') && s.ends_with('"')) || (s.starts_with('\'') && s.ends_with('\'')) {
-        s = &s[1..s.len() - 1].trim();
+        s = s[1..s.len() - 1].trim();
     }
     let s = s.trim_matches(|c| c == '"' || c == '\'').trim();
     if s.is_empty() {
@@ -42,7 +42,7 @@ pub(crate) fn expand(path: &str) -> PathBuf {
     }
     match clean.strip_prefix("~") {
         Some(rest) if rest.is_empty() || rest.starts_with('/') || rest.starts_with('\\') => {
-            dirs::home_dir().unwrap_or_default().join(rest.trim_start_matches(|c: char| c == '/' || c == '\\'))
+            dirs::home_dir().unwrap_or_default().join(rest.trim_start_matches(['/', '\\']))
         }
         _ => PathBuf::from(clean),
     }

@@ -504,18 +504,10 @@ export function mountSettings(root: HTMLElement) {
     e.preventDefault();
     const vaultPath = cleanPath(f("obsidian_vault").value);
     if (vaultPath) {
+      // a missing notes folder is reported, but does not keep the other settings from being saved
       const check = await checkVaultPath(vaultPath);
-      if (check && !check.ok) {
-        toast(check.err ? t(check.err) : t("Папка с заметками не найдена: укажите существующую папку"), "err");
-        f("obsidian_vault").focus();
-        return;
-      }
-      try {
-        await invoke("vault_open", { path: vaultPath, name: null });
-      } catch (e) {
-        toast(String(e), "err");
-        return;
-      }
+      if (check && !check.ok) toast(`${t("Папка с заметками не найдена — остальные настройки сохранены")}: ${check.err ? t(check.err) : vaultPath}`, "err");
+      else await invoke("vault_open", { path: vaultPath, name: null }).catch((e) => toast(String(e), "err"));
     }
     const settings: Settings = {
       keepass_path: cleanPath(f("keepass_path").value), keepass_keyfile: cleanPath(f("keepass_keyfile").value),

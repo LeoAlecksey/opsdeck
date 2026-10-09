@@ -119,22 +119,23 @@ pub fn settings_set(mut settings: Settings) -> Result<(), String> {
     if !key.is_empty() {
         store::secret_set(AI_KEY, key).map_err(|e| format!("не удалось сохранить API-ключ в хранилище паролей: {e}"))?;
     }
-    let vault_raw = settings.obsidian_vault.trim();
-    if !vault_raw.is_empty() {
-        let p = crate::editor::expand(vault_raw);
-        if !p.exists() {
-            return Err(format!("папка с заметками не найдена: «{}»", vault_raw));
-        }
-        if !p.is_dir() {
-            return Err(format!("путь к заметкам указывает на файл, а не папку: «{}»", vault_raw));
-        }
-        if let Ok(canon) = p.canonicalize().map(crate::store::clean_path_buf) {
-            let canon_str = canon.to_string_lossy().into_owned();
-            settings.obsidian_vault = canon_str.clone();
-            let _ = crate::notes::remember(&canon_str, None);
-        }
+    if let Some(canon) = vault_dir(&settings.obsidian_vault) {
+        let _ = crate::notes::remember(&canon, None);
+        settings.obsidian_vault = canon;
     }
     store::save_json(FILE, &settings)
+}
+
+/// The notes folder as an absolute path, if it exists. A folder that is missing now (an unmounted
+/// network drive, a USB disk) is kept as typed: it must not block saving the other settings —
+/// the Notes section explains what is wrong.
+fn vault_dir(raw: &str) -> Option<String> {
+    let raw = raw.trim();
+    if raw.is_empty() {
+        return None;
+    }
+    let p = crate::editor::expand(raw);
+    p.is_dir().then(|| p.canonicalize().map(crate::store::clean_path_buf).ok()).flatten().map(|c| c.to_string_lossy().into_owned())
 }
 
 #[derive(Serialize, Default)]
@@ -229,9 +230,14 @@ mod tests {
     }
 
     #[test]
-    fn settings_vault_validation() {
-        let bad = Settings { obsidian_vault: "/nonexistent/path/for/sure/12345".into(), ..Default::default() };
-        let err = settings_set(bad).unwrap_err();
-        assert!(err.contains("папка с заметками не найдена"));
+    fn notes_folder_path() {
+        // an existing folder becomes absolute; a missing one is not an error (and not rewritten)
+        let dir = std::env::temp_dir().join(format!("opsdeck-vault-dir-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let got = vault_dir(&format!("  \"{}\"  ", dir.display())).unwrap();
+        assert_eq!(std::path::PathBuf::from(&got), dir.canonicalize().unwrap());
+        assert_eq!(vault_dir("/nonexistent/path/for/sure/12345"), None);
+        assert_eq!(vault_dir("   "), None);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

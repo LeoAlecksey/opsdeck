@@ -555,6 +555,27 @@ fn profile_args(h: &SshHost, user: &str) -> Vec<String> {
 mod tests {
 
     #[test]
+    fn include_comments_and_proxycommand() {
+        let dir = std::env::temp_dir().join(format!("opsdeck-ssh-include-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("conf.d")).unwrap();
+        std::fs::write(dir.join("conf.d/10-prod.conf"), "# group: prod\nHost db-1\n  HostName 10.0.0.5 # primary\n  ProxyCommand ssh -W %h:%p bastion\nInclude ../main\n").unwrap();
+        std::fs::write(dir.join("conf.d/20-stage.conf"), "Host stage-1 \"stage-2\"\n  User deploy\n").unwrap();
+        std::fs::write(dir.join("conf.d/notes.txt"), "Host not-included\n").unwrap();
+        let main = "Include conf.d/*.conf\nHost web-1\n  HostName web.example.com\n";
+        std::fs::write(dir.join("main"), main).unwrap();
+        let mut out = Vec::new();
+        let mut seen = HashSet::new();
+        seen.insert(dir.join("main").canonicalize().unwrap());
+        parse_config_text_internal(main, Some(&dir), &mut out, &mut seen, 0);
+        let names: Vec<&str> = out.iter().map(|h| h.alias.as_str()).collect();
+        assert_eq!(names, ["db-1", "stage-1", "stage-2", "web-1"], "only *.conf, in order; the loop back to main is cut");
+        let db = &out[0];
+        assert_eq!((db.group.as_str(), db.hostname.as_str(), db.proxy_command.as_str()), ("prod", "10.0.0.5", "ssh -W %h:%p bastion"), "a trailing comment is not part of the value");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn board_probe_args() {
         let h = SshHost {
             id: "a".into(), name: "web".into(), group: String::new(), host: "192.0.2.1".into(), port: 2222, user: "ops".into(),

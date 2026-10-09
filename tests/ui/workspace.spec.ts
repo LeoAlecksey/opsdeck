@@ -228,6 +228,19 @@ test.describe("settings", () => {
     await expect(page.locator(".ai-remote-warn")).toContainText("на этом компьютере");
   });
 
+  test("a missing notes folder is reported but the other settings are still saved (PR #56)", async ({ app, page }) => {
+    await page.evaluate(() => { (window as any).__DEMO_OVERRIDES.vault_validate_path = { ok: false, exists: false, is_dir: false, is_obsidian: false, md_count: 0, path: "/mnt/nas/notes", err: "папка не существует: /mnt/nas/notes" }; });
+    const vault = page.locator("input[name=obsidian_vault]");
+    await vault.fill("/mnt/nas/notes");
+    await expect(page.locator(".notes-path-status")).toContainText("папка не существует");
+    await page.locator("input[name=ai_host]").fill("localhost");
+    await view(page).locator("button[type=submit]", { hasText: "Сохранить" }).click();
+    const set = (await app.called("settings_set")).args as any;
+    expect(set.settings.ai_host).toBe("localhost");
+    expect(set.settings.obsidian_vault).toBe("/mnt/nas/notes");
+    await expect(page.locator(".toast").first()).toContainText("остальные настройки сохранены");
+  });
+
   test("save sends a new API key once and never shows it back", async ({ app, page }) => {
     await page.locator("input[name=ai_api_key]").fill("sk-demo");
     await view(page).locator("button[type=submit]", { hasText: "Сохранить" }).click();
