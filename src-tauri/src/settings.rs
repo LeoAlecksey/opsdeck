@@ -238,7 +238,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("opsdeck-vault-dir-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let got = vault_dir(&format!("  \"{}\"  ", dir.display())).unwrap();
-        assert_eq!(std::path::PathBuf::from(&got), dir.canonicalize().unwrap());
+        assert_eq!(std::path::PathBuf::from(&got), crate::store::clean_path_buf(dir.canonicalize().unwrap()), "absolute, without \\\\?\\ on Windows");
         assert_eq!(vault_dir("/nonexistent/path/for/sure/12345"), None);
         assert_eq!(vault_dir("   "), None);
         let _ = std::fs::remove_dir_all(&dir);
