@@ -7,6 +7,7 @@ mod cmdindex;
 mod code;
 mod connectors;
 mod db;
+mod dbtunnel;
 mod diag;
 mod editor;
 mod embed;
@@ -63,6 +64,7 @@ pub fn run() {
         .manage(tools::ToolState::default())
         .manage(k8s::K8sState::default())
         .manage(keepass::KeepassState::default())
+        .manage(dbtunnel::TunnelState::default())
         .manage(passbolt::PassboltState::default())
         .manage(ide::IdeState::default())
         .manage(alerts::AlertsState::default())
@@ -178,6 +180,9 @@ pub fn run() {
             code::code_read,
             code::code_write,
             code::code_create,
+            code::code_rename,
+            code::code_copy,
+            code::code_delete,
             code::code_tf_fmt,
             code::code_git_log,
             code::code_git_stamp,
@@ -286,6 +291,7 @@ pub fn run() {
         .run(|app, event| {
             if let tauri::RunEvent::Exit = event {
                 k8s_events::flush(app);
+                dbtunnel::close_all(&app.state::<dbtunnel::TunnelState>());
                 log::info!("OpsDeck exiting");
                 ide::cleanup(app);
                 ai::shutdown(app);

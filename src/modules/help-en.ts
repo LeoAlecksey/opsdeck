@@ -163,9 +163,11 @@ export const HELP_EN: Record<string, { title: string; html: string }> = {
       <ul>
         <li><b>📂</b> — choose the project folder in the system dialog (the whole project opens as a tree on the left), <b>⌁</b> — take the folder the terminal is in, <b>＋</b> — a new file (a path ending in / — a folder). Recent projects are in the list under the header.</li>
         <li>The tree is coloured by git changes: yellow — changed, green — new, red — deleted.</li>
+        <li><b>Right-click in the tree</b> — a new file or folder here, rename, copy and paste (a taken name gets “copy”), delete. There is no trash — deleted files come back only from git, so OpsDeck asks first. Open tabs follow a rename. It works only inside the project folder.</li>
+        <li><b>⇢ AI</b> at the bottom right — ask the AI about the file (or the selection), about the project (structure and <code>git status</code>) or to review the changes (<code>git diff</code>). The text goes to the terminal's AI panel — the chosen agent or the local AI; you add the question and send it.</li>
         <li>${kbd("Ctrl+S")} — save. If the file was changed outside after it was opened, OpsDeck asks whether to overwrite it.</li>
-        <li>${kbd("Ctrl+F")} — find and replace, ${kbd("Ctrl+/")} — comment out, ${kbd("Tab")} / ${kbd("Shift+Tab")} — indent.</li>
-        <li><b>▭ console</b> at the bottom (${kbd("Ctrl+`")}) — a terminal right in the project folder: ↻ restart, ⧉ open this folder in a terminal tab. When the project changes, the console runs <code>cd</code> itself.</li>
+        <li>${kbd("Ctrl+F")} — find and replace (like ${kbd("Ctrl+S")}, it works on any keyboard layout, and from the tree too), ${kbd("Ctrl+/")} — comment out, ${kbd("Tab")} / ${kbd("Shift+Tab")} — indent.</li>
+        <li><b>▭ console</b> at the bottom (${kbd("Ctrl+`")}) — a terminal right in the project folder: ↻ restart, ⧉ open this folder in a terminal tab. When the project changes, the console runs <code>cd</code> itself — if nothing is running in it (otherwise OpsDeck says so and does not type a command into a program).</li>
         <li><b>Panel sizes</b> — drag the borders between the tree, the editor, the console and the git panel; double-click a border — back to the default size. Sizes are remembered.</li>
         <li><b>⎇ git</b> at the bottom right — the git panel: changed files (click — diff, double-click — open the file), the commit box (<b>Commit all</b> = <code>git add -A</code> + commit, ${kbd("Ctrl+Enter")}) and the commit graph of all branches (click — the whole commit).</li>
         <li><b>Branches</b> — the button with the branch name at the top of the git panel: click a branch — switch (a remote one becomes a local tracking branch), <b>＋ New branch</b> — from the current one, on hover <b>⤵</b> — merge into the current one, <b>×</b> — delete (OpsDeck asks again for an unmerged one). <b>⟳</b> fetch, <b>↓</b> pull (fast-forward only), <b>↑</b> push (a new branch goes with <code>-u origin</code>). Open files are re-read after switching; if they have unsaved edits, OpsDeck warns you.</li>
@@ -185,6 +187,7 @@ export const HELP_EN: Record<string, { title: string; html: string }> = {
       <h4>What's where</h4>
       <ul>
         <li><b>＋</b> — a new connection. <b>Save and check</b> shows the server version or the error right away.</li>
+        <li><b>Via SSH host (jump)</b> — if the database is reachable only from a bastion: pick a host from the SSH profiles or <code>~/.ssh/config</code> (its <code>ProxyJump</code> and key apply there), and OpsDeck opens an <code>ssh -L</code> tunnel itself. Key login is needed, as on the monitoring board; encryption “verify” does not work through the tunnel — choose “require”.</li>
         <li>Hover a connection: <b>↻</b> — reload the structure, <b>✎</b> — edit, <b>×</b> — delete.</li>
         <li>A click on a database or table chooses the database the query runs in (the <b>“in”</b> field at the top). A double-click on a table, collection or key shows the first rows right away.</li>
         <li>${kbd("Ctrl+Enter")} — run. If something is selected, only the selection runs. The first 1000 rows are shown.</li>

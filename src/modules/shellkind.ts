@@ -25,3 +25,15 @@ export function shellName(l: Launched | null): string | null {
   }
   return SHELLS.includes(s) ? s : null;
 }
+
+/**
+ * The line that moves the shell into `dir`, or null when it can't be done by typing (WSL: a Windows path
+ * is not the distro's). bash/zsh/fish/sh quote with '…'; PowerShell with '…' ('' inside); cmd with "…" and /d.
+ */
+export function cdCommand(l: Launched | null, dir: string): string | null {
+  const s = l ? stem(l.program) : "";
+  if (s === "wsl") return null;
+  if (s === "powershell" || s === "pwsh") return `Set-Location -LiteralPath '${dir.replace(/'/g, "''")}'`;
+  if (s === "cmd") return `cd /d "${dir.replace(/"/g, "")}"`;
+  return `cd -- ${/^[\w@%+=:,./~-]+$/.test(dir) ? dir : `'${dir.replace(/'/g, `'\\''`)}'`}`;
+}
