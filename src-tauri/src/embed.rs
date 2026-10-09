@@ -6,7 +6,7 @@
 //! (init scripts, navigation and eval keep working) and then moved into that GtkFixed, where the
 //! UI places them over the tab's content area. All GTK work happens on the main thread.
 
-use crate::{connectors, keepass::KeepassState};
+use crate::{connectors, keepass::KeepassState, passbolt::PassboltState};
 use serde::Deserialize;
 use tauri::{AppHandle, LogicalPosition, LogicalSize, Manager, State, WebviewUrl};
 
@@ -153,12 +153,13 @@ fn place(wv: &tauri::Webview, r: Rect) -> Result<(), String> {
 pub async fn web_embed_show(
     app: AppHandle,
     kp: State<'_, KeepassState>,
+    pb: State<'_, PassboltState>,
     id: String,
     rect: Rect,
     url: Option<String>,
     zoom: Option<f64>,
 ) -> Result<(), String> {
-    let (_, base, script) = connectors::prepare(&kp, &id)?;
+    let (_, base, script) = connectors::prepare(&kp, &pb, &id).await?;
     let target = match url {
         Some(u) => {
             let u = tauri::Url::parse(&u).map_err(|e| e.to_string())?;
@@ -211,13 +212,19 @@ pub fn web_embed_close(app: AppHandle, id: String) -> Result<(), String> {
 
 /// back | forward | reload | home
 #[tauri::command]
-pub fn web_embed_nav(app: AppHandle, kp: State<KeepassState>, id: String, action: String) -> Result<(), String> {
+pub async fn web_embed_nav(
+    app: AppHandle,
+    kp: State<'_, KeepassState>,
+    pb: State<'_, PassboltState>,
+    id: String,
+    action: String,
+) -> Result<(), String> {
     let wv = app.get_webview(&label(&id)).ok_or("панель не открыта")?;
     let r = match action.as_str() {
         "back" => wv.eval("history.back()"),
         "forward" => wv.eval("history.forward()"),
         "reload" => wv.reload(),
-        "home" => wv.navigate(connectors::prepare(&kp, &id)?.1),
+        "home" => wv.navigate(connectors::prepare(&kp, &pb, &id).await?.1),
         _ => return Err("unknown action".into()),
     };
     r.map_err(|e| e.to_string())

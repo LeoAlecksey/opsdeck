@@ -4,6 +4,7 @@
 
 use crate::{
     keepass::{self, KeepassState},
+    passbolt::{self, PassboltState},
     process, store,
     tools::valid_host,
 };
@@ -40,6 +41,9 @@ pub struct SshHost {
     pub auth: String,
     #[serde(default)]
     pub keepass_entry: String,
+    /// Passbolt resource uuid when auth == "passbolt"
+    #[serde(default)]
+    pub passbolt_entry: String,
 }
 
 fn default_port() -> u16 {
@@ -431,6 +435,9 @@ pub fn ssh_save(host: SshHost, secret: Option<String>) -> Result<(), String> {
     if host.auth == "keepass" && host.keepass_entry.is_empty() {
         return Err("выберите запись KeePass".into());
     }
+    if host.auth == "passbolt" && host.passbolt_entry.is_empty() {
+        return Err("выберите запись Passbolt".into());
+    }
     if let Some(s) = secret.filter(|s| !s.is_empty()) {
         store::secret_set(&secret_key(&host.id), &s)?;
     }
@@ -495,7 +502,13 @@ pub struct SshSpec {
 
 /// What to run for a saved profile (`id`) or a ~/.ssh/config alias (`alias`).
 #[tauri::command]
-pub fn ssh_connect(app: AppHandle, kp: State<KeepassState>, id: Option<String>, alias: Option<String>) -> Result<SshSpec, String> {
+pub async fn ssh_connect(
+    app: AppHandle,
+    kp: State<'_, KeepassState>,
+    pb: State<'_, PassboltState>,
+    id: Option<String>,
+    alias: Option<String>,
+) -> Result<SshSpec, String> {
     if let Some(alias) = alias {
         if alias.starts_with('-') || !parse_config().iter().any(|h| h.alias == alias) {
             return Err("хост не найден в ~/.ssh/config".into());
@@ -507,6 +520,10 @@ pub fn ssh_connect(app: AppHandle, kp: State<KeepassState>, id: Option<String>, 
     let (user, pass) = match h.auth.as_str() {
         "keepass" => {
             let (u, p) = keepass::credentials(&kp, &h.keepass_entry, keepass::Use::User)?;
+            (if h.user.is_empty() { u } else { h.user.clone() }, p)
+        }
+        "passbolt" => {
+            let (u, p) = passbolt::credentials(&pb, &h.passbolt_entry, keepass::Use::User).await?;
             (if h.user.is_empty() { u } else { h.user.clone() }, p)
         }
         "password" => (h.user.clone(), store::secret_get(&secret_key(&h.id)).unwrap_or_default()),
@@ -580,6 +597,7 @@ mod tests {
         let h = SshHost {
             id: "a".into(), name: "web".into(), group: String::new(), host: "192.0.2.1".into(), port: 2222, user: "ops".into(),
             identity_file: "~/.ssh/id".into(), jump: "bastion".into(), auth: "keepass".into(), keepass_entry: "k".into(),
+            passbolt_entry: String::new(),
         };
         assert_eq!(profile_args(&h, &h.user), ["-p", "2222", "-i", "~/.ssh/id", "-J", "bastion", "ops@192.0.2.1"]);
         assert_eq!(profile_args(&SshHost { identity_file: String::new(), jump: String::new(), ..h.clone() }, "").last().unwrap(), "192.0.2.1");

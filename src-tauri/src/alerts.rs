@@ -10,6 +10,7 @@
 use crate::{
     connectors,
     keepass::{self, KeepassState},
+    passbolt::PassboltState,
     store,
 };
 use serde::{Deserialize, Serialize};
@@ -719,11 +720,12 @@ async fn zabbix_problems(
 async fn fetch_source(
     client: &reqwest::Client,
     kp: &KeepassState,
+    pb: &PassboltState,
     c: &connectors::Connector,
     used: keepass::Use,
 ) -> Result<Vec<Alert>, String> {
     let url = poll_url(c).ok_or("этот тип коннектора не является источником алертов")?;
-    let (user, pass) = connectors::credentials(kp, c, used)?;
+    let (user, pass) = connectors::credentials(kp, pb, c, used).await?;
     if c.kind == "zabbix" {
         return fetch_zabbix(client, c, &user, &pass).await;
     }
@@ -769,6 +771,7 @@ fn apply_snapshot(app: &AppHandle, source: &str, mut alerts: Vec<Alert>) {
 
 async fn poll_once(app: &AppHandle) -> Vec<String> {
     let kp = app.state::<KeepassState>();
+    let pb = app.state::<PassboltState>();
     let client = match http_client() {
         Ok(c) => c,
         Err(e) => return vec![e],
@@ -793,7 +796,7 @@ async fn poll_once(app: &AppHandle) -> Vec<String> {
         if c.kind == "grafana" && c.auth == "none" {
             continue;
         }
-        match fetch_source(&client, &kp, &c, keepass::Use::Background).await {
+        match fetch_source(&client, &kp, &pb, &c, keepass::Use::Background).await {
             Ok(alerts) => apply_snapshot(app, &c.name, alerts),
             Err(e) => errors.push(format!("{}: {e}", c.name)),
         }
@@ -803,9 +806,14 @@ async fn poll_once(app: &AppHandle) -> Vec<String> {
 
 /// "Save and check" in the connector dialog: fetch one source now.
 #[tauri::command]
-pub async fn alerts_test_source(app: AppHandle, kp: State<'_, KeepassState>, id: String) -> Result<usize, String> {
+pub async fn alerts_test_source(
+    app: AppHandle,
+    kp: State<'_, KeepassState>,
+    pb: State<'_, PassboltState>,
+    id: String,
+) -> Result<usize, String> {
     let c = connectors::all()?.into_iter().find(|c| c.id == id).ok_or("коннектор не найден")?;
-    let alerts = fetch_source(&http_client()?, &kp, &c, keepass::Use::User).await?;
+    let alerts = fetch_source(&http_client()?, &kp, &pb, &c, keepass::Use::User).await?;
     let n = alerts.len();
     apply_snapshot(&app, &c.name, alerts);
     Ok(n)

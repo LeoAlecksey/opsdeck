@@ -2,20 +2,21 @@ import { helpBtn } from "./help";
 import { icon } from "./icons";
 import { invoke } from "@tauri-apps/api/core";
 import { kpEntries, kpStatus, pickEntry } from "./keepass";
+import { pbTitles, pickEntry as pickPassbolt } from "./passbolt";
 import { registerProvider } from "./palette";
 import { ask, esc, toast } from "./ui";
 import { natCmp } from "./natsort";
 
 type SshHost = {
   id: string; name: string; group: string; host: string; port: number; user: string;
-  identity_file: string; jump: string; auth: string; keepass_entry: string;
+  identity_file: string; jump: string; auth: string; keepass_entry: string; passbolt_entry: string;
 };
 type Effective = { user: string; hostname: string; port: string; identity_files: string[]; proxy_jump: string; proxy_command?: string };
 type ConfigHost = { alias: string; group: string; hostname: string; user: string; port: string; identity_file: string; proxy_jump: string; proxy_command?: string; effective?: Effective };
 type SshList = { hosts: SshHost[]; config: ConfigHost[] };
 type Spec = { program: string; args: string[]; password_copied: boolean };
 
-const AUTH: Record<string, string> = { key: "ключ / ssh-agent", keepass: "пароль из KeePass", password: "пароль (keyring)", none: "спросит ssh" };
+const AUTH: Record<string, string> = { key: "ключ / ssh-agent", keepass: "пароль из KeePass", passbolt: "пароль из Passbolt", password: "пароль (keyring)", none: "спросит ssh" };
 
 async function connect(title: string, target: { id?: string; alias?: string }) {
   try {
@@ -40,7 +41,7 @@ export function mountSsh(root: HTMLElement) {
         <h2>SSH</h2>
         <div class="row"><input class="ssh-filter" placeholder="фильтр…" spellcheck="false" /><button class="primary" data-a="add">${icon("plus", 16)} Хост</button>${helpBtn("ssh")}</div>
       </div>
-      <p class="muted">Подключение открывает вкладку терминала. Хосты из ~/.ssh/config подключаются по алиасу со всеми его настройками. Пароль из KeePass/keyring кладётся в буфер на 30 с.</p>
+      <p class="muted">Подключение открывает вкладку терминала. Хосты из ~/.ssh/config подключаются по алиасу со всеми его настройками. Пароль из KeePass/Passbolt/keyring кладётся в буфер на 30 с.</p>
       <div class="ssh-list"></div>
       <dialog class="ssh-dialog">
         <form method="dialog">
@@ -58,6 +59,7 @@ export function mountSsh(root: HTMLElement) {
           <label>Jump-хост (-J) <input name="jump" spellcheck="false" placeholder="user@bastion:22" /></label>
           <label>Аутентификация <select name="auth">${Object.entries(AUTH).map(([k, v]) => `<option value="${k}">${v}</option>`).join("")}</select></label>
           <div data-s="keepass" class="kp-bind"><span class="kp-bound muted">запись не выбрана</span><button type="button" data-a="pick">Выбрать запись…</button></div>
+          <div data-s="passbolt" class="kp-bind"><span class="pb-bound muted">запись не выбрана</span><button type="button" data-a="pb-pick">Выбрать запись…</button></div>
           <label data-s="password">Пароль <input name="secret" type="password" autocomplete="new-password" /></label>
           <datalist id="ssh-keys"></datalist><datalist id="ssh-groups"></datalist>
           <p class="err form-err"></p>
@@ -81,8 +83,9 @@ export function mountSsh(root: HTMLElement) {
   const sync = () => {
     const a = f("auth").value;
     form.querySelector<HTMLElement>("[data-s=keepass]")!.hidden = a !== "keepass";
+    form.querySelector<HTMLElement>("[data-s=passbolt]")!.hidden = a !== "passbolt";
     form.querySelector<HTMLElement>("[data-s=password]")!.hidden = a !== "password";
-    f("user").placeholder = a === "keepass" ? "из записи KeePass" : "";
+    f("user").placeholder = a === "keepass" ? "из записи KeePass" : a === "passbolt" ? "из записи Passbolt" : "";
     f("secret").placeholder = editing ? "оставьте пустым, чтобы не менять" : "";
   };
   f("auth").onchange = sync;
@@ -94,6 +97,16 @@ export function mountSsh(root: HTMLElement) {
     const e = await pickEntry();
     if (e) setBound(e.id, `${e.title}${e.username ? " · " + e.username : ""}`);
   };
+  let pbEntry = "";
+  let pbLabels = new Map<string, string>();
+  const setPbBound = (id: string, label?: string) => {
+    pbEntry = id;
+    form.querySelector(".pb-bound")!.textContent = id ? (label ?? pbLabels.get(id) ?? "запись выбрана") : "запись не выбрана";
+  };
+  form.querySelector<HTMLElement>("[data-a=pb-pick]")!.onclick = async () => {
+    const e = await pickPassbolt();
+    if (e) setPbBound(e.id, `${e.title}${e.username ? " · " + e.username : ""}`);
+  };
 
   async function open(h: Partial<SshHost> | null, isEdit = false) {
     editing = isEdit ? (h as SshHost) : null;
@@ -103,6 +116,7 @@ export function mountSsh(root: HTMLElement) {
     f("port").value = String(h?.port ?? 22);
     f("auth").value = h?.auth ?? "key";
     setBound(h?.keepass_entry ?? "");
+    setPbBound(h?.passbolt_entry ?? "");
     sync();
     form.querySelector("#ssh-groups")!.innerHTML = allGroups().map((g) => `<option value="${esc(g)}">`).join("");
     const keys = await invoke<string[]>("ssh_keys").catch(() => []);
@@ -117,7 +131,7 @@ export function mountSsh(root: HTMLElement) {
       id: editing?.id ?? crypto.randomUUID(),
       name: f("name").value.trim(), group: f("group").value.trim(), host: f("host").value.trim(),
       port: Number(f("port").value) || 22, user: f("user").value.trim(), identity_file: f("identity_file").value.trim(),
-      jump: f("jump").value.trim(), auth: f("auth").value, keepass_entry: f("auth").value === "keepass" ? boundEntry : "",
+      jump: f("jump").value.trim(), auth: f("auth").value, keepass_entry: f("auth").value === "keepass" ? boundEntry : "", passbolt_entry: f("auth").value === "passbolt" ? pbEntry : "",
     };
     try {
       await invoke("ssh_save", { host, secret: f("secret").value || null });
@@ -131,6 +145,7 @@ export function mountSsh(root: HTMLElement) {
     titles = new Map();
     if (data.hosts.some((h) => h.auth === "keepass") && (await kpStatus()).unlocked)
       (await kpEntries().catch(() => [])).forEach((e) => titles.set(e.id, e.title));
+    pbLabels = data.hosts.some((h) => h.auth === "passbolt") ? await pbTitles() : new Map();
     draw();
   }
 
@@ -144,7 +159,7 @@ export function mountSsh(root: HTMLElement) {
         <tr data-id="${esc(h.id)}">
           <td class="mt-name">${esc(h.name)}</td>
           <td class="mono">${esc(h.user ? h.user + "@" : "")}${esc(h.host)}${h.port !== 22 ? `<span class="muted">:${h.port}</span>` : ""}</td>
-          <td class="muted">${h.jump ? `через ${esc(h.jump)} · ` : ""}${h.auth === "keepass" ? `${icon("key", 14)} ${esc(titles.get(h.keepass_entry) ?? "KeePass")}` : esc(AUTH[h.auth] ?? "")}</td>
+          <td class="muted">${h.jump ? `через ${esc(h.jump)} · ` : ""}${h.auth === "keepass" ? `${icon("key", 14)} ${esc(titles.get(h.keepass_entry) ?? "KeePass")}` : h.auth === "passbolt" ? `${icon("lock", 14)} ${esc(pbLabels.get(h.passbolt_entry)?.split(" · ")[0] ?? "Passbolt")}` : esc(AUTH[h.auth] ?? "")}</td>
           <td class="mt-acts">
             <button class="primary" data-a="connect">Подключиться</button>
             <button class="icon" data-a="edit" title="Изменить (в т.ч. группу)">${icon("edit", 14)}</button>
