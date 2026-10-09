@@ -155,11 +155,12 @@ export function mountSettings(root: HTMLElement) {
           <label class="check"><input type="checkbox" name="keepass_keep_open" /> Держать базу открытой до закрытия OpsDeck (пароль вводится один раз за запуск)</label>
           <label>Автоблокировка, минут без действий (0 — выключить; работает, если галочка выше снята) <input name="keepass_lock_minutes" type="number" min="0" max="1440" /></label>
           <p class="muted hint">Пока база открыта, OpsDeck следит за файлом .kdbx: изменения, сохранённые в KeePassXC или пришедшие синхронизацией, подтягиваются сами.</p>
+          <p class="muted hint">С галочкой база открыта весь сеанс, и опрос алертов с паролем из KeePass работает без перерыва. Без неё работает автоблокировка: только ваши действия продлевают время, а фоновый опрос алертов — нет, и после блокировки он ждёт, пока вы разблокируете базу.</p>
         </fieldset>
         <fieldset><legend>Passbolt</legend>
           <label class="check"><input type="checkbox" name="passbolt_keep_open" /> Держать Passbolt разблокированным до закрытия OpsDeck</label>
           <label>Автоблокировка, минут без действий (0 — выключить; работает, если галочка выше снята) <input name="passbolt_lock_minutes" type="number" min="0" max="1440" /></label>
-          <p class="muted hint">Аккаунт подключается в разделе Passbolt (account kit). Список записей обновляется кнопкой ⟳ в разделе.</p>
+          <p class="muted hint">Аккаунт подключается в разделе Passbolt (account kit). Список записей обновляется кнопкой ⟳ в разделе. Автоблокировка работает так же, как у KeePass: фоновый опрос алертов её не продлевает.</p>
         </fieldset>
         <fieldset class="hl-field"><legend>Терминал</legend>
           <label class="check"><input type="checkbox" data-hl="input" /> Подсветка команды при наборе (как в fish: несуществующая команда — красным)</label>

@@ -498,11 +498,16 @@ pre.ro-text { flex: 1; margin: 0; padding: 10px 14px; overflow: auto; background
 .dv { word-break: break-all; }
 .dv.ok { color: #98d982; } .dv.warn { color: #e6c07b; } .dv.bad { color: var(--danger); }
 .dtable { font-size: 12px; border: 1px solid var(--border); border-radius: 6px; }
-.dtable th { position: static; }
+/* the details tables scroll with the drawer: a sticky header (table.res th) used to hang over the revealed values */
+table.res.dtable th { position: static; }
 .dtable td.wrap { white-space: normal; min-width: 220px; }
 .chips { display: flex; flex-wrap: wrap; gap: 4px; }
 .chip { font: 11.5px "JetBrains Mono", monospace; background: var(--panel-2); border: 1px solid var(--border); border-radius: 4px; padding: 1px 6px; }
-.secret-value { font: 12px "JetBrains Mono", monospace; white-space: pre-wrap; word-break: break-all; color: #e6c07b; }
+.secret-value { font: 12px "JetBrains Mono", monospace; white-space: pre-wrap; word-break: break-all; color: #e6c07b; margin: 0; max-height: 320px; overflow: auto; user-select: text; cursor: text; }
+/* the revealed value of a Secret takes the whole row, not a squeezed cell */
+table.res tr.secret-row, table.res tr.secret-row:hover { cursor: default; background: transparent; }
+table.res tr.secret-row td { max-width: none; white-space: normal; overflow: visible; text-overflow: clip; padding: 6px 10px 10px; }
+.secret-note { font-size: 11.5px; margin-bottom: 4px; }
 .crd-filter { margin: 4px 12px 6px; width: calc(100% - 24px); padding: 3px 8px; font-size: 12px; }
 .crd-group summary { cursor: pointer; padding: 3px 12px; font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .crd-item { padding-left: 26px !important; }

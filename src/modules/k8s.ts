@@ -8,6 +8,7 @@ import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { ask, esc, toast } from "./ui";
 import { age, detailsHtml, jsonPath, statusClass } from "./k8s-details";
+import { decodeSecret } from "./secretval";
 import { registerProvider } from "./palette";
 import { matches, parseSelector, type Term } from "./labelsel";
 import type { OpenTerminalDetail } from "./terminal";
@@ -1047,14 +1048,30 @@ export function mountK8s(root: HTMLElement) {
     el.onclick = (e) => {
       const a = (e.target as HTMLElement).closest<HTMLElement>(".dlink");
       if (a) return navigateTo(a.dataset.kind!, a.dataset.ns ?? "", a.dataset.name!);
-      const key = (e.target as HTMLElement).closest<HTMLElement>("[data-secret]")?.dataset.secret;
-      if (!key) return;
-      let text: string;
-      try { text = new TextDecoder().decode(Uint8Array.from(atob(o.data[key]), (c) => c.charCodeAt(0))); } catch { text = "(не удалось декодировать)"; }
-      const code = document.createElement("code");
+      const btn = (e.target as HTMLElement).closest<HTMLElement>("[data-secret]");
+      if (!btn) return;
+      // the value goes under its key on the full width of the table (a narrow cell broke long values into a column of letters)
+      const tr = btn.closest("tr")!;
+      if (tr.nextElementSibling?.classList.contains("secret-row")) {
+        tr.nextElementSibling.remove();
+        btn.textContent = "показать";
+        return;
+      }
+      const v = decodeSecret(o.data[btn.dataset.secret!]);
+      const row = document.createElement("tr");
+      row.className = "secret-row";
+      const td = row.appendChild(document.createElement("td"));
+      td.colSpan = 3;
+      if (v.binary) {
+        const note = td.appendChild(document.createElement("div"));
+        note.className = "muted secret-note";
+        note.textContent = v.size ? `Бинарные данные, ${v.size} байт — base64:` : "Не base64 — значение как есть:";
+      }
+      const code = td.appendChild(document.createElement("pre"));
       code.className = "secret-value";
-      code.textContent = text;
-      (e.target as HTMLElement).replaceWith(code);
+      code.textContent = v.text;
+      tr.after(row);
+      btn.textContent = "скрыть";
       detailsVersion = "pinned"; // keep the revealed value until the object actually changes
     };
   }
