@@ -17,7 +17,7 @@ use std::{
     path::{Path, PathBuf},
     time::Duration,
 };
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 use tokio::sync::{oneshot, Mutex};
 
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(20);
@@ -422,7 +422,7 @@ async fn client(state: &K8sState, ctx: &Ctx) -> Result<Client, String> {
     let kc = Kubeconfig::read_from(&ctx.file).map_err(err)?;
     let opts = KubeConfigOptions { context: Some(ctx.context.clone()), ..Default::default() };
     let mut cfg = Config::from_custom_kubeconfig(kc, &opts).await.map_err(err)?;
-    cfg.connect_timeout = Some(Duration::from_secs(5));
+    cfg.connect_timeout = Some(Duration::from_secs(15));
     // log follow streams can be silent for a long time; per-request timeouts are applied below
     cfg.read_timeout = None;
     let c = Client::try_from(cfg).map_err(err)?;
@@ -975,6 +975,8 @@ pub async fn k8s_watch_start(
         let _ = old.send(());
     }
     let event = format!("k8s-watch-{id}");
+    let ctx_key = (ctx.file.clone(), ctx.context.clone());
+    let app_handle = app.clone();
     tauri::async_runtime::spawn(async move {
         let mut stream = watcher(api, watcher::Config::default()).default_backoff().boxed();
         let mut init: Vec<Value> = Vec::new();
@@ -987,8 +989,8 @@ pub async fn k8s_watch_start(
             tokio::select! {
                 _ = &mut stop => break,
                 _ = tick.tick() => {
-                    if !applied.is_empty() { let _ = app.emit(&event, json!({ "type": "apply", "items": std::mem::take(&mut applied) })); }
-                    if !deleted.is_empty() { let _ = app.emit(&event, json!({ "type": "delete", "uids": std::mem::take(&mut deleted) })); }
+                    if !applied.is_empty() { let _ = app_handle.emit(&event, json!({ "type": "apply", "items": std::mem::take(&mut applied) })); }
+                    if !deleted.is_empty() { let _ = app_handle.emit(&event, json!({ "type": "delete", "uids": std::mem::take(&mut deleted) })); }
                 }
                 ev = stream.next() => match ev {
                     None => break,
@@ -999,7 +1001,10 @@ pub async fn k8s_watch_start(
                         let msg = e.to_string();
                         let denied = ["401", "403", "Unauthorized", "Forbidden", "forbidden"].iter().any(|k| msg.contains(k));
                         if (!listed || denied) && !errored {
-                            let _ = app.emit(&event, json!({ "type": "error", "message": msg }));
+                            let _ = app_handle.emit(&event, json!({ "type": "error", "message": msg, "retrying": !denied }));
+                        }
+                        if !listed {
+                            app_handle.state::<K8sState>().clients.lock().await.remove(&ctx_key);
                         }
                         errored = true;
                     }
@@ -1012,7 +1017,7 @@ pub async fn k8s_watch_start(
                                 listed = true;
                                 applied.clear();
                                 deleted.clear();
-                                let _ = app.emit(&event, json!({ "type": "reset", "items": std::mem::take(&mut init) }));
+                                let _ = app_handle.emit(&event, json!({ "type": "reset", "items": std::mem::take(&mut init) }));
                             }
                             watcher::Event::Apply(o) => applied.extend(to_value(o)),
                             watcher::Event::Delete(o) => deleted.extend(o.metadata.uid),
