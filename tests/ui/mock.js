@@ -155,11 +155,53 @@
   // ---- IDE ----
   const proj = "/home/demo/projects/infra";
   const files = {
-    [proj]: [["modules", 1], ["envs", 1], ["helm", 1], [".gitlab-ci.yml", 0], ["main.tf", 0], ["variables.tf", 0], ["outputs.tf", 0], ["versions.tf", 0], ["README.md", 0], ["Dockerfile", 0]],
+    [proj]: [["modules", 1], ["envs", 1], ["helm", 1], [".gitlab", 1], [".gitlab-ci.yml", 0], ["main.tf", 0], ["variables.tf", 0], ["outputs.tf", 0], ["versions.tf", 0], ["README.md", 0], ["Dockerfile", 0]],
     [proj + "/helm"]: [["shop", 1], ["values-prod.yaml", 0], ["values-stage.yaml", 0]],
     [proj + "/modules"]: [["k8s-cluster", 1], ["network", 1]],
     [proj + "/envs"]: [["prod", 1], ["stage", 1]],
+    [proj + "/.gitlab"]: [["tests.yml", 0]],
   };
+  const gitlabCi = `include:
+  - local: .gitlab/tests.yml
+
+stages: [build, test, deploy]
+
+.base:
+  image: registry.example.com/ci/base:1.4
+  before_script: [make deps]
+
+build:
+  extends: .base
+  stage: build
+  script: [make build]
+
+deploy-prod:
+  stage: deploy
+  needs: [build, unit]
+  script: [make deploy]
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      when: manual
+    - when: never
+
+docs:
+  stage: test
+  script: [make docs]
+  rules:
+    - changes: ["docs/**/*", "*.md"]
+`;
+  const gitlabTests = `unit:
+  extends: .base
+  stage: test
+  needs: [build]
+  script: [make test]
+
+lint:
+  extends: .base
+  stage: test
+  needs: []
+  script: [make lint]
+`;
   const mainTf = `terraform {\n  required_version = ">= 1.7"\n  backend "s3" {\n    bucket = "tf-state-example"\n    key    = "infra/prod.tfstate"\n    region = "eu-central-1"\n  }\n}\n\nmodule "network" {\n  source     = "./modules/network"\n  cidr_block = var.vpc_cidr\n  zones      = ["a", "b", "c"]\n}\n\nmodule "cluster" {\n  source       = "./modules/k8s-cluster"\n  name         = "prod-eu"\n  version      = "1.31"\n  node_count   = 3\n  node_type    = "c6i.xlarge"\n  subnet_ids   = module.network.private_subnets\n\n  labels = {\n    team = "platform"\n    env  = "prod"\n  }\n}\n\noutput "kubeconfig" {\n  value     = module.cluster.kubeconfig\n  sensitive = true\n}\n`;
   const commit = (h, parents, refs, subject, ago, author = "Alex") => ({ hash: h, parents, refs, author, time: Math.floor((now - ago) / 1000), subject });
   const commits = [
@@ -287,7 +329,11 @@
       if (cmd === "db_tree") return dbTree(args.path);
       if (cmd === "note_read") return noteText[args.path] ?? `# ${args.path.split("/").pop().replace(/\.md$/, "")}\n\n${L("Заметка.", "A note.")}\n`;
       if (cmd === "fs_list") { const l = files[args.path]; if (!l) throw "not a dir"; return l.map(([n, d]) => ({ name: n, dir: !!d, link: false, size: d ? 0 : 1200 })); }
-      if (cmd === "code_read") return { text: args.path.endsWith("main.tf") ? mainTf : "# demo\n", mtime: now };
+      if (cmd === "code_read") {
+        const p = args.path;
+        const text = p.endsWith("main.tf") ? mainTf : p.endsWith(".gitlab-ci.yml") ? gitlabCi : p.endsWith(".gitlab/tests.yml") ? gitlabTests : "# demo\n";
+        return { text, mtime: now };
+      }
       if (cmd === "code_tf_fmt") return { text: null, errors: [], tool: "terraform" };
       if (cmd === "code_git_diff" || cmd === "code_git_show") return "";
       if (cmd in R) return R[cmd];

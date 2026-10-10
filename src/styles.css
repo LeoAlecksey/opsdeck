@@ -797,6 +797,35 @@ dialog .form-ok { margin: 0; font-size: 12px; color: #98d982; }
 .code-tab.dirty:hover .x { display: inline; }
 .code-tab.dirty:hover .dot { display: none; }
 .code-editor { flex: 1; min-height: 0; overflow: hidden; }
+/* the pipeline graph */
+.code-pipe { flex: 1; min-height: 0; display: flex; flex-direction: column; background: var(--bg); }
+.pipe-bar { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; padding: 8px 12px; border-bottom: 1px solid var(--border); font-size: 12.5px; }
+.pipe-bar input { width: 170px; padding: 2px 6px; font-size: 12.5px; }
+.pipe-bar .pipe-branch, .pipe-bar .pipe-branch2, .pipe-bar .pipe-tag { width: 150px; }
+.pipe-sum { padding: 6px 12px; font-size: 12.5px; display: flex; gap: 8px; flex-wrap: wrap; border-bottom: 1px solid var(--border); }
+.pipe-sum .ok { color: #98d982; } .pipe-sum .warn { color: #e6c07b; }
+.pipe-graph { flex: 1; min-height: 0; overflow: auto; display: flex; align-items: flex-start; gap: 0; padding: 12px; }
+.pipe-col { flex: 0 0 auto; min-width: 190px; max-width: 280px; padding: 0 14px; border-right: 1px dashed var(--border); }
+.pipe-col:last-child { border-right: 0; }
+.pipe-col h4 { display: flex; gap: 8px; margin: 0 0 8px; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+.pipe-job { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; width: 100%; margin-bottom: 6px; padding: 6px 10px; text-align: left;
+  background: var(--panel); border: 1px solid var(--border); border-left: 3px solid var(--border); border-radius: 6px; cursor: pointer; font-size: 12.5px; }
+.pipe-job:hover { background: var(--panel-2); }
+.pipe-job.run { border-left-color: #98d982; }
+.pipe-job.manual { border-left-color: #e6c07b; }
+.pipe-job.unknown { border-left-color: #c678dd; }
+.pipe-job.skip { border-left-color: var(--border); opacity: .55; }
+.pipe-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+.pipe-needs, .pipe-diff { font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+.pipe-diff { color: #e6c07b; }
+.pipe-chip { padding: 1px 8px; border: 1px solid var(--border); border-left: 3px solid var(--border); border-radius: 5px; }
+.pipe-chip.run { border-left-color: #98d982; } .pipe-chip.manual { border-left-color: #e6c07b; }
+.pipe-chip.unknown { border-left-color: #c678dd; } .pipe-chip.skip { border-left-color: var(--border); }
+.pipe-note { padding: 6px 12px; font-size: 11.5px; border-top: 1px solid var(--border); }
+/* in the flow, not over the graph: the cards stay clickable */
+.pipe-detail { flex: none; display: flex; flex-direction: column; gap: 4px; max-height: 40%; overflow: auto;
+  padding: 10px 12px; background: var(--panel); border-top: 1px solid var(--border); font-size: 12.5px; }
+.pipe-detail .row { display: flex; align-items: center; gap: 8px; }
 .code-empty { flex: 1; display: flex; align-items: center; justify-content: center; padding: 24px; text-align: center; background: var(--bg); }
 .code-status { display: flex; align-items: center; gap: 14px; padding: 2px 10px; font-size: 11.5px; background: var(--panel); border-top: 1px solid var(--border); color: var(--muted); }
 .code-status button { padding: 1px 8px; font-size: 11.5px; }

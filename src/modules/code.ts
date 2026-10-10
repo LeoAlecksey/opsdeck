@@ -145,6 +145,7 @@ export function mountCode(root: HTMLElement) {
     <div class="code-main">
       <div class="code-tabs"></div>
       <div class="code-editor"></div>
+      <div class="code-pipe" hidden></div>
       <div class="code-empty muted">Откройте папку проекта и выберите файл слева. ${"Ctrl+S"} — сохранить, ${"Ctrl+Shift+F"} — terraform fmt.</div>
       <div class="code-hsplit" hidden title="Потяните, чтобы изменить высоту консоли"></div>
       <div class="code-console" hidden>
@@ -161,6 +162,7 @@ export function mountCode(root: HTMLElement) {
         <button class="ghost" data-a="fmt" hidden title="terraform fmt (Ctrl+Shift+F); при сохранении выполняется сам">fmt</button>
         <button class="ghost" data-a="ai" title="Спросить ИИ о файле, проекте или изменениях: контекст уйдёт в AI-панель (локальный ИИ или выбранный агент)">⇢ AI ▾</button>
         <button class="ghost" data-a="console" title="Консоль в папке проекта (Ctrl+\`)">▭ консоль</button>
+        <button class="ghost" data-a="pipeline" hidden title="Граф пайплайна: что и в каком порядке запустится в GitLab CI или GitHub Actions для выбранной ветки и события">⛓ pipeline</button>
         <button class="ghost" data-a="git-toggle" title="Показать/скрыть панель git">⎇ git</button>
       </div>
     </div>
@@ -186,7 +188,7 @@ export function mountCode(root: HTMLElement) {
     </aside>`;
 
   const $ = <T extends HTMLElement = HTMLElement>(s: string) => root.querySelector<T>(s)!;
-  const treeEl = $(".code-tree"), tabsEl = $(".code-tabs"), host = $(".code-editor"), empty = $(".code-empty");
+  const treeEl = $(".code-tree"), tabsEl = $(".code-tabs"), host = $(".code-editor"), empty = $(".code-empty"), pipeEl = $(".code-pipe");
   const gitPanel = $(".code-git"), recentSel = $<HTMLSelectElement>(".code-recent");
 
   let project = ls.get("opsdeck.code.root") ?? "";
@@ -276,8 +278,9 @@ export function mountCode(root: HTMLElement) {
     if (active && active !== t) active.state = view.state;
     active = t;
     tabs.forEach((x) => x.btn.classList.toggle("active", x === t));
-    empty.hidden = !!t;
-    host.hidden = !t;
+    empty.hidden = !!t || !pipeEl.hidden;
+    host.hidden = !t || !pipeEl.hidden;
+    if (t && !pipeEl.hidden) closePipeline();
     if (t) {
       view.setState(t.state);
       t.btn.scrollIntoView({ block: "nearest", inline: "nearest" });
@@ -422,6 +425,10 @@ export function mountCode(root: HTMLElement) {
     $(".code-proj").textContent = base(project);
     $(".code-proj").title = project;
     await Promise.all([readDir(project), ...[...expanded].filter((d) => d.startsWith(project)).map(readDir)]);
+    // the pipeline button appears only in a project that has CI files
+    const top = listing.get(project);
+    const hasCi = Array.isArray(top) && top.some((e) => e.name === ".gitlab-ci.yml" || (e.dir && e.name === ".github"));
+    $("[data-a=pipeline]").hidden = !hasCi;
     await refreshGit(false);
     drawTree();
   }
@@ -592,6 +599,88 @@ export function mountCode(root: HTMLElement) {
     popupMenu({ left: e.clientX, top: e.clientY, bottom: e.clientY }, items);
   });
   $("[data-a=fmt]").onclick = () => fmt();
+
+  // ----- the pipeline graph (GitLab CI / GitHub Actions) -----
+  let pipe: Awaited<ReturnType<typeof import("./pipeview")["mountPipeline"]>> | null = null;
+  let pipeTab: HTMLElement | null = null;
+  function closePipeline() {
+    pipeEl.hidden = true;
+    pipeTab?.remove();
+    pipeTab = null;
+    $("[data-a=pipeline]").classList.remove("on");
+    host.hidden = !active;
+    empty.hidden = !!active;
+  }
+  /** Files of the pipeline: .gitlab-ci.yml with everything it includes, or .github/workflows/*.yml. */
+  async function pipelineFiles(): Promise<{ kind: "gitlab" | "github"; files: Record<string, string>; workflows: string[] }> {
+    const read = async (rel: string) => (await invoke<{ text: string }>("code_read", { path: join(project, rel) }).catch(() => null))?.text;
+    const files: Record<string, string> = {};
+    const root = await invoke<Entry[]>("fs_list", { path: project, hidden: true }).catch(() => [] as Entry[]);
+    if (root.some((e) => e.name === ".gitlab-ci.yml")) {
+      files[".gitlab-ci.yml"] = (await read(".gitlab-ci.yml")) ?? "";
+      // every yml of the .gitlab folder: include: local points inside it
+      const walk = async (dir: string, depth = 0) => {
+        if (depth > 3) return;
+        for (const e of await invoke<Entry[]>("fs_list", { path: join(project, dir), hidden: true }).catch(() => [] as Entry[])) {
+          const rel = `${dir}/${e.name}`;
+          if (e.dir) await walk(rel, depth + 1);
+          else if (/\.ya?ml$/i.test(e.name)) files[rel] = (await read(rel)) ?? "";
+        }
+      };
+      if (root.some((e) => e.dir && e.name === ".gitlab")) await walk(".gitlab");
+      if (root.some((e) => e.dir && e.name === "ci")) await walk("ci");
+      return { kind: "gitlab", files, workflows: [] };
+    }
+    const wf = await invoke<Entry[]>("fs_list", { path: join(project, ".github/workflows"), hidden: true }).catch(() => [] as Entry[]);
+    for (const e of wf) if (!e.dir && /\.ya?ml$/i.test(e.name)) files[`.github/workflows/${e.name}`] = (await read(`.github/workflows/${e.name}`)) ?? "";
+    return { kind: "github", files, workflows: Object.keys(files) };
+  }
+  let pipeWorkflow = "";
+  async function openPipeline() {
+    if (!project) return toast("Сначала откройте проект", "err");
+    if (!pipeEl.hidden) return closePipeline();
+    const { mountPipeline } = await import("./pipeview");
+    const { parseGitlab, parseGithub } = await import("./pipeline");
+    const { kind, files, workflows } = await pipelineFiles();
+    if (!Object.keys(files).length) return toast("В проекте нет .gitlab-ci.yml и .github/workflows", "err");
+    pipe ??= mountPipeline(pipeEl);
+    if (kind === "github" && (!pipeWorkflow || !workflows.includes(pipeWorkflow))) pipeWorkflow = workflows[0];
+    const p = kind === "gitlab" ? parseGitlab(files) : parseGithub(pipeWorkflow, files[pipeWorkflow]);
+    // the tab, so it is clear what is open and it can be closed
+    if (!pipeTab) {
+      pipeTab = document.createElement("div");
+      pipeTab.className = "tab code-tab active";
+      pipeTab.innerHTML = `<span class="ct-ico">⛓</span><span class="label"></span><span class="x" title="Закрыть">×</span>`;
+      pipeTab.querySelector<HTMLElement>(".x")!.onclick = (e) => { e.stopPropagation(); closePipeline(); };
+      tabsEl.appendChild(pipeTab);
+    }
+    pipeTab.querySelector(".label")!.textContent = kind === "gitlab" ? "GitLab CI" : (p.name ?? pipeWorkflow.split("/").pop() ?? "workflow");
+    tabs.forEach((x) => x.btn.classList.remove("active"));
+    pipeEl.hidden = false;
+    host.hidden = true;
+    empty.hidden = true;
+    $("[data-a=pipeline]").classList.add("on");
+    const branches = await invoke<Branches>("code_git_branches", { root: git.root || project }).catch(() => null);
+    const names = branches ? [branches.current, ...branches.local.map((b) => b.name)].filter((v, i, a) => v && a.indexOf(v) === i) : [git.branch].filter(Boolean);
+    // several workflows: a picker above the graph
+    const picker = workflows.length > 1
+      ? `<label class="inline">Workflow <select class="pipe-wf">${workflows.map((w) => `<option value="${esc(w)}"${w === pipeWorkflow ? " selected" : ""}>${esc(w.split("/").pop()!)}</option>`).join("")}</select></label>` : "";
+    pipe.show(p, {
+      branches: names, defaultBranch: names.includes("main") ? "main" : names.includes("master") ? "master" : names[0] ?? "main",
+      onOpen: (job) => { closePipeline(); openFile(join(project, job.file), job.line); },
+      onAi: (text) => window.dispatchEvent(new CustomEvent("send-to-ai", { detail: text })),
+    });
+    const bar = pipeEl.querySelector(".pipe-bar")!;
+    bar.querySelector(".pipe-wf-l")?.remove();
+    if (picker) {
+      const wrap = document.createElement("span");
+      wrap.className = "pipe-wf-l";
+      wrap.innerHTML = picker;
+      bar.prepend(wrap);
+      wrap.querySelector<HTMLSelectElement>(".pipe-wf")!.onchange = (e) => { pipeWorkflow = (e.target as HTMLSelectElement).value; pipeEl.hidden = true; openPipeline(); };
+    }
+  }
+  $("[data-a=pipeline]").onclick = () => openPipeline();
 
   // ----- ask the AI about the file / project / changes: the context goes to the AI panel -----
   async function askAi(kind: "file" | "project" | "diff") {
