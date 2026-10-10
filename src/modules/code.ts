@@ -645,7 +645,18 @@ export function mountCode(root: HTMLElement) {
     if (!Object.keys(files).length) return toast("В проекте нет .gitlab-ci.yml и .github/workflows", "err");
     pipe ??= mountPipeline(pipeEl);
     if (kind === "github" && (!pipeWorkflow || !workflows.includes(pipeWorkflow))) pipeWorkflow = workflows[0];
-    const p = kind === "gitlab" ? parseGitlab(files) : parseGithub(pipeWorkflow, files[pipeWorkflow]);
+    let p = kind === "gitlab" ? parseGitlab(files) : parseGithub(pipeWorkflow, files[pipeWorkflow]);
+    // an include: local from a folder we did not read: fetch exactly those files and parse again
+    for (let round = 0; round < 3 && kind === "gitlab"; round++) {
+      const local = p.unresolved.filter((u) => !/:\/\/|: /.test(u) && /\.ya?ml$/i.test(u) && !(u in files));
+      if (!local.length) break;
+      await Promise.all(local.map(async (rel) => {
+        const r = await invoke<{ text: string }>("code_read", { path: join(project, rel) }).catch(() => null);
+        if (r) files[rel] = r.text;
+      }));
+      if (!local.some((rel) => rel in files)) break;
+      p = parseGitlab(files);
+    }
     // the tab, so it is clear what is open and it can be closed
     if (!pipeTab) {
       pipeTab = document.createElement("div");

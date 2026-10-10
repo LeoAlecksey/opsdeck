@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { diffPlans, evalGithubIf, evalIf, githubTriggered, globMatch, levels, parseGithub, parseGitlab, plan, type RunCtx } from "../../src/modules/pipeline";
+import { diffPlans, evalGithubIf, evalIf, githubTriggered, globMatch, levels, missingVars, parseGithub, parseGitlab, plan, type RunCtx } from "../../src/modules/pipeline";
 
 const ctx = (p: Partial<RunCtx> = {}): RunCtx => ({ event: "push", branch: "main", defaultBranch: "main", ...p });
 const status = (p: ReturnType<typeof plan>) => Object.fromEntries(p.map((x) => [x.job.name, x.status]));
@@ -63,6 +63,36 @@ unit:
     const d = p.jobs.find((j) => j.name === "deploy")!;
     expect(d.rules).toEqual([{ if: '$CI_PIPELINE_SOURCE == "merge_request_event"' }]);
     expect(d.when).toBe("manual");
+  });
+
+  it("a quoted name and a name with special characters still find their line", () => {
+    const p = parseGitlab({ ".gitlab-ci.yml": `stages: [build]
+
+"build eng TDA4 SOC":
+  script: [make]
+
+'deploy::neo-1':
+  script: [make]
+
+test (fast):
+  script: [make]
+` });
+    expect(p.jobs.map((j) => [j.name, j.line])).toEqual([["build eng TDA4 SOC", 3], ["deploy::neo-1", 6], ["test (fast)", 9]]);
+  });
+
+  it("the default stage is test; a trigger shows where it goes", () => {
+    const p = parseGitlab({ ".gitlab-ci.yml": `
+no-stage:
+  script: [x]
+child:
+  trigger:
+    include: .gitlab/child.yml
+downstream:
+  trigger:
+    project: group/other
+` });
+    expect(p.jobs.map((j) => [j.name, j.stage, j.trigger])).toEqual([
+      ["no-stage", "test", undefined], ["child", "test", "дочерний пайплайн"], ["downstream", "test", "group/other"]]);
   });
 
   it("a cycle in extends does not hang", () => {
@@ -145,6 +175,23 @@ describe("expressions", () => {
     expect(evalIf("$CI_COMMIT_TAG == null", vars)).toBe(true);
     expect(evalIf("$EMPTY", vars)).toBe(false);
   });
+  it("a predefined variable that does not apply is empty, not unknown", () => {
+    const p = parseGitlab({ ".gitlab-ci.yml": `
+tag-only:
+  script: [x]
+  rules:
+    - if: $CI_COMMIT_TAG
+branch-only:
+  script: [x]
+  rules:
+    - if: $CI_COMMIT_BRANCH
+` });
+    expect(status(plan(p, ctx({ branch: "main" })))).toEqual({ "tag-only": "skip", "branch-only": "run" });
+    expect(status(plan(p, ctx({ event: "tag", tag: "v1" })))).toEqual({ "tag-only": "run", "branch-only": "skip" });
+    // on a merge request there is no CI_COMMIT_BRANCH either
+    expect(status(plan(p, ctx({ event: "merge_request", branch: "feature/x" })))["branch-only"]).toBe("skip");
+  });
+
   it("an unknown variable or an unsupported form says «unknown», not a guess", () => {
     expect(evalIf('$SECRET_FLAG == "yes"', vars)).toBe(false); // a variable that is not set is an empty string
     expect(evalIf("$SECRET_FLAG", vars)).toBe("unknown");
@@ -222,6 +269,29 @@ jobs:
     expect(evalGithubIf("${{ contains(github.ref, 'feature') }}", ctx({ branch: "feature/x" }))).toBe(true);
     expect(evalGithubIf("${{ github.event_name == 'push' && github.ref_name == 'main' }}", ctx())).toBe(true);
     expect(evalGithubIf("${{ fromJSON(steps.x.outputs.y) }}", c)).toBe("unknown");
+  });
+});
+
+describe("variables that live outside the file", () => {
+  const p = parseGitlab({ ".gitlab-ci.yml": `
+workflow:
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule" && $SCHEDULE_TYPE == "weekly"
+    - when: never
+nightly:
+  script: [make nightly]
+  rules:
+    - if: $IS_NIGHT_PIPELINE == "true"
+` });
+
+  it("names them, and only the project's own (CI_* belong to GitLab)", () => {
+    expect(missingVars(p, ctx())).toEqual(["IS_NIGHT_PIPELINE", "SCHEDULE_TYPE"]);
+  });
+
+  it("set by hand, they decide the plan", () => {
+    expect(status(plan(p, ctx({ event: "schedule" })))).toEqual({ nightly: "skip" });
+    expect(status(plan(p, ctx({ event: "schedule", vars: { SCHEDULE_TYPE: "weekly" } })))).toEqual({ nightly: "skip" });
+    expect(status(plan(p, ctx({ event: "schedule", vars: { SCHEDULE_TYPE: "weekly", IS_NIGHT_PIPELINE: "true" } })))).toEqual({ nightly: "run" });
   });
 });
 

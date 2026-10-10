@@ -119,10 +119,10 @@ function applyExtends(name: string, doc: Record<string, any>, seen: string[] = [
   return deepMerge(base, own);
 }
 
-/** Line of a top-level key, so a job can be opened where it is declared. */
+/** Line of a top-level key, so a job can be opened where it is declared (the name may be quoted). */
 function lineOf(text: string, key: string): number {
-  // [ \t], not \s: \s also matches the newline, and a file starting with a blank line gave line 1 for everything
-  const re = new RegExp(`^[ \\t]{0,2}${key.replace(/[.*+?^${}()|[\\]\\\\]/g, "\\\\$&")}[ \\t]*:`, "m");
+  const name = key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const re = new RegExp(`^[ \\t]{0,2}(?:"${name}"|'${name}'|${name})[ \\t]*:`, "m");
   const m = re.exec(text);
   return m ? text.slice(0, m.index).split("\n").length : 1;
 }
@@ -177,16 +177,18 @@ export function parseGitlab(files: Record<string, string>, entry = ".gitlab-ci.y
     const needs = (Array.isArray(needsRaw) ? needsRaw : needsRaw !== undefined ? [needsRaw] : [])
       .map((n: any) => (typeof n === "string" ? n : n?.job ?? n?.pipeline ?? ""))
       .filter(Boolean);
-    const stage = String(j.stage ?? ".pre" in doc ? j.stage ?? "test" : j.stage ?? "test");
     const o = origin.get(name) ?? { file: entry, line: 1 };
     out.jobs.push({
-      name, stage: String(j.stage ?? stage),
+      name, stage: String(j.stage ?? "test"), // GitLab's own default
       needs, needsDeclared: needsRaw !== undefined,
       when: String(j.when ?? "on_success"),
       allowFailure: j.allow_failure === true,
       rules: Array.isArray(j.rules) ? j.rules : undefined,
       only: j.only, except: j.except,
-      trigger: j.trigger ? (typeof j.trigger === "string" ? j.trigger : j.trigger.project ?? j.trigger.include ? "child pipeline" : "trigger") : undefined,
+      trigger: j.trigger === undefined ? undefined
+        : typeof j.trigger === "string" ? j.trigger
+        : j.trigger.project ? String(j.trigger.project)
+        : j.trigger.include ? "дочерний пайплайн" : "trigger",
       parallel: typeof j.parallel === "number" ? j.parallel : isObj(j.parallel) && isObj(j.parallel.matrix) ? undefined : Array.isArray(j.parallel?.matrix) ? j.parallel.matrix.reduce((n: number, m: any) => n + Object.values(m).reduce((p: number, v: any) => p * (Array.isArray(v) ? v.length : 1), 1), 0) : undefined,
       file: o.file, line: o.line,
       extendsFrom: typeof doc[name]?.extends === "string" ? [doc[name].extends] : Array.isArray(doc[name]?.extends) ? doc[name].extends : [],
@@ -254,7 +256,11 @@ type Tri = true | false | "unknown";
 const and = (a: Tri, b: Tri): Tri => (a === false || b === false ? false : a === "unknown" || b === "unknown" ? "unknown" : true);
 const or = (a: Tri, b: Tri): Tri => (a === true || b === true ? true : a === "unknown" || b === "unknown" ? "unknown" : false);
 
-/** Predefined GitLab variables for the chosen context. */
+/**
+ * Predefined GitLab variables for the chosen context. The ones OpsDeck models are always set — empty when
+ * they do not apply, as GitLab does (on a tag there is no CI_COMMIT_BRANCH), so `if: $CI_COMMIT_TAG` on a
+ * branch is a plain "no", not an "unknown".
+ */
 export function gitlabVars(c: RunCtx): Record<string, string> {
   const def = c.defaultBranch ?? "main";
   const src = c.event === "merge_request" ? "merge_request_event" : c.event === "tag" ? "push" : c.event === "manual" ? "web" : c.event;
@@ -262,17 +268,19 @@ export function gitlabVars(c: RunCtx): Record<string, string> {
     CI: "true", GITLAB_CI: "true", CI_PIPELINE_SOURCE: src, CI_DEFAULT_BRANCH: def,
     CI_PROJECT_NAME: "project", CI_COMMIT_SHA: "0".repeat(40), CI_COMMIT_SHORT_SHA: "0000000",
   };
-  if (c.event === "tag" && c.tag) { v.CI_COMMIT_TAG = c.tag; v.CI_COMMIT_REF_NAME = c.tag; }
-  else {
-    v.CI_COMMIT_BRANCH = c.event === "merge_request" ? "" : c.branch;
-    v.CI_COMMIT_REF_NAME = c.branch;
-  }
-  if (c.event === "merge_request") {
-    v.CI_MERGE_REQUEST_ID = "1"; v.CI_MERGE_REQUEST_IID = "1";
-    v.CI_MERGE_REQUEST_SOURCE_BRANCH_NAME = c.branch;
-    v.CI_MERGE_REQUEST_TARGET_BRANCH_NAME = def;
-    v.CI_COMMIT_BRANCH = "";
-  }
+  const tag = c.event === "tag";
+  const mr = c.event === "merge_request";
+  v.CI_COMMIT_TAG = tag ? c.tag ?? "" : "";
+  v.CI_COMMIT_BRANCH = tag || mr ? "" : c.branch;
+  v.CI_COMMIT_REF_NAME = tag ? c.tag ?? "" : c.branch;
+  v.CI_MERGE_REQUEST_ID = mr ? "1" : "";
+  v.CI_MERGE_REQUEST_IID = mr ? "1" : "";
+  v.CI_MERGE_REQUEST_SOURCE_BRANCH_NAME = mr ? c.branch : "";
+  v.CI_MERGE_REQUEST_TARGET_BRANCH_NAME = mr ? def : "";
+  v.CI_OPEN_MERGE_REQUESTS = "";
+  v.CI_PIPELINE_TRIGGERED = "";
+  // depend on the commit, not on the choice above: empty unless the user types them in
+  v.CI_COMMIT_MESSAGE = ""; v.CI_COMMIT_TITLE = ""; v.CI_COMMIT_BEFORE_SHA = "0".repeat(40); v.CI_COMMIT_AUTHOR = "";
   v.CI_COMMIT_REF_SLUG = (v.CI_COMMIT_REF_NAME ?? "").toLowerCase().replace(/[^a-z0-9-]/g, "-").slice(0, 63);
   return { ...v, ...(c.vars ?? {}) };
 }
@@ -531,6 +539,26 @@ export function plan(p: Pipeline, c: RunCtx): Planned[] {
     }
     return { job, status: statusOfWhen(job.when), reason: job.when === "manual" ? "when: manual" : "" };
   });
+}
+
+/**
+ * Variables the conditions ask about that neither GitLab nor the user has set here: project, group and
+ * schedule variables live outside the file. GitLab compares an unset variable as empty, so the plan is
+ * right for "not set" — but these are exactly the ones worth typing in by hand.
+ */
+export function missingVars(p: Pipeline, c: RunCtx): string[] {
+  const known = new Set(Object.keys(p.kind === "gitlab" ? gitlabVars(c) : (c.vars ?? {})));
+  const out = new Set<string>();
+  const scan = (rules: any[] | undefined) => {
+    for (const r of rules ?? []) {
+      const cond = isObj(r) ? r.if : undefined;
+      for (const m of String(cond ?? "").matchAll(/\$\{?(\w+)\}?/g)) if (!known.has(m[1])) out.add(m[1]);
+    }
+  };
+  if (isObj(p.workflow) && Array.isArray(p.workflow.rules)) scan(p.workflow.rules);
+  for (const j of p.jobs) scan(j.rules);
+  // CI_* belong to GitLab itself; what is left are the project, group and schedule variables
+  return [...out].filter((n) => !n.startsWith("CI_") && n !== "GITLAB_CI").sort();
 }
 
 /** What is different between two contexts (two branches, push and merge request…). */

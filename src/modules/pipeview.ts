@@ -1,6 +1,6 @@
 /** The pipeline graph in the IDE: a column per stage, a card per job, coloured by what would run. */
 import { icon } from "./icons";
-import { diffPlans, levels, plan, type Job, type Pipeline, type Planned, type RunCtx, type Status } from "./pipeline";
+import { diffPlans, levels, missingVars, plan, type Job, type Pipeline, type Planned, type RunCtx, type Status } from "./pipeline";
 import { esc } from "./ui";
 
 export type PipeView = {
@@ -97,6 +97,8 @@ export function mountPipeline(el: HTMLElement): PipeView {
     const notes: string[] = [];
     if (p.unresolved.length) notes.push(`не раскрыты include: ${p.unresolved.join(", ")} — их задачи не показаны`);
     if (p.errors.length) notes.push(p.errors.join("; "));
+    const miss = missingVars(p, ctx(branchIn.value || opts.defaultBranch));
+    if (miss.length) notes.push(`в условиях есть переменные проекта: ${miss.slice(0, 8).join(", ")}${miss.length > 8 ? "…" : ""} — задайте нужные в поле «Переменные», иначе они считаются пустыми`);
     if (n("unknown")) notes.push("«неизвестно» — условие зависит от того, чего нет в файле (переменные проекта, список изменений, exists:)");
     notes.push("это разбор файла, а не сам сервер: переменные проекта, защищённые ветки и дочерние пайплайны здесь не видны");
     note.textContent = notes.join(" · ");
