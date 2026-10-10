@@ -7,7 +7,7 @@ use crate::store::err;
 use serde::Serialize;
 use std::{collections::HashMap, path::PathBuf, sync::Mutex, time::Duration};
 use sysinfo::{Disks, System};
-use tauri::State;
+use tauri::{AppHandle, Manager, State};
 
 #[derive(Default)]
 pub struct SysState {
@@ -61,9 +61,13 @@ pub fn ssh_master_opts() -> Vec<String> {
     }
 }
 
+// a sync command runs on the UI thread, and sysinfo blocks there: on Windows the first CPU refresh
+// sets up PDH counters, ~200 ms
 #[tauri::command]
-pub fn sys_local(state: State<SysState>) -> Stats {
-    local(&state)
+pub async fn sys_local(app: AppHandle) -> Result<Stats, String> {
+    tauri::async_runtime::spawn_blocking(move || local(&app.state::<SysState>()))
+        .await
+        .map_err(err)
 }
 
 fn local(state: &SysState) -> Stats {
