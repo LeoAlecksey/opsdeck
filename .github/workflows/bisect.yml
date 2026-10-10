@@ -11,11 +11,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d # stable
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-        with:
-          workspaces: src-tauri -> target
-          key: tests-windows-latest
-          save-if: false
+      # no rust-cache: a clean build, to rule out a stale cache from master's older Cargo.lock
       - name: Frontend placeholder
         shell: bash
         run: mkdir -p dist && echo '<!doctype html>' > dist/index.html
