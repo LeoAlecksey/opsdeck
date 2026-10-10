@@ -141,8 +141,8 @@ npm run release -- 0.2.0 "Что нового: …"
 | Раннер | Что получается |
 |---|---|
 | `ubuntu-22.04` (x64), `ubuntu-22.04-arm` (arm64) | `.deb`, `.rpm`, `.AppImage` |
-| `windows-latest` (x64) | `.msi`, установщик NSIS `.exe` |
-| `macos-latest` (Apple Silicon; сборка для Intel — там же, с `--target x86_64-apple-darwin`) | `.dmg`, `.app` |
+| `windows-2025` (x64) | `.msi`, установщик NSIS `.exe` |
+| `macos-26` (Apple Silicon; сборка для Intel — там же, с `--target x86_64-apple-darwin`) | `.dmg`, `.app` |
 
 - Пуш в `main`/`master` (бывает только при релизе): проверки и сборка всех платформ без публикации — она же заполняет кэш Rust, из которого следующий релиз берёт уже собранные зависимости.
 - Pull request в `master`: проверки (TypeScript, `npm audit`, `cargo audit`) и быстрая сборка только linux-x64; установщик — в артефактах запуска (Actions → запуск → Artifacts).
