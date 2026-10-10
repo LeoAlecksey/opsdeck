@@ -1,0 +1,24 @@
+name: bisect-win-tests
+on:
+  push:
+    branches: ["bisect/**"]
+permissions:
+  contents: read
+jobs:
+  t:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d # stable
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: src-tauri -> target
+          key: tests-windows-latest
+          save-if: false
+      - name: Frontend placeholder
+        shell: bash
+        run: mkdir -p dist && echo '<!doctype html>' > dist/index.html
+      - name: cargo test
+        working-directory: src-tauri
+        run: cargo test --lib
