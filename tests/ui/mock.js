@@ -26,8 +26,14 @@
   const ctx = { file: "/home/demo/.config/opsdeck/kube/prod-eu.yaml", source: "opsdeck", label: "prod-eu", context: "prod-eu", cluster: "prod-eu", user: "admin", namespace: "shop", current: true, server: "https://k8s.example.com:6443" };
   const ctx2 = { ...ctx, file: "/home/demo/.config/opsdeck/kube/stage.yaml", label: "stage", context: "stage", cluster: "stage", current: false, server: "https://stage.k8s.example.com:6443" };
   let uid = 0;
+  // a pod is always made by something: a ReplicaSet of a Deployment, a StatefulSet, a Job of a CronJob
+  const app = (name) => (/-\d+$/.test(name) ? name.replace(/-\d+$/, "") : name.split("-").slice(0, -2).join("-"));
+  const hash = (name) => (/-\d+$/.test(name) ? "" : name.split("-").at(-2));
+  const owner = (name) => (/-\d+$/.test(name) ? { kind: "StatefulSet", name: app(name), controller: true }
+    : /^cron-/.test(name) ? { kind: "Job", name: name.split("-").slice(0, -1).join("-"), controller: true }
+    : { kind: "ReplicaSet", name: `${app(name)}-${hash(name)}`, controller: true });
   const pod = (name, nsx, node, status = "Running", restarts = 0, ageMs = 3 * D, ready = true, img = "registry.example.com/shop/api:1.42.0") => ({
-    metadata: { name, namespace: nsx, uid: `u${++uid}`, creationTimestamp: iso(ageMs), labels: { app: name.split("-").slice(0, -2).join("-") } },
+    metadata: { name, namespace: nsx, uid: `u${++uid}`, creationTimestamp: iso(ageMs), labels: { app: app(name), "pod-template-hash": hash(name) }, ownerReferences: [owner(name)] },
     spec: { nodeName: node, containers: [{ name: "app", image: img }] },
     status: {
       phase: status === "CrashLoopBackOff" ? "Running" : status, podIP: `10.244.${(uid % 3) + 1}.${20 + uid}`,
