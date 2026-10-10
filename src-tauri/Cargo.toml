@@ -1,6 +1,6 @@
 [package]
 name = "opsdeck"
-version = "0.6.2"
+version = "0.7.0"
 edition = "2021"
 description = "Desktop cockpit for DevOps engineers (Tauri backend)"
 license = "MIT"
@@ -39,6 +39,9 @@ tauri-plugin-log = "2"
 log = "0.4"
 dirs = "6"
 keepass = "0.15"
+# Passbolt: OpenPGP (rPGP, pure Rust, no system GnuPG) and the RNG version it takes
+pgp = "0.21"
+rand = "0.8"
 tauri-plugin-clipboard-manager = "2"
 zeroize = "1"
 uuid = { version = "1", features = ["v4"] }
@@ -63,6 +66,17 @@ keyring = { version = "3", features = ["sync-secret-service", "crypto-rust", "ve
 # must match the versions tauri uses (embedded web panels reparent webviews in GTK)
 gtk = "0.18"
 webkit2gtk = "2.0"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+# web panels: the WKWebView frame is placed directly (embed.rs)
+objc2-app-kit = { version = "0.3", features = ["NSView"] }
+objc2-foundation = { version = "0.3", features = ["NSGeometry"] }
+
+[dev-dependencies]
+# TOTP codes for the live tests of the Passbolt integration (tests/passbolt)
+hmac = "0.12"
+sha1 = "0.10"
+data-encoding = "2"
 
 # Быстрее локальные сборки (tauri dev, cargo test): полная отладочная информация только для
 # своего кода (номера строк в трейсах остаются), зависимости — без неё; линковка заметно легче.

@@ -2,42 +2,44 @@ import { helpBtn } from "./help";
 import { icon } from "./icons";
 import { invoke } from "@tauri-apps/api/core";
 import { pickEntry } from "./keepass";
+import { pickEntry as pickPassbolt } from "./passbolt";
 import { ask, esc, toast, overlay } from "./ui";
 import { registerProvider } from "./palette";
+import { natCmp } from "./natsort";
 
-type Connector = { id: string; kind: string; name: string; group?: string; url: string; username: string; auth: string; keepass_entry?: string; ingest_token?: string; basic_user?: string };
+type Connector = { id: string; kind: string; name: string; group?: string; url: string; username: string; auth: string; keepass_entry?: string; passbolt_entry?: string; ingest_token?: string; basic_user?: string };
 
 const KINDS: Record<string, { label: string; auth: string[]; hint: string }> = {
-  grafana: { label: "Grafana", auth: ["keepass", "password", "token", "none"], hint: "Логин/пароль — автологин в панель и сбор алертов. Токен service account — только для сбора алертов (роль Viewer достаточно), в панель входите вручную." },
-  argocd: { label: "ArgoCD", auth: ["keepass", "password", "token"], hint: "admin/пароль или API-токен (argocd account generate-token)." },
-  gitlab: { label: "GitLab", auth: ["keepass", "password", "none"], hint: "Логин/пароль заполняются в форму входа. 2FA вводится руками." },
-  alertmanager: { label: "Alertmanager", auth: ["none", "password", "token", "keepass"], hint: "Prometheus Alertmanager, URL вида http://alertmanager:9093. OpsDeck опрашивает /api/v2/alerts — алерты появятся в разделе «Алерты»." },
-  zabbix: { label: "Zabbix", auth: ["token", "keepass", "password"], hint: "Zabbix 6.0+: проблемы забираются по API раз в минуту. Удобнее всего API-токен (Users → API tokens), можно логин/пароль." },
-  ai: { label: "AI / анализатор", auth: ["none", "token", "password", "keepass"], hint: "Локальный или удалённый анализатор логов и алертов. Как подключить — ниже." },
+  grafana: { label: "Grafana", auth: ["keepass", "passbolt", "password", "token", "none"], hint: "Логин/пароль — автологин в панель и сбор алертов. Токен service account — только для сбора алертов (роль Viewer достаточно), в панель входите вручную." },
+  argocd: { label: "ArgoCD", auth: ["keepass", "passbolt", "password", "token"], hint: "admin/пароль или API-токен (argocd account generate-token)." },
+  gitlab: { label: "GitLab", auth: ["keepass", "passbolt", "password", "none"], hint: "Логин/пароль заполняются в форму входа. 2FA вводится руками." },
+  alertmanager: { label: "Alertmanager", auth: ["none", "password", "token", "keepass", "passbolt"], hint: "Prometheus Alertmanager, URL вида http://alertmanager:9093. OpsDeck опрашивает /api/v2/alerts — алерты появятся в разделе «Алерты»." },
+  zabbix: { label: "Zabbix", auth: ["token", "keepass", "passbolt", "password"], hint: "Zabbix 6.0+: проблемы забираются по API раз в минуту. Удобнее всего API-токен (Users → API tokens), можно логин/пароль." },
+  ai: { label: "AI / анализатор", auth: ["none", "token", "password", "keepass", "passbolt"], hint: "Локальный или удалённый анализатор логов и алертов. Как подключить — ниже." },
   generic: { label: "Другое (URL)", auth: ["none"], hint: "Просто открыть веб-интерфейс в отдельном окне." },
 };
-const AUTH_LABEL: Record<string, string> = { keepass: "из KeePass", password: "логин/пароль", token: "токен", none: "без автологина" };
+const AUTH_LABEL: Record<string, string> = { keepass: "из KeePass", passbolt: "из Passbolt", password: "логин/пароль", token: "токен", none: "без автологина" };
 
 export function mountConnectors(root: HTMLElement) {
   root.classList.add("web");
   root.innerHTML = `
     <div class="tabbar web-tabs">
-      <div class="tab active" data-t="home" title="Все панели: открыть другую, добавить, изменить">☰ Панели</div>
+      <div class="tab active" data-t="home" title="Все панели: открыть другую, добавить, изменить">${icon("menu", 14)} Панели</div>
       <div class="tabs web-tablist"></div>
       <button class="icon web-pick" data-act="pick" title="Открыть ещё панель (вторую Grafana и т.п.)">${icon("plus", 16)}</button>
       <span class="spacer"></span>
       ${helpBtn("web")}
       <span class="web-nav" hidden>
-        <button class="icon" data-n="back" title="Назад">←</button>
-        <button class="icon" data-n="forward" title="Вперёд">→</button>
+        <button class="icon" data-n="back" title="Назад">${icon("arrowLeft", 16)}</button>
+        <button class="icon" data-n="forward" title="Вперёд">${icon("arrowRight", 16)}</button>
         <button class="icon" data-n="reload" title="Обновить">${icon("refresh", 16)}</button>
-        <button class="icon" data-n="home" title="На стартовую страницу">⌂</button>
+        <button class="icon" data-n="home" title="На стартовую страницу">${icon("home", 16)}</button>
         <span class="web-zoom">
-          <button class="icon" data-z="-1" title="Мельче">−</button>
+          <button class="icon" data-z="-1" title="Мельче">${icon("minus", 14)}</button>
           <button class="ghost web-zoom-val" data-z="auto" title="Масштаб. Нажмите — вернуть «авто» (подгонка под ширину экрана)">авто</button>
-          <button class="icon" data-z="1" title="Крупнее">+</button>
+          <button class="icon" data-z="1" title="Крупнее">${icon("plus", 14)}</button>
         </span>
-        <button class="icon" data-n="window" title="Открыть в отдельном окне">⧉</button>
+        <button class="icon" data-n="window" title="Открыть в отдельном окне">${icon("externalLink", 16)}</button>
       </span>
     </div>
     <div class="web-slot" hidden></div>
@@ -46,7 +48,7 @@ export function mountConnectors(root: HTMLElement) {
         <h2>Веб-панели</h2>
         <button class="primary" data-act="add">${icon("plus", 16)} Добавить</button>
       </div>
-      <p class="muted">Grafana, ArgoCD, GitLab и любые другие веб-интерфейсы открываются вкладками здесь же (или в отдельном окне — ⧉) с автологином. Секреты хранятся в системном keyring или KeePass.</p>
+      <p class="muted">Grafana, ArgoCD, GitLab и любые другие веб-интерфейсы открываются вкладками здесь же (или в отдельном окне — ⧉) с автологином. Секреты хранятся в системном keyring, KeePass или Passbolt.</p>
       <div class="cards"></div>
       <dialog class="conn-dialog">
         <form method="dialog">
@@ -60,6 +62,7 @@ export function mountConnectors(root: HTMLElement) {
           <label><span class="url-label">URL</span> <input name="url" type="url" required placeholder="https://grafana.example.com" /></label>
           <label>Авторизация <select name="auth"></select></label>
           <div data-a="keepass" class="kp-bind"><span class="kp-bound muted">запись не выбрана</span><button type="button" data-a="pick">Выбрать запись…</button></div>
+          <div data-a="passbolt" class="kp-bind"><span class="pb-bound muted">запись не выбрана</span><button type="button" data-a="pb-pick">Выбрать запись…</button></div>
           <label data-a="user">Логин <input name="username" autocomplete="off" /></label>
           <label data-a="secret"><span class="secret-label">Пароль</span> <input name="secret" type="password" autocomplete="new-password" placeholder="" /></label>
           <div class="grid2" data-a="basic" hidden>
@@ -94,6 +97,16 @@ export function mountConnectors(root: HTMLElement) {
     const e = await pickEntry();
     if (e) setBound(e.id, `${e.title}${e.username ? " · " + e.username : ""}`);
   };
+  const pbLabels = new Map<string, string>();
+  let pbEntry = "";
+  const setPbBound = (id: string, label?: string) => {
+    pbEntry = id;
+    form.querySelector(".pb-bound")!.textContent = id ? (label ?? pbLabels.get(id) ?? "запись выбрана") : "запись не выбрана";
+  };
+  form.querySelector<HTMLElement>("[data-a=pb-pick]")!.onclick = async () => {
+    const e = await pickPassbolt();
+    if (e) setPbBound(e.id, `${e.title}${e.username ? " · " + e.username : ""}`);
+  };
 
   for (const [k, v] of Object.entries(KINDS)) f("kind").add(new Option(v.label, k));
 
@@ -105,10 +118,11 @@ export function mountConnectors(root: HTMLElement) {
     for (const a of kind.auth) authSel.add(new Option(AUTH_LABEL[a], a));
     authSel.value = kind.auth.includes(prev) ? prev : kind.auth[0];
     const auth = authSel.value;
-    form.querySelector<HTMLElement>("[data-a=user]")!.hidden = auth !== "password" && auth !== "keepass";
-    form.querySelector<HTMLElement>("[data-a=secret]")!.hidden = auth === "none" || auth === "keepass";
+    form.querySelector<HTMLElement>("[data-a=user]")!.hidden = auth !== "password" && auth !== "keepass" && auth !== "passbolt";
+    form.querySelector<HTMLElement>("[data-a=secret]")!.hidden = auth === "none" || auth === "keepass" || auth === "passbolt";
     form.querySelector<HTMLElement>("[data-a=keepass]")!.hidden = auth !== "keepass";
-    f("username").placeholder = auth === "keepass" ? "из записи KeePass" : "";
+    form.querySelector<HTMLElement>("[data-a=passbolt]")!.hidden = auth !== "passbolt";
+    f("username").placeholder = auth === "keepass" ? "из записи KeePass" : auth === "passbolt" ? "из записи Passbolt" : "";
     form.querySelector<HTMLElement>(".secret-label")!.textContent = auth === "token" ? "Токен" : "Пароль";
     f("secret").placeholder = editing ? "оставьте пустым, чтобы не менять" : "";
     form.querySelector<HTMLElement>(".hint")!.textContent = kind.hint;
@@ -183,11 +197,11 @@ export function mountConnectors(root: HTMLElement) {
     box.innerHTML = `
       <div class="side-head small">Push — анализатор на этом компьютере</div>
       <p class="muted">OpsDeck принимает находки только с 127.0.0.1 (из сети недоступен). Можно слать массив или {"findings": [...]}; алерты в формате Alertmanager — на /api/v1/alerts.</p>
-      <div class="kv"><span>Адрес</span><code>${esc(endpoint)}</code><button type="button" class="icon" data-copy="${esc(endpoint)}" title="Скопировать">⧉</button></div>
+      <div class="kv"><span>Адрес</span><code>${esc(endpoint)}</code><button type="button" class="icon" data-copy="${esc(endpoint)}" title="Скопировать">${icon("copy", 14)}</button></div>
       <div class="kv"><span>Токен</span>${token
-        ? `<code>${esc(token)}</code><button type="button" class="icon" data-copy="${esc(token)}" title="Скопировать">⧉</button><button type="button" class="ghost" data-regen>новый</button>`
+        ? `<code>${esc(token)}</code><button type="button" class="icon" data-copy="${esc(token)}" title="Скопировать">${icon("copy", 14)}</button><button type="button" class="ghost" data-regen>новый</button>`
         : `<span class="muted">появится после сохранения</span>`}</div>
-      <div class="kv-block"><div class="row"><span class="muted">Проверка</span><span class="spacer"></span><button type="button" class="icon" data-copy="${esc(curl)}" title="Скопировать">⧉</button></div><pre>${esc(curl)}</pre></div>
+      <div class="kv-block"><div class="row"><span class="muted">Проверка</span><span class="spacer"></span><button type="button" class="icon" data-copy="${esc(curl)}" title="Скопировать">${icon("copy", 14)}</button></div><pre>${esc(curl)}</pre></div>
       <details><summary class="muted">Формат находки</summary><pre>${esc(format)}</pre></details>
       <div class="side-head small">Pull — анализатор на другой машине</div>
       <p class="muted">Укажите выше URL, по которому он отдаёт JSON с теми же объектами (массив или {"findings": [...]}). OpsDeck будет опрашивать его вместе с Grafana (интервал — в ⚙ раздела «Алерты»); находки, пропавшие из ленты, закрываются. Авторизация — как выбрано выше.</p>`;
@@ -218,6 +232,7 @@ export function mountConnectors(root: HTMLElement) {
       kind: f("kind").value, name: f("name").value.trim(), group: f("group").value.trim(), url: f("url").value.trim(),
       username: f("username").value.trim(), auth: f("auth").value,
       keepass_entry: f("auth").value === "keepass" ? boundEntry : "",
+      passbolt_entry: f("auth").value === "passbolt" ? pbEntry : "",
       ingest_token: editing?.ingest_token ?? "",
       basic_user: f("kind").value === "zabbix" ? f("basic_user").value.trim() : "",
     };
@@ -251,6 +266,7 @@ export function mountConnectors(root: HTMLElement) {
     f("username").value = c?.username ?? "";
     f("basic_user").value = c?.basic_user ?? "";
     setBound(c?.keepass_entry ?? "");
+    setPbBound(c?.passbolt_entry ?? "");
     syncForm();
     if (c) { f("auth").value = c.auth; syncForm(); }
     dialog.showModal();
@@ -269,6 +285,7 @@ export function mountConnectors(root: HTMLElement) {
       kind: f("kind").value, name: f("name").value.trim(), group: f("group").value.trim(), url: f("url").value.trim(),
       username: f("username").value.trim(), auth: f("auth").value,
       keepass_entry: f("auth").value === "keepass" ? boundEntry : "",
+      passbolt_entry: f("auth").value === "passbolt" ? pbEntry : "",
       ingest_token: editing?.ingest_token ?? "",
       basic_user: f("kind").value === "zabbix" ? f("basic_user").value.trim() : "",
     };
@@ -304,8 +321,8 @@ export function mountConnectors(root: HTMLElement) {
     cards.innerHTML = list.length ? "" : `<p class="muted">Пока пусто — добавьте Grafana, ArgoCD или GitLab.</p>`;
     // rows like on a Grafana dashboard: one collapsible row per group, ungrouped panels first
     const rows = new Map<string, Connector[]>();
-    for (const c of [...list].sort((a, b) => a.name.localeCompare(b.name))) rows.set(c.group ?? "", [...(rows.get(c.group ?? "") ?? []), c]);
-    const order = [...rows.keys()].sort((a, b) => (a === "" ? -1 : b === "" ? 1 : a.localeCompare(b)));
+    for (const c of [...list].sort((a, b) => natCmp(a.name, b.name))) rows.set(c.group ?? "", [...(rows.get(c.group ?? "") ?? []), c]);
+    const order = [...rows.keys()].sort((a, b) => (a === "" ? -1 : b === "" ? 1 : natCmp(a, b)));
     const grouped = order.some((g) => g !== "");
     const containers = new Map<string, HTMLElement>();
     for (const g of order) {
@@ -331,7 +348,7 @@ export function mountConnectors(root: HTMLElement) {
         <div class="card-url muted"></div>
         <div class="card-actions">
           <button class="primary" data-act="open">Открыть</button>
-          <button class="ghost" data-act="window" title="Открыть в отдельном окне">⧉</button>
+          <button class="ghost" data-act="window" title="Открыть в отдельном окне">${icon("externalLink", 14)}</button>
           <span class="spacer"></span>
           <button class="icon" data-act="edit" title="Изменить">${icon("edit", 14)}</button>
           <button class="icon danger" data-act="del" title="Удалить">${icon("trash", 14)}</button>
@@ -557,11 +574,19 @@ export function mountConnectors(root: HTMLElement) {
     activate("home");
     openDialog(null, (e as CustomEvent<string>).detail);
   });
-  registerProvider(async () => (await invoke<Connector[]>("connectors_list")).flatMap((c) => [
-    { group: KINDS[c.kind]?.label ?? "Веб", title: `Открыть: ${c.name}`, hint: c.url, run: () => openTab(c) },
-    { group: KINDS[c.kind]?.label ?? "Веб", title: `Открыть в окне: ${c.name}`, hint: c.url,
-      run: () => { invoke("connector_open", { id: c.id }).catch((e) => toast(String(e), "err")); } },
-  ]));
+  registerProvider(async () => {
+    const list = await invoke<Connector[]>("connectors_list").catch(() => [] as Connector[]);
+    return [
+      { group: "Веб", title: "Веб-панели: все панели (список)", run: () => { window.dispatchEvent(new CustomEvent("show-view", { detail: "web" })); activate("home"); } },
+      ...list.flatMap((c) => [
+        { group: KINDS[c.kind]?.label ?? "Веб", title: `Открыть: ${c.name}`, hint: c.url, run: () => openTab(c) },
+        {
+          group: KINDS[c.kind]?.label ?? "Веб", title: `Открыть в окне: ${c.name}`, hint: c.url,
+          run: () => { invoke("connector_open", { id: c.id }).catch((e) => toast(String(e), "err")); }
+        },
+      ]),
+    ];
+  });
   drawTabs();
   refresh().then(async () => {
     // drop remembered tabs whose connectors no longer exist

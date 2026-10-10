@@ -28,7 +28,8 @@ export const HELP_EN: Record<string, { title: string; html: string }> = {
       <ul>
         <li>${kbd("Ctrl+Shift+T")} new tab, ${kbd("Ctrl+Shift+W")} close pane/tab</li>
         <li>${kbd("Alt+1")}…${kbd("Alt+9")} go to a tab by number (${kbd("Alt+9")} — the last one), ${kbd("Alt+←/→")} or ${kbd("Ctrl+Tab")} / ${kbd("Ctrl+Shift+Tab")} — previous / next tab</li>
-        <li>${kbd("Ctrl+Shift+D")} / ${kbd("Ctrl+Shift+E")} split right / down (a WSL pane — into the same distribution), ${kbd("Ctrl+Shift+←/→")} between panes</li>
+        <li>${kbd("Ctrl+Shift+D")} / ${kbd("Ctrl+Shift+E")} split right / down (a WSL pane — into the same distribution), ${kbd("Ctrl+Shift+←/→")} between panes. Up to 6 panes in a tab: two sit side by side or stacked, three and more form a grid; with several, each has its own header with the host's name (⇱ — move to a tab of its own, × — close)</li>
+        <li><b>Different hosts in one tab</b>: the ▤ button next to the split buttons (<i>A new pane with an SSH host</i>) — pick a host from the SSH profiles and <code>~/.ssh/config</code>, it opens as a new pane. Or do it the Termius way: open the target tab, take another tab with the mouse and drag it onto the terminal area — an edge (left, right, top, bottom) splits the window, the middle adds to the grid. The sessions keep running, nothing reconnects.</li>
         <li>${kbd("Ctrl+Shift+↑/↓")} to the previous / next command</li>
         <li>${kbd("Ctrl+=")} / ${kbd("Ctrl+-")} / ${kbd("Ctrl+0")} font size</li>
         <li>${kbd("Ctrl+Shift+C/V")} copy / paste, ${kbd("Ctrl+Shift+A")} selection → AI, ${kbd("Ctrl+Shift+I")} AI panel</li>
@@ -47,6 +48,9 @@ export const HELP_EN: Record<string, { title: string; html: string }> = {
       <p>OpsDeck keeps its own kubeconfig copies (a file per context) and doesn't touch your ~/.kube/config. Tables update live (watch).</p>
       <h4>What's where</h4>
       <ul>
+        <li><b>Diagnostics</b> (at the top of the resource list), computed from what your kubeconfig can read — nothing is installed in the cluster:
+          <b>Problems</b> — what is broken now: CrashLoopBackOff, OOMKilled, image pull errors, pods that cannot be scheduled (with the reason), unfinished rollouts, failed Jobs, pods stuck in Terminating (which finalizers hold them), references to missing ConfigMaps/Secrets/PVCs, services without pods or ready endpoints, Ingresses to a missing service or port. Pods of one app with the same trouble are one row (×N).
+          <b>Checks</b> — best practices of the templates: privileged, hostPID/hostNetwork, the docker/containerd socket, dangerous capabilities, the latest tag, missing probes, a single replica, no PodDisruptionBudget, no requests/limits — each with “How to fix”. A row opens the explanation, “Open the object” and “⇢ AI”. System namespaces (kube-system…) are hidden by a checkbox. Secret values never reach the diagnostics: the backend sends only names.</li>
         <li><b>Event history</b> (Cluster → Event history): Kubernetes keeps events for about an hour, so by morning “what fell over at night” is gone. “Record this cluster's events” — while OpsDeck runs it watches events of all namespaces and keeps them for a week; repeats fold into one row (×N). At the top — what fell over most in 24 h (click to filter); a row opens its message and “⇢ AI”.</li>
         <li><b>Kubeconfig folders</b> (⚙ → Kubernetes, like in Freelens): every kubeconfig in the folder (and subfolders two levels deep) is listed as clusters marked “folder” and read in place — a new file shows up after ⟳ or the next time the section opens.</li>
         <li>The <b>label filter</b> next to the plain one works like <code>kubectl -l</code>: <code>app=api</code>, <code>tier!=db</code>, <code>env in (prod,stage)</code>, <code>!canary</code>; terms separated by commas. <b>Nodes</b>: CPU and RAM refresh every 5 s — a usage bar and a chart of the last samples (metrics-server needed).</li>
@@ -67,10 +71,10 @@ export const HELP_EN: Record<string, { title: string; html: string }> = {
     title: "Web panels",
     html: `
       <h4>How it works</h4>
-      <p>Grafana, ArgoCD, GitLab and any sites open as tabs right here, with automatic login. Passwords are in the system keyring or KeePass.</p>
+      <p>Grafana, ArgoCD, GitLab and any sites open as tabs right here, with automatic login. Passwords are in the system keyring, KeePass or Passbolt.</p>
       <h4>What's where</h4>
       <ul>
-        <li><b>＋ Add</b> — a new connector: type, URL, login method (login/password, token, KeePass entry).</li>
+        <li><b>＋ Add</b> — a new connector: type, URL, login method (login/password, token, KeePass or Passbolt entry).</li>
         <li><b>Open</b> — a tab next to “☰ Panels”; <b>⧉</b> — in a separate window.</li>
         <li><b>Groups</b>: the “Group” field in a panel card — panels with the same group are gathered into a collapsible row, like a Row in a Grafana dashboard. <b>✎</b> — edit, <b>🗑</b> — delete.</li>
         <li>On the right of a tab: <b>← → ↻ ⌂</b> — navigation, <b>⧉</b> — move to a window.</li>
@@ -149,7 +153,7 @@ export const HELP_EN: Record<string, { title: string; html: string }> = {
       <p>“Connect” opens a terminal tab with ssh. Hosts from ~/.ssh/config connect by alias with all their settings (keys, ProxyJump).</p>
       <h4>What's where</h4>
       <ul><li><b>＋ Host</b> — your own profile: address, port, user, key (-i), jump host (-J), login method.</li>
-      <li>A password from KeePass/keyring goes to the clipboard for 30 seconds — paste with ${kbd("Ctrl+Shift+V")} when ssh asks.</li>
+      <li>A password from KeePass/Passbolt/keyring goes to the clipboard for 30 seconds — paste with ${kbd("Ctrl+Shift+V")} when ssh asks.</li>
       <li><b>Groups</b> — collapsible blocks. For your own profile the group is set in ✎, for a host from ~/.ssh/config — with the 📁 button (OpsDeck keeps it to itself and doesn't change the ssh config) or with a <code># group: prod</code> comment on the line above <code>Host</code>. ✎ in a group header renames the whole group.</li>
       <li><b>⧉</b> on a host from ~/.ssh/config — save as a profile to bind a KeePass password.</li>
       <li>All hosts are in the palette ${kbd("Ctrl+Shift+P")} → “SSH: …”.</li></ul>`,
@@ -163,10 +167,13 @@ export const HELP_EN: Record<string, { title: string; html: string }> = {
       <ul>
         <li><b>📂</b> — choose the project folder in the system dialog (the whole project opens as a tree on the left), <b>⌁</b> — take the folder the terminal is in, <b>＋</b> — a new file (a path ending in / — a folder). Recent projects are in the list under the header.</li>
         <li>The tree is coloured by git changes: yellow — changed, green — new, red — deleted.</li>
+        <li><b>Right-click in the tree</b> — a new file or folder here, rename, copy and paste (a taken name gets “copy”), delete. There is no trash — deleted files come back only from git, so OpsDeck asks first. Open tabs follow a rename. It works only inside the project folder.</li>
+        <li><b>⇢ AI</b> at the bottom right — ask the AI about the file (or the selection), about the project (structure and <code>git status</code>) or to review the changes (<code>git diff</code>). The text goes to the terminal's AI panel — the chosen agent or the local AI; you add the question and send it.</li>
         <li>${kbd("Ctrl+S")} — save. If the file was changed outside after it was opened, OpsDeck asks whether to overwrite it.</li>
-        <li>${kbd("Ctrl+F")} — find and replace, ${kbd("Ctrl+/")} — comment out, ${kbd("Tab")} / ${kbd("Shift+Tab")} — indent.</li>
-        <li><b>▭ console</b> at the bottom (${kbd("Ctrl+`")}) — a terminal right in the project folder: ↻ restart, ⧉ open this folder in a terminal tab. When the project changes, the console runs <code>cd</code> itself.</li>
+        <li>${kbd("Ctrl+F")} — find and replace (like ${kbd("Ctrl+S")}, it works on any keyboard layout, and from the tree too), ${kbd("Ctrl+/")} — comment out, ${kbd("Tab")} / ${kbd("Shift+Tab")} — indent.</li>
+        <li><b>▭ console</b> at the bottom (${kbd("Ctrl+`")}) — a terminal right in the project folder: ↻ restart, ⧉ open this folder in a terminal tab. When the project changes, the console runs <code>cd</code> itself — if nothing is running in it (otherwise OpsDeck says so and does not type a command into a program).</li>
         <li><b>Panel sizes</b> — drag the borders between the tree, the editor, the console and the git panel; double-click a border — back to the default size. Sizes are remembered.</li>
+        <li><b>⛓ pipeline</b> at the bottom right (the button appears when the project has <code>.gitlab-ci.yml</code> or <code>.github/workflows</code>) — the pipeline graph: columns are stages (for GitHub, the order from <code>needs</code>), cards are jobs. At the top you pick the <b>event</b> (push, merge request, tag, schedule, started by hand), the <b>branch</b>, the list of <b>changed files</b> (for <code>rules:changes</code> and <code>on: paths</code>) and variables. Card colour: green — runs, yellow — only by hand, grey — does not run, purple — unknown (the condition depends on what the file does not hold). A click on a job shows which rule matched, “In the file” opens its line, “⇢ AI” sends the job with its condition to the AI panel. The <b>compare with</b> checkbox shows what another branch would change. <code>include: local</code>, <code>extends</code>, YAML anchors and <code>!reference</code> are resolved; this reads the files, it is not the server — project variables, protected branches and child pipelines are not visible here.</li>
         <li><b>⎇ git</b> at the bottom right — the git panel: changed files (click — diff, double-click — open the file), the commit box (<b>Commit all</b> = <code>git add -A</code> + commit, ${kbd("Ctrl+Enter")}) and the commit graph of all branches (click — the whole commit).</li>
         <li><b>Branches</b> — the button with the branch name at the top of the git panel: click a branch — switch (a remote one becomes a local tracking branch), <b>＋ New branch</b> — from the current one, on hover <b>⤵</b> — merge into the current one, <b>×</b> — delete (OpsDeck asks again for an unmerged one). <b>⟳</b> fetch, <b>↓</b> pull (fast-forward only), <b>↑</b> push (a new branch goes with <code>-u origin</code>). Open files are re-read after switching; if they have unsaved edits, OpsDeck warns you.</li>
         <li>In the terminal's “Files” panel and with ${kbd("Ctrl")}+click on a path in the output, files open here if “OpsDeck IDE” is chosen there.</li>
@@ -181,10 +188,11 @@ export const HELP_EN: Record<string, { title: string; html: string }> = {
     title: "Databases",
     html: `
       <h4>How it works</h4>
-      <p>Connections to PostgreSQL, MySQL/MariaDB, ClickHouse, Redis and MongoDB: address, port, login. The password is kept in the system keyring or taken from a KeePass entry. On the left — the structure: databases → schemas → tables → columns and indexes (for Redis — db and keys, for MongoDB — collections, fields and indexes). On the right — the query editor and the result.</p>
+      <p>Connections to PostgreSQL, MySQL/MariaDB, ClickHouse, Redis and MongoDB: address, port, login. The password is kept in the system keyring or taken from a KeePass or Passbolt entry. On the left — the structure: databases → schemas → tables → columns and indexes (for Redis — db and keys, for MongoDB — collections, fields and indexes). On the right — the query editor and the result.</p>
       <h4>What's where</h4>
       <ul>
         <li><b>＋</b> — a new connection. <b>Save and check</b> shows the server version or the error right away.</li>
+        <li><b>Via SSH host (jump)</b> — if the database is reachable only from a bastion: pick a host from the SSH profiles or <code>~/.ssh/config</code> (its <code>ProxyJump</code> and key apply there), and OpsDeck opens an <code>ssh -L</code> tunnel itself. Key login is needed, as on the monitoring board; encryption “verify” does not work through the tunnel — choose “require”.</li>
         <li>Hover a connection: <b>↻</b> — reload the structure, <b>✎</b> — edit, <b>×</b> — delete.</li>
         <li>A click on a database or table chooses the database the query runs in (the <b>“in”</b> field at the top). A double-click on a table, collection or key shows the first rows right away.</li>
         <li>${kbd("Ctrl+Enter")} — run. If something is selected, only the selection runs. The first 1000 rows are shown.</li>
@@ -255,11 +263,27 @@ export const HELP_EN: Record<string, { title: string; html: string }> = {
       <li>KeePass entries can be bound to web panels, SSH hosts and MikroTik routers — then passwords are taken from here.</li>
       <li>While the database is open, passwords are in the palette ${kbd("Ctrl+Shift+P")} → “Password: …”.</li></ul>`,
   },
+  passbolt: {
+    title: "Passbolt",
+    html: `
+      <h4>How it works</h4>
+      <p>OpsDeck connects to Passbolt as another device of the user and only reads entries. The key is kept on this computer, protected by its passphrase; decrypted entries live only in memory and are wiped on lock.</p>
+      <h4>Connecting</h4>
+      <ul><li>In Passbolt: profile → <b>Desktop app setup</b> → download <code>account-kit.passbolt</code>. Here: <b>Choose account kit…</b>. OpsDeck checks the server key against the one in the file.</li>
+      <li>Second factor: an authenticator app code (TOTP) or a Yubikey. “Remember for 30 days” works if the server allows it.</li></ul>
+      <h4>What's where</h4>
+      <ul><li>👤 / 🔑 in a row — copy the login / password; the password is wiped from the clipboard after 30 seconds.</li>
+      <li>Click a row — details: 👁 show the password for 10 seconds, <b>Show description</b>.</li>
+      <li>The password and description are fetched from the server on first use — Passbolt logs every such access, so nothing is downloaded in advance.</li>
+      <li>⟳ — re-read the list from the server (new and changed entries).</li>
+      <li>Passbolt entries can be bound to web panels, SSH hosts, databases and MikroTik routers — then passwords are taken from here.</li>
+      <li>While Passbolt is unlocked, passwords are in the palette ${kbd("Ctrl+Shift+P")} → “Password: …”.</li></ul>`,
+  },
   winbox: {
     title: "MikroTik",
     html: `
       <h4>What's where</h4>
-      <ul><li><b>＋ Device</b> — address, WinBox/SSH ports, credentials (from KeePass, the keyring or no password).</li>
+      <ul><li><b>＋ Device</b> — address, WinBox/SSH ports, credentials (from KeePass, Passbolt, the keyring or no password).</li>
       <li><b>WinBox</b> connects to the router right away; <b>SSH</b> — a terminal tab, the password in the clipboard for 30 s; <b>ping</b> — a tab with ping.</li>
       <li><b>Import from WinBox</b> brings over the routers saved in WinBox's address list (Addresses.cdb): address, port, login, group, the note as the name and, if ticked, passwords — into the OS keyring. The list is shown before anything is added; addresses already here are skipped. If WinBox has a master password, remove it for the import.</li>
       <li>The WinBox path — in ⚙ Settings.</li></ul>
@@ -276,7 +300,7 @@ export const HELP_EN: Record<string, { title: string; html: string }> = {
       <li><b>Moving to another computer</b>: «Export…» packs the ticked parts (settings and interface, SSH, web panels, databases, MikroTik, snippets, kubeconfig, the notes folder) by several threads; «Import…» shows what the archive holds and restores the chosen ones. Replaced files are first copied to a backup-… folder. Passwords are not in the archive — enter them again. kubeconfig is not ticked by default: it holds access keys to the clusters.</li>
       <li><b>Colour scheme</b> of the terminal: OpsDeck, Campbell, One Half Dark, Solarized Dark, Dracula or your own — <i>Import JSON…</i> takes Windows Terminal's settings.json, a list of schemes or one scheme. Applies to all terminals at once.</li>
       <li><b>Windows</b> (shown on Windows only): the shell for new tabs — PowerShell 5.1 or 7, Git Bash, cmd, a WSL distribution — and importing schemes straight from the installed Windows Terminal. The <b>WSL</b> button next to ＋ in the terminal opens a tab of the chosen distribution; it gets TERM, COLORTERM and KUBECONFIG (paths as /mnt/c/…), and the AI command in a WSL tab suggests Linux commands.</li>
-      <li><b>KeePass</b>: “Keep the database open until OpsDeck closes” (on by default) or auto-lock after N minutes idle.</li>
+      <li><b>KeePass</b>: “Keep the database open until OpsDeck closes” (on by default) or auto-lock after N minutes idle. Background alert polling does not count as activity: after the auto-lock, sources with a password from KeePass wait until the database is unlocked.</li>
       <li>Paths to the KeePass database, the notes folder and WinBox are filled in automatically if found in the home folder (candidates — in the field's dropdown).</li>
       <li><b>Kubernetes</b>: by default OpsDeck works only with its own kubeconfig copies; the checkbox also shows the shared ~/.kube/config.</li>
       <li><b>Snippets</b>: commands with {{name}} or {{name:value}} parameters — run via the palette ${kbd("Ctrl+Shift+P")}, the command is pasted into the terminal, you press Enter.</li>

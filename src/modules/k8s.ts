@@ -8,6 +8,8 @@ import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { ask, esc, toast } from "./ui";
 import { age, detailsHtml, jsonPath, statusClass } from "./k8s-details";
+import { decodeSecret } from "./secretval";
+import { findProblems, isSystemNs, issueForAi, runChecks, type Finding, type Issue, type Snapshot } from "./k8s-issues";
 import { registerProvider } from "./palette";
 import { matches, parseSelector, type Term } from "./labelsel";
 import type { OpenTerminalDetail } from "./terminal";
@@ -72,7 +74,7 @@ function memBytes(q?: string): number {
 }
 const fmtMem = (b: number) => (b >= 1024 ** 3 ? `${(b / 1024 ** 3).toFixed(1)}Gi` : `${Math.round(b / 1024 ** 2)}Mi`);
 
-type KindDef = { id: string; label: string; group: string; namespaced: boolean; cols: Col[]; source?: "helm" | "history"; crd?: boolean };
+type KindDef = { id: string; label: string; group: string; namespaced: boolean; cols: Col[]; source?: "helm" | "history" | "issues" | "checks"; crd?: boolean };
 type CrdInfo = { id: string; group: string; version: string; kind: string; plural: string; namespaced: boolean;
   columns: { name: string; type: string; jsonPath: string }[] };
 
@@ -102,7 +104,25 @@ const eventCols: Col[] = [
   { h: "Сообщение", v: (o) => o.message ?? "", cls: () => "wrap" },
   { h: "×", v: (o) => o.count ?? 1, sort: (o) => -(o.count ?? 1) }];
 
+// diagnostics rows: { metadata: { namespace, name: <unique row id> }, d: Issue | Finding }
+const SEV_LABEL: Record<string, string> = { critical: "критично", warning: "внимание", info: "совет" };
+const sevCol: Col = { h: "Важность", v: (o) => SEV_LABEL[o.d.severity], sort: (o) => ({ critical: 0, warning: 1, info: 2 } as Record<string, number>)[o.d.severity],
+  cls: (o) => (o.d.severity === "critical" ? "bad" : o.d.severity === "warning" ? "warn" : "muted") };
+const objCol: Col = { h: "Объект", v: (o) => `${OBJ_KIND[o.d.kind] ?? o.d.kind}/${o.d.name}` };
+const OBJ_KIND: Record<string, string> = { pods: "Pod", deployments: "Deployment", statefulsets: "StatefulSet", daemonsets: "DaemonSet", jobs: "Job", cronjobs: "CronJob",
+  services: "Service", ingresses: "Ingress", persistentvolumeclaims: "PVC" };
+const CAT_LABEL: Record<string, string> = { problem: "сбой", scheduling: "планирование", missing_ref: "нет объекта", network: "сеть",
+  security: "безопасность", reliability: "надёжность", efficiency: "ресурсы" };
+const diagNs: Col = { h: "Namespace", v: (o) => o.metadata.namespace ?? "" };
+const issueCols: Col[] = [sevCol, diagNs, { h: "Приложение", v: (o) => o.d.app }, objCol,
+  { h: "Что не так", v: (o) => o.d.title + (o.d.count > 1 ? ` ×${o.d.count}` : ""), cls: () => "wrap" },
+  { h: "Тип", v: (o) => CAT_LABEL[o.d.category] ?? o.d.category, cls: () => "muted" }];
+const checkCols: Col[] = [sevCol, { h: "Область", v: (o) => CAT_LABEL[o.d.category] ?? o.d.category }, diagNs, objCol,
+  { h: "Проверка", v: (o) => o.d.title, cls: () => "wrap" }];
+
 const KINDS: KindDef[] = [
+  { id: "issues", label: "Проблемы", group: "Диагностика", namespaced: true, source: "issues", cols: issueCols },
+  { id: "checks", label: "Проверки", group: "Диагностика", namespaced: true, source: "checks", cols: checkCols },
   { id: "pods", label: "Pods", group: "Workloads", namespaced: true, cols: [
     name, ns,
     { h: "Ready", v: (o) => { const cs = o.status?.containerStatuses ?? []; return `${cs.filter((c: Obj) => c.ready).length}/${o.spec.containers.length}`; } },
@@ -285,6 +305,12 @@ export function mountK8s(root: HTMLElement) {
         <span class="spacer"></span>
         <button class="ghost" data-act="hist-clear" title="Забыть записанные события этого кластера">Очистить</button>
       </div>
+      <div class="diag-bar" hidden>
+        <span class="diag-sum"></span>
+        <label class="check muted" title="kube-system и другие служебные namespace"><input type="checkbox" class="diag-sys" /> системные namespace</label>
+        <span class="spacer"></span>
+        <span class="diag-note muted"></span>
+      </div>
       <div class="table-wrap"><table class="res"><thead></thead><tbody></tbody></table></div>
       <div class="drawer" hidden>
         <div class="drawer-head">
@@ -321,6 +347,7 @@ export function mountK8s(root: HTMLElement) {
   const ctxList = $(".ctx-list"), kindList = $(".kind-list"), nsSel = $<HTMLSelectElement>(".ns-select");
   const lfilterIn = $<HTMLInputElement>(".lfilter");
   const histBar = $(".hist-bar");
+  const diagBar = $(".diag-bar"), diagSys = $<HTMLInputElement>(".diag-sys");
   const filterIn = $<HTMLInputElement>(".filter"), errBox = $(".k8s-err"), thead = $("thead"), tbody = $("tbody");
   const drawer = $(".drawer"), drawerBody = $(".drawer-body"), countEl = $(".count"), autoCb = $<HTMLInputElement>(".auto-cb");
 
@@ -328,7 +355,9 @@ export function mountK8s(root: HTMLElement) {
   let ctx: CtxInfo | null = null;
   let crdKinds: KindDef[] = [];
   const allKinds = () => [...KINDS, ...crdKinds];
-  let kind = KINDS.find((k) => k.id === store.get("kind")) ?? KINDS[0];
+  // Pods by default (the diagnostics are first in the list, but open only on purpose)
+  const PODS = KINDS.find((k) => k.id === "pods")!;
+  let kind = KINDS.find((k) => k.id === store.get("kind")) ?? PODS;
   let items: Obj[] = [];
   let sortCol = 0, sortDir = 1;
   let selected: string | null = null; // "ns/name"
@@ -534,7 +563,7 @@ export function mountK8s(root: HTMLElement) {
     const saved = store.get("kind");
     const restored = saved?.startsWith("crd:") ? crdKinds.find((k) => k.id === saved) : undefined;
     if (restored) kind = restored;
-    else if (kind.crd && !crdKinds.some((k) => k.id === kind.id)) kind = KINDS[0]; // CRD missing in this cluster
+    else if (kind.crd && !crdKinds.some((k) => k.id === kind.id)) kind = PODS; // CRD missing in this cluster
     renderKinds();
   }
 
@@ -630,7 +659,7 @@ export function mountK8s(root: HTMLElement) {
   async function startWatch() {
     stopWatch();
     if (!ctx) return;
-    if (kind.source === "helm" || kind.source === "history" || !autoCb.checked) return refresh();
+    if (kind.source || !autoCb.checked) return refresh();
     const id = `w${++loadSeq}`;
     watchId = id;
     root.classList.add("loading");
@@ -683,6 +712,7 @@ export function mountK8s(root: HTMLElement) {
       const list = kind.source === "helm"
         ? await invoke<Obj[]>("k8s_helm_releases", { ctx: ref(), namespace: currentNs() || null })
         : kind.source === "history" ? await loadHistory()
+        : kind.source === "issues" || kind.source === "checks" ? await loadDiag(kind.source)
         : await invoke<Obj[]>("k8s_list", { ctx: ref(), kind: kind.id, namespace: currentNs() || null });
       if (seq !== loadSeq) return;
       items = list;
@@ -697,6 +727,36 @@ export function mountK8s(root: HTMLElement) {
       loading = false;
       root.classList.remove("loading");
     }
+  }
+
+  // ----- diagnostics: problems and checks, computed from what the kubeconfig can read -----
+  diagSys.checked = store.get("diag-sys") === "1";
+  diagSys.onchange = () => { store.set("diag-sys", diagSys.checked ? "1" : "0"); refresh(); };
+  async function loadDiag(what: "issues" | "checks"): Promise<Obj[]> {
+    const namespace = currentNs() || null;
+    const denied: string[] = [];
+    const list = (k: string, label: string) => invoke<Obj[]>("k8s_list", { ctx: ref(), kind: k, namespace }).catch(() => { denied.push(label); return [] as Obj[]; });
+    const names = (k: string, label: string) => invoke<{ namespace: string; name: string }[]>("k8s_names", { ctx: ref(), kind: k, namespace }).catch(() => { denied.push(label); return null; });
+    const [pods, deployments, statefulsets, daemonsets, jobs, cronjobs, services, endpointslices, ingresses, pvcs, pdbs, configmaps, secrets] = await Promise.all([
+      list("pods", "Pods"), list("deployments", "Deployments"), list("statefulsets", "StatefulSets"), list("daemonsets", "DaemonSets"),
+      list("jobs", "Jobs"), list("cronjobs", "CronJobs"), list("services", "Services"),
+      list("crd:discovery.k8s.io/v1/endpointslices/EndpointSlice/true", "EndpointSlices"), list("ingresses", "Ingresses"),
+      list("persistentvolumeclaims", "PVC"), list("crd:policy/v1/poddisruptionbudgets/PodDisruptionBudget/true", "PodDisruptionBudgets"),
+      names("configmaps", "ConfigMaps"), names("secrets", "Secrets"),
+    ]);
+    if (!pods.length && denied.length >= 12) throw new Error(t("Нет доступа к объектам кластера — диагностика невозможна"));
+    const snap: Snapshot = { pods, deployments, statefulsets, daemonsets, jobs, cronjobs, services, endpointslices, ingresses, pvcs, pdbs,
+      // without the right to list ConfigMaps/Secrets every reference would look missing: skip that check
+      configmaps: configmaps ?? [], secrets: secrets ?? [], now: Date.now() };
+    let rows: (Issue | Finding)[] = what === "issues" ? findProblems(snap) : runChecks(snap);
+    if (what === "issues" && (!configmaps || !secrets)) rows = rows.filter((r) => r.category !== "missing_ref");
+    if (!diagSys.checked) rows = rows.filter((r) => !isSystemNs(r.namespace));
+    const n = (sev: string) => rows.filter((r) => r.severity === sev).length;
+    diagBar.querySelector(".diag-sum")!.innerHTML = rows.length
+      ? [["critical", "bad"], ["warning", "warn"], ["info", "muted"]].filter(([s]) => n(s)).map(([s, c]) => `<span class="${c}">● ${n(s)} ${esc(t(SEV_LABEL[s]))}</span>`).join(" ")
+      : `<span class="ok">✓ ${esc(t(what === "issues" ? "Проблем не найдено" : "Замечаний нет"))}</span>`;
+    diagBar.querySelector(".diag-note")!.textContent = denied.length ? `${t("Нет прав на чтение")}: ${denied.join(", ")} — ${t("эти проверки пропущены")}` : "";
+    return rows.map((d, i) => ({ metadata: { namespace: d.namespace, name: `${d.kind}/${d.name}#${i}` }, d }));
   }
 
   // ----- event history (#55) -----
@@ -823,6 +883,7 @@ export function mountK8s(root: HTMLElement) {
 
   function render() {
     histBar.hidden = kind.source !== "history";
+    diagBar.hidden = kind.source !== "issues" && kind.source !== "checks";
     const base = kind.namespaced && currentNs() ? kind.cols.filter((c) => c !== ns) : kind.cols;
     // metrics go right before the age column
     const mc = metricCols();
@@ -901,6 +962,28 @@ export function mountK8s(root: HTMLElement) {
     const objNs: string = o.metadata.namespace ?? "";
     $(".obj-title").textContent = `${kind.label.replace(/s$/, "")} ${objNs ? objNs + "/" : ""}${o.metadata.name}`;
 
+    if (kind.source === "issues" || kind.source === "checks") {
+      const d: Issue & Finding = o.d;
+      $(".obj-title").textContent = `${OBJ_KIND[d.kind] ?? d.kind} ${d.namespace ? d.namespace + "/" : ""}${d.name}`;
+      $(".drawer-tabs").innerHTML = "";
+      drawerBody.innerHTML = `<div class="hist-detail">
+        <div><b class="${d.severity === "critical" ? "bad" : d.severity === "warning" ? "warn" : "muted"}">${esc(t(SEV_LABEL[d.severity]))}</b> · ${esc(t(CAT_LABEL[d.category] ?? d.category))}${d.count > 1 ? ` · ×${d.count}` : ""}</div>
+        <h4 class="diag-title">${esc(d.title)}</h4>
+        <p>${esc(d.detail)}</p>
+        ${d.fix ? `<p><b>${esc(t("Как исправить"))}:</b> ${esc(d.fix)}</p>` : ""}</div>`;
+      const actions = $(".drawer-actions");
+      actions.innerHTML = "";
+      const open = document.createElement("button");
+      open.className = "ghost";
+      open.textContent = t("Открыть объект");
+      open.onclick = () => navigateTo(d.kind, d.namespace, d.name);
+      const ai = document.createElement("button");
+      ai.className = "ghost";
+      ai.textContent = "⇢ AI";
+      ai.onclick = () => window.dispatchEvent(new CustomEvent("send-to-ai", { detail: issueForAi(d, ctx?.context ?? "") }));
+      actions.append(open, ai);
+      return;
+    }
     if (kind.source === "history") {
       // a recorded event: its text and where it came from; the object itself may be long gone
       $(".obj-title").textContent = `${o.involvedObject?.kind ?? ""} ${objNs ? objNs + "/" : ""}${o.involvedObject?.name ?? ""}`;
@@ -1047,14 +1130,30 @@ export function mountK8s(root: HTMLElement) {
     el.onclick = (e) => {
       const a = (e.target as HTMLElement).closest<HTMLElement>(".dlink");
       if (a) return navigateTo(a.dataset.kind!, a.dataset.ns ?? "", a.dataset.name!);
-      const key = (e.target as HTMLElement).closest<HTMLElement>("[data-secret]")?.dataset.secret;
-      if (!key) return;
-      let text: string;
-      try { text = new TextDecoder().decode(Uint8Array.from(atob(o.data[key]), (c) => c.charCodeAt(0))); } catch { text = "(не удалось декодировать)"; }
-      const code = document.createElement("code");
+      const btn = (e.target as HTMLElement).closest<HTMLElement>("[data-secret]");
+      if (!btn) return;
+      // the value goes under its key on the full width of the table (a narrow cell broke long values into a column of letters)
+      const tr = btn.closest("tr")!;
+      if (tr.nextElementSibling?.classList.contains("secret-row")) {
+        tr.nextElementSibling.remove();
+        btn.textContent = "показать";
+        return;
+      }
+      const v = decodeSecret(o.data[btn.dataset.secret!]);
+      const row = document.createElement("tr");
+      row.className = "secret-row";
+      const td = row.appendChild(document.createElement("td"));
+      td.colSpan = 3;
+      if (v.binary) {
+        const note = td.appendChild(document.createElement("div"));
+        note.className = "muted secret-note";
+        note.textContent = v.size ? `Бинарные данные, ${v.size} байт — base64:` : "Не base64 — значение как есть:";
+      }
+      const code = td.appendChild(document.createElement("pre"));
       code.className = "secret-value";
-      code.textContent = text;
-      (e.target as HTMLElement).replaceWith(code);
+      code.textContent = v.text;
+      tr.after(row);
+      btn.textContent = "скрыть";
       detailsVersion = "pinned"; // keep the revealed value until the object actually changes
     };
   }
@@ -1429,7 +1528,7 @@ export function mountK8s(root: HTMLElement) {
 
   // Helm has no watch API: poll it; metrics are sampled by metrics-server every ~15 s anyway
   setInterval(() => {
-    if (!root.hidden && autoCb.checked && !document.hidden && (kind.source === "helm" || kind.source === "history")) refresh();
+    if (!root.hidden && autoCb.checked && !document.hidden && kind.source) refresh();
   }, 30000);
   // only while the view is open: an unreachable cluster shouldn't be hammered in the background
   // nodes: every 5 s (live view); pods: every 15 s

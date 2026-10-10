@@ -4,16 +4,19 @@ import { locale } from "../i18n";
 import { helpBtn } from "./help";
 import { icon } from "./icons";
 import { invoke } from "@tauri-apps/api/core";
-import { ask, esc, toast } from "./ui";
+import { ask, esc, popupMenu, toast } from "./ui";
 import { registerProvider } from "./palette";
 import { terminalApi } from "./terminal";
 import { hcl, hclBalance } from "./hcl";
 import { PtyTerminal } from "./pty";
+import { cdCommand } from "./shellkind";
+import { diffContext, fileContext, projectContext } from "./aictx";
 import { attachPathLinks } from "./files";
 import { fileIcon, folderIcon } from "./fileicons";
 import { basicSetup } from "codemirror";
 import { EditorView, keymap } from "@codemirror/view";
-import { Compartment, EditorState, type Extension } from "@codemirror/state";
+import { Compartment, EditorState, Prec, type Extension } from "@codemirror/state";
+import { openSearchPanel } from "@codemirror/search";
 import { StreamLanguage, indentUnit } from "@codemirror/language";
 import { linter, lintGutter, type Diagnostic } from "@codemirror/lint";
 import { indentWithTab } from "@codemirror/commands";
@@ -35,6 +38,7 @@ import { diff } from "@codemirror/legacy-modes/mode/diff";
 import { properties } from "@codemirror/legacy-modes/mode/properties";
 import { nginx } from "@codemirror/legacy-modes/mode/nginx";
 import { parseAllDocuments } from "yaml";
+import { natCmp } from "./natsort";
 
 type Entry = { name: string; dir: boolean; link: boolean; size: number };
 type Git = { root: string; branch: string; files: Record<string, string>; error?: string };
@@ -65,7 +69,6 @@ const ls = {
 const base = (p: string) => p.replace(/\/+$/, "").split("/").pop() || p;
 const join = (dir: string, name: string) => (dir.endsWith("/") ? dir + name : `${dir}/${name}`);
 const isTf = (p: string | null) => !!p && /\.(tf|tfvars|hcl)$/i.test(p);
-const shq = (p: string) => (/^[\w@%+=:,./~-]+$/.test(p) ? p : `'${p.replace(/'/g, `'\\''`)}'`);
 const ago = (t: number) => {
   const d = Date.now() / 1000 - t;
   return d < 3600 ? `${Math.max(1, Math.round(d / 60))} мин` : d < 86400 ? `${Math.round(d / 3600)} ч` : d < 86400 * 60 ? `${Math.round(d / 86400)} дн` : new Date(t * 1000).toLocaleDateString(locale());
@@ -142,6 +145,7 @@ export function mountCode(root: HTMLElement) {
     <div class="code-main">
       <div class="code-tabs"></div>
       <div class="code-editor"></div>
+      <div class="code-pipe" hidden></div>
       <div class="code-empty muted">Откройте папку проекта и выберите файл слева. ${"Ctrl+S"} — сохранить, ${"Ctrl+Shift+F"} — terraform fmt.</div>
       <div class="code-hsplit" hidden title="Потяните, чтобы изменить высоту консоли"></div>
       <div class="code-console" hidden>
@@ -156,7 +160,9 @@ export function mountCode(root: HTMLElement) {
         <span class="spacer"></span>
         <span class="cs-tf muted"></span>
         <button class="ghost" data-a="fmt" hidden title="terraform fmt (Ctrl+Shift+F); при сохранении выполняется сам">fmt</button>
+        <button class="ghost" data-a="ai" title="Спросить ИИ о файле, проекте или изменениях: контекст уйдёт в AI-панель (локальный ИИ или выбранный агент)">⇢ AI ▾</button>
         <button class="ghost" data-a="console" title="Консоль в папке проекта (Ctrl+\`)">▭ консоль</button>
+        <button class="ghost" data-a="pipeline" hidden title="Граф пайплайна: что и в каком порядке запустится в GitLab CI или GitHub Actions для выбранной ветки и события">⛓ pipeline</button>
         <button class="ghost" data-a="git-toggle" title="Показать/скрыть панель git">⎇ git</button>
       </div>
     </div>
@@ -182,7 +188,7 @@ export function mountCode(root: HTMLElement) {
     </aside>`;
 
   const $ = <T extends HTMLElement = HTMLElement>(s: string) => root.querySelector<T>(s)!;
-  const treeEl = $(".code-tree"), tabsEl = $(".code-tabs"), host = $(".code-editor"), empty = $(".code-empty");
+  const treeEl = $(".code-tree"), tabsEl = $(".code-tabs"), host = $(".code-editor"), empty = $(".code-empty"), pipeEl = $(".code-pipe");
   const gitPanel = $(".code-git"), recentSel = $<HTMLSelectElement>(".code-recent");
 
   let project = ls.get("opsdeck.code.root") ?? "";
@@ -225,11 +231,20 @@ export function mountCode(root: HTMLElement) {
       basicSetup,
       oneDark,
       indentUnit.of("  "),
-      keymap.of([
-        indentWithTab,
-        { key: "Mod-s", preventDefault: true, run: () => { save(); return true; } },
-        { key: "Mod-Shift-f", preventDefault: true, run: () => { fmt(); return true; } },
-      ]),
+      keymap.of([indentWithTab]),
+      // by physical key (event.code): CodeMirror's own bindings go by the typed letter, so Ctrl+S / Ctrl+F
+      // did nothing on the Russian layout
+      Prec.highest(EditorView.domEventHandlers({
+        keydown(e, v) {
+          if (!(e.ctrlKey || e.metaKey) || e.altKey) return false;
+          if (e.code === "KeyS" && !e.shiftKey) save();
+          else if (e.code === "KeyF" && e.shiftKey) fmt();
+          else if (e.code === "KeyF") openSearchPanel(v);
+          else return false;
+          e.preventDefault();
+          return true;
+        },
+      })),
       EditorView.updateListener.of((u) => {
         if (u.docChanged && active) markDirty(active);
         if (u.selectionSet || u.docChanged) syncPos();
@@ -263,8 +278,9 @@ export function mountCode(root: HTMLElement) {
     if (active && active !== t) active.state = view.state;
     active = t;
     tabs.forEach((x) => x.btn.classList.toggle("active", x === t));
-    empty.hidden = !!t;
-    host.hidden = !t;
+    empty.hidden = !!t || !pipeEl.hidden;
+    host.hidden = !t || !pipeEl.hidden;
+    if (t && !pipeEl.hidden) closePipeline();
     if (t) {
       view.setState(t.state);
       t.btn.scrollIntoView({ block: "nearest", inline: "nearest" });
@@ -409,6 +425,10 @@ export function mountCode(root: HTMLElement) {
     $(".code-proj").textContent = base(project);
     $(".code-proj").title = project;
     await Promise.all([readDir(project), ...[...expanded].filter((d) => d.startsWith(project)).map(readDir)]);
+    // the pipeline button appears only in a project that has CI files
+    const top = listing.get(project);
+    const hasCi = Array.isArray(top) && top.some((e) => e.name === ".gitlab-ci.yml" || (e.dir && e.name === ".github"));
+    $("[data-a=pipeline]").hidden = !hasCi;
     await refreshGit(false);
     drawTree();
   }
@@ -444,8 +464,7 @@ export function mountCode(root: HTMLElement) {
     listing.clear();
     await loadTree();
     if (!gitPanel.hidden) drawGit();
-    // the console follows the project
-    if (con) { con.send(`cd -- ${shq(project)}\r`); $(".cc-cwd").textContent = project; }
+    followConsole();
   }
   function fillRecent() {
     const recent = JSON.parse(ls.get("opsdeck.code.recent") ?? "[]") as string[];
@@ -466,20 +485,251 @@ export function mountCode(root: HTMLElement) {
     if (cwd) setProject(cwd); else toast("Не знаю папку терминала: нужна вкладка с bash/zsh из OpsDeck", "err");
   };
   $("[data-a=refresh]").onclick = () => { listing.clear(); loadTree(); };
-  $("[data-a=new-file]").onclick = async () => {
+  async function newEntry(dir: string) {
     if (!project) return toast("Сначала откройте проект", "err");
-    const name = await ask("Новый файл", `Путь внутри «${base(project)}» (папки через /; на конце / — создать папку):`, { input: "", ok: "Создать" });
+    const name = await ask("Новый файл", `Путь внутри «${base(dir)}» (папки через /; на конце / — создать папку):`, { input: "", ok: "Создать" });
     if (!name?.trim()) return;
     const rel = name.trim().replace(/^\/+/, "");
-    const abs = join(project, rel.replace(/\/+$/, ""));
+    const abs = join(dir, rel.replace(/\/+$/, ""));
     try {
       await invoke("code_create", { path: abs, dir: rel.endsWith("/") });
+      expanded.add(dir);
       listing.clear();
       await loadTree();
       if (!rel.endsWith("/")) openFile(abs);
     } catch (e) { toast(String(e), "err"); }
-  };
+  }
+  $("[data-a=new-file]").onclick = () => newEntry(project);
+
+  // ----- context menu on the tree: new / rename / copy, paste / delete -----
+  let clip: { path: string } | null = null;
+  const dirOf = (p: string) => p.slice(0, p.lastIndexOf("/")) || "/";
+  const within = (p: string, parent: string) => p === parent || p.startsWith(parent + "/");
+
+  /** `name`, or "name копия.ext", "name копия 2.ext" … when that name is taken in `dir`. */
+  async function freeName(dir: string, name: string): Promise<string> {
+    await readDir(dir);
+    const l = listing.get(dir);
+    const taken = new Set(typeof l === "string" || !l ? [] : l.map((e) => e.name));
+    if (!taken.has(name)) return name;
+    const dot = name.lastIndexOf(".");
+    const [stem, ext] = dot > 0 ? [name.slice(0, dot), name.slice(dot)] : [name, ""];
+    for (let n = 1; ; n++) {
+      const c = `${stem} копия${n > 1 ? " " + n : ""}${ext}`;
+      if (!taken.has(c)) return c;
+    }
+  }
+
+  /** Open tabs follow a renamed file or folder. */
+  function retarget(from: string, to: string) {
+    for (const t of tabs) {
+      if (!t.path || !within(t.path, from)) continue;
+      t.path = t.id = to + t.path.slice(from.length);
+      t.title = base(t.path);
+      t.btn.querySelector(".label")!.textContent = t.title;
+      t.btn.title = t.path;
+    }
+    for (const d of [...expanded]) if (within(d, from)) { expanded.delete(d); expanded.add(to + d.slice(from.length)); }
+    ls.set("opsdeck.code.expanded", JSON.stringify([...expanded]));
+    activate(active);
+  }
+
+  async function renameEntry(path: string) {
+    const old = base(path);
+    const name = (await ask("Переименовать", `Новое имя для «${old}»:`, { input: old, ok: "Переименовать" }))?.trim();
+    if (!name || name === old) return;
+    if (/[\\/]/.test(name) || name === "." || name === "..") return toast("В имени не должно быть / и \\", "err");
+    const to = join(dirOf(path), name);
+    try {
+      await invoke("code_rename", { root: project, from: path, to });
+      retarget(path, to);
+      listing.clear();
+      await loadTree();
+    } catch (e) { toast(String(e), "err"); }
+  }
+
+  async function pasteInto(dir: string) {
+    if (!clip) return;
+    try {
+      const to = join(dir, await freeName(dir, base(clip.path)));
+      await invoke("code_copy", { root: project, from: clip.path, to });
+      expanded.add(dir);
+      listing.clear();
+      await loadTree();
+      toast(`Скопировано: ${base(to)}`);
+    } catch (e) { toast(String(e), "err"); }
+  }
+
+  async function deleteEntry(path: string, isDir: boolean) {
+    const unsaved = tabs.filter((t) => t.path && within(t.path, path) && isDirty(t)).length;
+    const msg = `Удалить ${isDir ? "папку" : "файл"} «${base(path)}»${isDir ? " со всем содержимым" : ""}? Корзины нет — вернуть можно только из git.${unsaved ? ` Несохранённых вкладок: ${unsaved}.` : ""}`;
+    if ((await ask(isDir ? "Удалить папку" : "Удалить файл", msg, { ok: "Удалить", danger: true })) === null) return;
+    try {
+      await invoke("code_delete", { root: project, path });
+      for (const t of tabs.filter((x) => x.path && within(x.path, path))) {
+        const i = tabs.indexOf(t);
+        tabs.splice(i, 1);
+        t.btn.remove();
+        if (active === t) active = null;
+      }
+      if (clip && within(clip.path, path)) clip = null;
+      if (!active) activate(tabs[tabs.length - 1] ?? null); else activate(active);
+      listing.clear();
+      await loadTree();
+    } catch (e) { toast(String(e), "err"); }
+  }
+
+  treeEl.addEventListener("contextmenu", (e) => {
+    if (!project) return;
+    e.preventDefault();
+    const row = (e.target as HTMLElement).closest<HTMLElement>(".ct-row");
+    const file = row?.dataset.f ?? null;
+    const dirPath = row && !file ? row.parentElement?.dataset.p ?? null : null;
+    const target = file ?? dirPath;
+    const into = dirPath ?? (file ? dirOf(file) : project);
+    const items: [string, () => void, boolean?][] = [];
+    if (file) items.push(["Открыть", () => openFile(file)]);
+    items.push(["＋ Новый файл или папка…", () => newEntry(into)]);
+    if (target) {
+      items.push(["Переименовать…", () => renameEntry(target)]);
+      items.push(["Копировать", () => { clip = { path: target }; toast(`Скопировано: ${base(target)} — «Вставить» в нужной папке`); }]);
+    }
+    if (clip) items.push([`Вставить «${base(clip.path)}»`, () => pasteInto(into)]);
+    if (target) items.push([file ? "Удалить файл" : "Удалить папку", () => deleteEntry(target, !file), true]);
+    popupMenu({ left: e.clientX, top: e.clientY, bottom: e.clientY }, items);
+  });
   $("[data-a=fmt]").onclick = () => fmt();
+
+  // ----- the pipeline graph (GitLab CI / GitHub Actions) -----
+  let pipe: Awaited<ReturnType<typeof import("./pipeview")["mountPipeline"]>> | null = null;
+  let pipeTab: HTMLElement | null = null;
+  function closePipeline() {
+    pipeEl.hidden = true;
+    pipeTab?.remove();
+    pipeTab = null;
+    $("[data-a=pipeline]").classList.remove("on");
+    host.hidden = !active;
+    empty.hidden = !!active;
+  }
+  /** Files of the pipeline: .gitlab-ci.yml with everything it includes, or .github/workflows/*.yml. */
+  async function pipelineFiles(): Promise<{ kind: "gitlab" | "github"; files: Record<string, string>; workflows: string[] }> {
+    const read = async (rel: string) => (await invoke<{ text: string }>("code_read", { path: join(project, rel) }).catch(() => null))?.text;
+    const files: Record<string, string> = {};
+    const root = await invoke<Entry[]>("fs_list", { path: project, hidden: true }).catch(() => [] as Entry[]);
+    if (root.some((e) => e.name === ".gitlab-ci.yml")) {
+      files[".gitlab-ci.yml"] = (await read(".gitlab-ci.yml")) ?? "";
+      // every yml of the .gitlab folder: include: local points inside it
+      const walk = async (dir: string, depth = 0) => {
+        if (depth > 3) return;
+        for (const e of await invoke<Entry[]>("fs_list", { path: join(project, dir), hidden: true }).catch(() => [] as Entry[])) {
+          const rel = `${dir}/${e.name}`;
+          if (e.dir) await walk(rel, depth + 1);
+          else if (/\.ya?ml$/i.test(e.name)) files[rel] = (await read(rel)) ?? "";
+        }
+      };
+      if (root.some((e) => e.dir && e.name === ".gitlab")) await walk(".gitlab");
+      if (root.some((e) => e.dir && e.name === "ci")) await walk("ci");
+      return { kind: "gitlab", files, workflows: [] };
+    }
+    const wf = await invoke<Entry[]>("fs_list", { path: join(project, ".github/workflows"), hidden: true }).catch(() => [] as Entry[]);
+    for (const e of wf) if (!e.dir && /\.ya?ml$/i.test(e.name)) files[`.github/workflows/${e.name}`] = (await read(`.github/workflows/${e.name}`)) ?? "";
+    return { kind: "github", files, workflows: Object.keys(files) };
+  }
+  let pipeWorkflow = "";
+  async function openPipeline() {
+    if (!project) return toast("Сначала откройте проект", "err");
+    if (!pipeEl.hidden) return closePipeline();
+    const { mountPipeline } = await import("./pipeview");
+    const { parseGitlab, parseGithub } = await import("./pipeline");
+    const { kind, files, workflows } = await pipelineFiles();
+    if (!Object.keys(files).length) return toast("В проекте нет .gitlab-ci.yml и .github/workflows", "err");
+    pipe ??= mountPipeline(pipeEl);
+    if (kind === "github" && (!pipeWorkflow || !workflows.includes(pipeWorkflow))) pipeWorkflow = workflows[0];
+    let p = kind === "gitlab" ? parseGitlab(files) : parseGithub(pipeWorkflow, files[pipeWorkflow]);
+    // an include: local from a folder we did not read: fetch exactly those files and parse again
+    for (let round = 0; round < 3 && kind === "gitlab"; round++) {
+      const local = p.unresolved.filter((u) => !/:\/\/|: /.test(u) && /\.ya?ml$/i.test(u) && !(u in files));
+      if (!local.length) break;
+      await Promise.all(local.map(async (rel) => {
+        const r = await invoke<{ text: string }>("code_read", { path: join(project, rel) }).catch(() => null);
+        if (r) files[rel] = r.text;
+      }));
+      if (!local.some((rel) => rel in files)) break;
+      p = parseGitlab(files);
+    }
+    // the tab, so it is clear what is open and it can be closed
+    if (!pipeTab) {
+      pipeTab = document.createElement("div");
+      pipeTab.className = "tab code-tab active";
+      pipeTab.innerHTML = `<span class="ct-ico">⛓</span><span class="label"></span><span class="x" title="Закрыть">×</span>`;
+      pipeTab.querySelector<HTMLElement>(".x")!.onclick = (e) => { e.stopPropagation(); closePipeline(); };
+      tabsEl.appendChild(pipeTab);
+    }
+    pipeTab.querySelector(".label")!.textContent = kind === "gitlab" ? "GitLab CI" : (p.name ?? pipeWorkflow.split("/").pop() ?? "workflow");
+    tabs.forEach((x) => x.btn.classList.remove("active"));
+    pipeEl.hidden = false;
+    host.hidden = true;
+    empty.hidden = true;
+    $("[data-a=pipeline]").classList.add("on");
+    const branches = await invoke<Branches>("code_git_branches", { root: git.root || project }).catch(() => null);
+    const names = branches ? [branches.current, ...branches.local.map((b) => b.name)].filter((v, i, a) => v && a.indexOf(v) === i) : [git.branch].filter(Boolean);
+    // several workflows: a picker above the graph
+    const picker = workflows.length > 1
+      ? `<label class="inline">Workflow <select class="pipe-wf">${workflows.map((w) => `<option value="${esc(w)}"${w === pipeWorkflow ? " selected" : ""}>${esc(w.split("/").pop()!)}</option>`).join("")}</select></label>` : "";
+    pipe.show(p, {
+      branches: names, defaultBranch: names.includes("main") ? "main" : names.includes("master") ? "master" : names[0] ?? "main",
+      onOpen: (job) => { closePipeline(); openFile(join(project, job.file), job.line); },
+      onAi: (text) => window.dispatchEvent(new CustomEvent("send-to-ai", { detail: text })),
+    });
+    const bar = pipeEl.querySelector(".pipe-bar")!;
+    bar.querySelector(".pipe-wf-l")?.remove();
+    if (picker) {
+      const wrap = document.createElement("span");
+      wrap.className = "pipe-wf-l";
+      wrap.innerHTML = picker;
+      bar.prepend(wrap);
+      wrap.querySelector<HTMLSelectElement>(".pipe-wf")!.onchange = (e) => { pipeWorkflow = (e.target as HTMLSelectElement).value; pipeEl.hidden = true; openPipeline(); };
+    }
+  }
+  $("[data-a=pipeline]").onclick = () => openPipeline();
+
+  // ----- ask the AI about the file / project / changes: the context goes to the AI panel -----
+  async function askAi(kind: "file" | "project" | "diff") {
+    if (!project) return toast("Сначала откройте проект", "err");
+    let detail = "";
+    if (kind === "file") {
+      if (!active) return toast("Откройте файл", "err");
+      const st = view.state, sel = st.selection.main, name = active.path ?? active.title;
+      detail = sel.empty
+        ? fileContext(name, st.doc.toString(), null)
+        : fileContext(name, st.sliceDoc(sel.from, sel.to), { from: st.doc.lineAt(sel.from).number, to: st.doc.lineAt(sel.to).number });
+    } else if (kind === "project") {
+      const names = async (dir: string) => {
+        const l = await invoke<Entry[]>("fs_list", { path: dir, hidden: true }).catch(() => [] as Entry[]);
+        return l.filter((e) => !(e.dir && HIDE.has(e.name))).map((e) => (e.dir ? `${e.name}/` : e.name));
+      };
+      const top = await names(project);
+      const tree: Record<string, string[]> = { "": top };
+      await Promise.all(top.filter((n) => n.endsWith("/")).slice(0, 12).map(async (n) => { tree[n.slice(0, -1)] = await names(join(project, n.slice(0, -1))); }));
+      await refreshGit(false);
+      detail = projectContext({ name: base(project), path: project, branch: git.branch, tree, changes: git.files });
+    } else {
+      await refreshGit(false);
+      const files = Object.keys(git.files);
+      if (!git.root || !files.length) return toast("Нет незакоммиченных изменений", "err");
+      const diffs = await Promise.all(files.slice(0, 5).map(async (file) => ({ file, diff: await invoke<string>("code_git_diff", { root: git.root, file }).catch((x) => String(x)) })));
+      detail = diffContext(project, diffs, files.length);
+    }
+    window.dispatchEvent(new CustomEvent("send-to-ai", { detail }));
+  }
+  $("[data-a=ai]").onclick = (e) => {
+    const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    popupMenu({ left: r.left, top: r.top, bottom: r.bottom }, [
+      ["О файле (или выделенном фрагменте)", () => askAi("file")],
+      ["О проекте: структура и git status", () => askAi("project")],
+      ["Проверить изменения (git diff)", () => askAi("diff")],
+    ]);
+  };
 
   // ----- git panel -----
   async function refreshGit(redraw = true) {
@@ -493,7 +743,7 @@ export function mountCode(root: HTMLElement) {
     $(".cg-branch").textContent = git.root ? git.branch || "detached" : git.error ? "git недоступен" : "не git-репозиторий";
     $(".cg-branch").closest<HTMLElement>("button")!.title = git.error || "Ветки: переключить, создать, слить, удалить";
     $(".cg-commit-box").hidden = !git.root || !Object.keys(git.files).length;
-    const files = Object.entries(git.files).sort(([a], [b]) => a.localeCompare(b));
+    const files = Object.entries(git.files).sort(([a], [b]) => natCmp(a, b));
     $(".cg-changes").innerHTML = !git.root ? (git.error ? `<p class="err pad">${esc(git.error)}</p>` : "") : files.length
       ? files.map(([f, code]) => `<div class="cg-file ${stClass(code)}" data-file="${esc(f)}" title="${esc(f)} — показать изменения">
           <span class="ct-st">${esc(code.trim() || "M")}</span><span class="ct-ico">${fileIcon(f)}</span><span class="tree-label">${esc(base(f))}</span><span class="cg-dir muted">${esc(f.includes("/") ? f.slice(0, f.lastIndexOf("/")) : "")}</span></div>`).join("")
@@ -738,13 +988,25 @@ export function mountCode(root: HTMLElement) {
 
   // ----- mini console in the project folder -----
   let con: PtyTerminal | null = null;
+  let conDead = false;
   function startConsole() {
     const hostEl = $(".cc-host");
     hostEl.innerHTML = "";
-    con = new PtyTerminal(hostEl, { cwd: project || undefined });
-    attachPathLinks(con);
+    conDead = false;
+    const c = (con = new PtyTerminal(hostEl, { cwd: project || undefined }));
+    attachPathLinks(c);
     $(".cc-cwd").textContent = project || "~";
-    con.onExit = () => { $(".cc-cwd").textContent = `${project || "~"} — shell завершён, ↻ — запустить снова`; };
+    c.onExit = () => { conDead = true; $(".cc-cwd").textContent = `${project || "~"} — shell завершён, ↻ — запустить снова`; };
+  }
+  /** The console goes to the folder of a newly opened project: typed `cd` for an idle shell, a fresh shell otherwise. */
+  function followConsole() {
+    if (!con) return; // not started yet: it will start in the project folder
+    if (conDead || !con.launched) { con.dispose(); startConsole(); return; }
+    const line = cdCommand(con.launched, project);
+    if (line === null) return toast("Консоль в WSL: перейдите в папку проекта вручную", "err");
+    if (con.blocks.running) return toast(`В консоли идёт «${con.blocks.running}» — папку не меняю, чтобы не набрать cd в программу`, "err");
+    con.send(line + "\r");
+    $(".cc-cwd").textContent = project;
   }
   function toggleConsole(show?: boolean) {
     const vis = show ?? consoleEl.hidden;
@@ -761,6 +1023,15 @@ export function mountCode(root: HTMLElement) {
   root.querySelectorAll<HTMLElement>("[data-a=console]").forEach((b) => (b.onclick = () => toggleConsole()));
   $("[data-a=cc-restart]").onclick = () => { con?.dispose(); con = null; startConsole(); con!.term.focus(); };
   $("[data-a=cc-tab]").onclick = () => window.dispatchEvent(new CustomEvent("open-terminal", { detail: { cwd: project || undefined } }));
+  // Ctrl+F with the focus outside the editor (the tree, an empty tab bar): search in the open file
+  window.addEventListener("keydown", (e) => {
+    if (root.hidden || !active || !(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey || e.code !== "KeyF") return;
+    const t = e.target as HTMLElement;
+    if (view.dom.contains(t) || t.closest("input, textarea, select, .code-console, dialog")) return;
+    e.preventDefault();
+    openSearchPanel(view);
+    view.focus();
+  });
   // Ctrl+` (the key left of 1 on any layout) toggles the console while the IDE is shown
   window.addEventListener("keydown", (e) => {
     if (root.hidden || !e.ctrlKey || e.code !== "Backquote") return;

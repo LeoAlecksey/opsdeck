@@ -111,3 +111,23 @@ test.describe("monitoring board: fresh install", () => {
     await expect(page.locator('#sidebar button[data-view="monitor"]')).toBeHidden();
   });
 });
+
+const host = (id: string, name: string, group: string) => ({ id, name, group, host: `192.0.2.${id.slice(1)}`, port: 22, user: "ops", identity_file: "", jump: "", auth: "key", keepass_entry: "" });
+test.describe("monitoring board: many groups", () => {
+  test.use({ demo: { overrides: { ssh_list: {
+    hosts: [host("n1", "mng-10-1", "TL-10"), host("n2", "mng-2-1", "TL-2"), host("n3", "mng-1-3", "TL-1"), host("n4", "mng-1-20", "TL-1"), host("n5", "mng-1-4", "TL-1")],
+    config: [],
+  } } } });
+
+  test("groups and hosts are in natural order (TL-2 before TL-10) and flow side by side", async ({ app, page }) => {
+    await app.view("monitor");
+    await pickHosts(page, ["mng-10-1", "mng-2-1", "mng-1-3", "mng-1-20", "mng-1-4"]);
+    await expect(page.locator(".mon-card")).toHaveCount(5);
+    expect(await page.locator(".mon-group .side-head").allTextContents()).toEqual(["TL-1", "TL-2", "TL-10"]);
+    expect(await page.locator('.mon-group[data-g="TL-1"] .mon-head b').allTextContents()).toEqual(["mng-1-3", "mng-1-4", "mng-1-20"]);
+    // the small groups TL-2 and TL-10 sit next to each other instead of one under another
+    const [a, b] = await Promise.all([page.locator('.mon-group[data-g="TL-2"]').boundingBox(), page.locator('.mon-group[data-g="TL-10"]').boundingBox()]);
+    expect(Math.abs(a!.y - b!.y)).toBeLessThan(4);
+    expect(b!.x).toBeGreaterThan(a!.x);
+  });
+});

@@ -1,0 +1,27 @@
+# Test Passbolt CE server for the Passbolt integration. Local only; the passwords are test values.
+#   docker compose -f tests/passbolt/docker-compose.yml up -d
+#   (cd tests/passbolt/seed && go run .)     # users, keys, resources v4/v5, TOTP → tests/passbolt/.env.test
+services:
+  db:
+    image: mariadb:10.11
+    restart: unless-stopped
+    environment:
+      MYSQL_RANDOM_ROOT_PASSWORD: 'true'
+      MYSQL_DATABASE: passbolt
+      MYSQL_USER: passbolt
+      MYSQL_PASSWORD: passbolt
+
+  passbolt:
+    image: passbolt/passbolt:5.11.0-1-ce
+    restart: unless-stopped
+    depends_on: [db]
+    environment:
+      # the JWT login challenge carries this domain; a client sending another one is refused
+      APP_FULL_BASE_URL: http://127.0.0.1:8090
+      PASSBOLT_SSL_FORCE: 'false'
+      DATASOURCES_DEFAULT_HOST: db
+      DATASOURCES_DEFAULT_USERNAME: passbolt
+      DATASOURCES_DEFAULT_PASSWORD: passbolt
+      DATASOURCES_DEFAULT_DATABASE: passbolt
+    command: ['/usr/bin/wait-for.sh', '-t', '0', 'db:3306', '--', '/docker-entrypoint.sh']
+    ports: ['127.0.0.1:8090:80']

@@ -6,7 +6,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { marked } from "marked";
 import DOMPurify from "dompurify";
 import { listen } from "@tauri-apps/api/event";
-import { ask, esc, toast } from "./ui";
+import { ask, esc, popupMenu, toast } from "./ui";
 import { registerProvider } from "./palette";
 import { fileIcon, folderIcon } from "./fileicons";
 import { setFrontTags, tagsOf, taskDialog, ymd } from "./taskkit";
@@ -642,20 +642,6 @@ export function mountNotes(root: HTMLElement) {
     window.addEventListener("pointerup", up);
   });
   // ----- context menu on notes and folders: new note here / rename / delete -----
-  function popup(rect: { left: number; top: number; bottom: number }, items: [string, () => void, boolean?][]) {
-    document.querySelector(".ctx-menu")?.remove();
-    const m = document.createElement("div");
-    m.className = "ctx-menu";
-    m.innerHTML = items.map(([label, , danger], i) => `<div class="ctx-item ${danger ? "danger" : ""}" data-i="${i}">${esc(label)}</div>`).join("");
-    document.body.appendChild(m);
-    const x = Math.min(rect.left, window.innerWidth - m.offsetWidth - 8);
-    const y = rect.bottom + m.offsetHeight > window.innerHeight ? rect.top - m.offsetHeight : rect.bottom;
-    m.style.left = `${x}px`;
-    m.style.top = `${Math.max(4, y)}px`;
-    m.onclick = (e) => { const i = (e.target as HTMLElement).closest<HTMLElement>("[data-i]")?.dataset.i; m.remove(); if (i !== undefined) items[Number(i)][1](); };
-    setTimeout(() => document.addEventListener("click", () => m.remove(), { once: true }), 0);
-  }
-
   function itemMenu(el: HTMLElement, rect: { left: number; top: number; bottom: number }) {
     const note = el.classList.contains("note-item") ? el.dataset.p! : null;
     const dir = note ? null : el.parentElement?.dataset.dir ?? null;
@@ -666,7 +652,7 @@ export function mountNotes(root: HTMLElement) {
     if (note) items.push(["Открыть", () => openNote(note)]);
     items.push(["Переименовать…", () => renameItem(path, !!note)]);
     items.push([note ? "Удалить заметку" : "Удалить папку", () => deleteItem(path, !!note), true]);
-    popup(rect, items);
+    popupMenu(rect, items);
   }
   listEl.addEventListener("contextmenu", (e) => {
     const el = (e.target as HTMLElement).closest<HTMLElement>(".note-item:not(.hit), .tree-dir[data-dir] > .tree-row");

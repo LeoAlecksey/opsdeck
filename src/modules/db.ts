@@ -2,12 +2,15 @@ import { helpBtn } from "./help";
 import { icon } from "./icons";
 import { invoke } from "@tauri-apps/api/core";
 import { kpEntries, kpStatus, pickEntry } from "./keepass";
+import { pbTitles, pickEntry as pickPassbolt } from "./passbolt";
 import { ask, esc, toast } from "./ui";
 import { registerProvider } from "./palette";
+import { targets } from "./monitor";
+import { natCmp } from "./natsort";
 
 type Profile = {
   id: string; name: string; group: string; engine: string; host: string; port: number; database: string;
-  username: string; auth: string; keepass_entry: string; tls: string; readonly: boolean; options: string;
+  username: string; auth: string; keepass_entry: string; passbolt_entry: string; tls: string; readonly: boolean; options: string; jump?: string;
 };
 type DbNode = { name: string; kind: string; detail: string; leaf: boolean; query: string | null };
 type Result = {
@@ -22,7 +25,7 @@ const ENGINES: Record<string, { label: string; short: string; port: number; tlsP
   redis: { label: "Redis", short: "R", port: 6379, db: "Номер базы", dbHint: "0", sample: "INFO server" },
   mongodb: { label: "MongoDB", short: "M", port: 27017, db: "База по умолчанию", dbHint: "admin", sample: "show dbs" },
 };
-const AUTH: Record<string, string> = { password: "пароль (keyring)", keepass: "из KeePass", none: "без пароля" };
+const AUTH: Record<string, string> = { password: "пароль (keyring)", keepass: "из KeePass", passbolt: "из Passbolt", none: "без пароля" };
 const TLS: Record<string, string> = { off: "без TLS", require: "TLS, сертификат не проверять", verify: "TLS с проверкой сертификата" };
 const KIND_ICON: Record<string, string> = {
   database: icon("db", 14), schema: "▤", table: "▦", view: "◫", column: "·", index: icon("zap", 14), key: icon("key", 14), collection: "▦", field: "·", info: "ℹ",
@@ -76,11 +79,13 @@ export function mountDb(root: HTMLElement) {
             <label>Порт <input name="port" type="number" min="1" max="65535" required /></label>
           </div>
           <label data-s="db"><span class="db-label">База</span> <input name="database" spellcheck="false" /></label>
+          <label style="grid-column: 1 / -1" title="База видна только с бастиона: OpsDeck поднимет туннель ssh -L через выбранный хост (вход по ключу, как в мониторинге). Хосты — из профилей SSH и ~/.ssh/config">Через SSH-хост (jump) <select name="jump"><option value="">напрямую</option></select></label>
           <label>Шифрование <select name="tls">${Object.entries(TLS).map(([k, v]) => `<option value="${k}">${v}</option>`).join("")}</select></label>
         </div>
         <label data-s="options">Доп. параметры URI (MongoDB) <input name="options" spellcheck="false" placeholder="authSource=admin&replicaSet=rs0" /></label>
         <label>Учётные данные <select name="auth">${Object.entries(AUTH).map(([k, v]) => `<option value="${k}">${v}</option>`).join("")}</select></label>
         <div data-s="keepass" class="kp-bind"><span class="kp-bound muted">запись не выбрана</span><button type="button" data-a="pick">Выбрать запись…</button></div>
+          <div data-s="passbolt" class="kp-bind"><span class="pb-bound muted">запись не выбрана</span><button type="button" data-a="pb-pick">Выбрать запись…</button></div>
         <div class="grid2">
           <label data-s="user">Пользователь <input name="username" autocomplete="off" spellcheck="false" /></label>
           <label data-s="password">Пароль <input name="secret" type="password" autocomplete="new-password" /></label>
@@ -125,8 +130,9 @@ export function mountDb(root: HTMLElement) {
     f("database").placeholder = e.dbHint;
     form.querySelector<HTMLElement>("[data-s=options]")!.hidden = f("engine").value !== "mongodb";
     form.querySelector<HTMLElement>("[data-s=keepass]")!.hidden = a !== "keepass";
+    form.querySelector<HTMLElement>("[data-s=passbolt]")!.hidden = a !== "passbolt";
     form.querySelector<HTMLElement>("[data-s=password]")!.hidden = a !== "password";
-    f("username").placeholder = a === "keepass" ? "из записи KeePass" : ({ postgres: "postgres", mysql: "root", clickhouse: "default", redis: "(ACL, необязательно)", mongodb: "" } as Record<string, string>)[f("engine").value];
+    f("username").placeholder = a === "keepass" ? "из записи KeePass" : a === "passbolt" ? "из записи Passbolt" : ({ postgres: "postgres", mysql: "root", clickhouse: "default", redis: "(ACL, необязательно)", mongodb: "" } as Record<string, string>)[f("engine").value];
     f("secret").placeholder = editing ? "оставьте пустым, чтобы не менять" : "";
     form.querySelector(".ro-hint")!.textContent = ({
       postgres: "PostgreSQL сам запрещает запись (default_transaction_read_only).",
@@ -158,6 +164,26 @@ export function mountDb(root: HTMLElement) {
     const e = await pickEntry();
     if (e) setBound(e.id, `${e.title}${e.username ? " · " + e.username : ""}`);
   };
+  let pbEntry = "";
+  let pbLabels = new Map<string, string>();
+  const setPbBound = (id: string, label?: string) => {
+    pbEntry = id;
+    form.querySelector(".pb-bound")!.textContent = id ? (label ?? pbLabels.get(id) ?? "запись выбрана") : "запись не выбрана";
+  };
+  form.querySelector<HTMLElement>("[data-a=pb-pick]")!.onclick = async () => {
+    const e = await pickPassbolt();
+    if (e) setPbBound(e.id, `${e.title}${e.username ? " · " + e.username : ""}`);
+  };
+
+  /** The jump-host choices: SSH profiles and ~/.ssh/config hosts (a host that has since been removed stays selectable). */
+  async function fillJump(current: string) {
+    const list = await invoke<Parameters<typeof targets>[0]>("ssh_list").catch(() => ({ hosts: [], config: [] }));
+    const all = targets(list);
+    const opts = [`<option value="">напрямую</option>`, ...all.map((t) => `<option value="${esc(t.key)}">${esc(t.name)} — ${esc(t.addr)}</option>`)];
+    if (current && !all.some((t) => t.key === current)) opts.push(`<option value="${esc(current)}">${esc(current)} (не найден)</option>`);
+    f("jump").innerHTML = opts.join("");
+    f("jump").value = current;
+  }
 
   function openDialog(p: Profile | null) {
     editing = p;
@@ -172,7 +198,9 @@ export function mountDb(root: HTMLElement) {
     f("auth").value = p?.auth ?? "password";
     f("readonly").checked = p?.readonly ?? false;
     setBound(p?.keepass_entry ?? "");
+    setPbBound(p?.passbolt_entry ?? "");
     syncForm();
+    fillJump(p?.jump ?? "");
     dialog.showModal();
   }
 
@@ -186,8 +214,9 @@ export function mountDb(root: HTMLElement) {
       name: f("name").value.trim(), group: f("group").value.trim(), engine: f("engine").value,
       host: f("host").value.trim(), port: Number(f("port").value) || ENGINES[f("engine").value].port,
       database: f("database").value.trim(), username: f("username").value.trim(), auth,
-      keepass_entry: auth === "keepass" ? boundEntry : "", tls: f("tls").value, readonly: f("readonly").checked,
+      keepass_entry: auth === "keepass" ? boundEntry : "", passbolt_entry: auth === "passbolt" ? pbEntry : "", tls: f("tls").value, readonly: f("readonly").checked,
       options: f("engine").value === "mongodb" ? f("options").value.trim() : "",
+      jump: f("jump").value,
     };
     const errEl = form.querySelector(".form-err")!, okEl = form.querySelector(".form-ok")!;
     errEl.textContent = okEl.textContent = "";
@@ -209,6 +238,7 @@ export function mountDb(root: HTMLElement) {
     profiles = await invoke<Profile[]>("db_list").catch((e) => { toast(String(e), "err"); return []; });
     titles = new Map();
     if ((await kpStatus()).unlocked) (await kpEntries().catch(() => [])).forEach((e) => titles.set(e.id, `${e.title}${e.username ? " · " + e.username : ""}`));
+    pbLabels = profiles.some((p) => p.auth === "passbolt") ? await pbTitles() : new Map();
     if (active) active = profiles.find((p) => p.id === active!.id) ?? null;
     drawTree();
   }
@@ -274,8 +304,8 @@ export function mountDb(root: HTMLElement) {
       return;
     }
     const groups = new Map<string, Profile[]>();
-    for (const p of shown.sort((a, b) => a.name.localeCompare(b.name))) groups.set(p.group, [...(groups.get(p.group) ?? []), p]);
-    treeEl.innerHTML = [...groups.entries()].sort(([a], [b]) => (a === "" ? 1 : b === "" ? -1 : a.localeCompare(b))).map(([g, ps]) => `
+    for (const p of shown.sort((a, b) => natCmp(a.name, b.name))) groups.set(p.group, [...(groups.get(p.group) ?? []), p]);
+    treeEl.innerHTML = [...groups.entries()].sort(([a], [b]) => (a === "" ? 1 : b === "" ? -1 : natCmp(a, b))).map(([g, ps]) => `
       ${g ? `<div class="side-head small">${esc(g)}</div>` : groups.size > 1 ? `<div class="side-head small">без группы</div>` : ""}
       ${ps.map((p) => {
         const open = openNodes.has(key(p.id, []));

@@ -48,9 +48,9 @@ jobs:
           all='[
             {"name":"linux-x64","os":"ubuntu-22.04"},
             {"name":"linux-arm64","os":"ubuntu-22.04-arm"},
-            {"name":"windows-x64","os":"windows-latest"},
-            {"name":"macos-arm64","os":"macos-latest","target":"aarch64-apple-darwin"},
-            {"name":"macos-x64","os":"macos-latest","target":"x86_64-apple-darwin"}
+            {"name":"windows-x64","os":"windows-2025"},
+            {"name":"macos-arm64","os":"macos-26","target":"aarch64-apple-darwin"},
+            {"name":"macos-x64","os":"macos-26","target":"x86_64-apple-darwin"}
           ]'
           if [ "$FULL" = "true" ]; then m="$all"; else m=$(echo "$all" | jq -c '[.[] | select(.name == "linux-x64")]'); fi
           echo "matrix=$(echo "$m" | jq -c '{include: .}')" >> "$GITHUB_OUTPUT"
@@ -73,7 +73,9 @@ jobs:
         run: node scripts/check-links.mjs
       - name: npm audit (high+)
         run: npm audit --audit-level=high
-      - uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d # stable
+      - name: Rust (the version from rust-toolchain.toml)
+        shell: bash
+        run: rustup toolchain install --no-self-update && rustc --version
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-audit
@@ -90,7 +92,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-22.04, windows-latest, macos-latest]
+        os: [ubuntu-22.04, windows-2025, macos-26]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -100,7 +102,9 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev \
             libayatana-appindicator3-dev librsvg2-dev build-essential
-      - uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d # stable
+      - name: Rust (the version from rust-toolchain.toml)
+        shell: bash
+        run: rustup toolchain install --no-self-update && rustc --version
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: src-tauri -> target
@@ -117,9 +121,7 @@ jobs:
       - name: cargo clippy
         if: runner.os == 'Linux'
         working-directory: src-tauri
-        run: |
-          rustup component add clippy
-          cargo clippy --lib --tests -- -D warnings
+        run: cargo clippy --lib --tests -- -D warnings
 
   ui:
     name: tests ui (vitest + playwright)
@@ -152,7 +154,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-22.04, windows-latest]
+        os: [ubuntu-22.04, windows-2025]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -166,7 +168,9 @@ jobs:
         with:
           node-version: 22
           cache: npm
-      - uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d # stable
+      - name: Rust (the version from rust-toolchain.toml)
+        shell: bash
+        run: rustup toolchain install --no-self-update && rustc --version
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: src-tauri -> target
@@ -262,9 +266,12 @@ jobs:
           node-version: 22
           cache: npm
 
-      - uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d # stable
-        with:
-          targets: ${{ matrix.target }}
+      - name: Rust (the version from rust-toolchain.toml) and the build target
+        shell: bash
+        run: |
+          rustup toolchain install --no-self-update
+          if [ -n "${{ matrix.target }}" ]; then rustup target add "${{ matrix.target }}"; fi
+          rustc --version
 
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
@@ -312,6 +319,20 @@ jobs:
         run: |
           command -v unsquashfs >/dev/null || { sudo apt-get update && sudo apt-get install -y squashfs-tools; }
           scripts/check-appimage.sh $(find src-tauri/target -path '*/bundle/appimage/*.AppImage')
+
+      # The Visual C++ runtime is linked into the exe (tauri-build: staticVCRuntime, on by default), so
+      # OpsDeck starts on a machine without the VC++ Redistributable. The Universal CRT (api-ms-win-crt-*)
+      # is part of Windows 10/11 itself. A dependency on vcruntime/msvcp DLLs fails the build.
+      - name: No VC++ runtime DLLs needed (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $vs = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath
+          $dumpbin = Get-ChildItem "$vs\VC\Tools\MSVC\*\bin\Hostx64\x64\dumpbin.exe" | Select-Object -First 1
+          $deps = & $dumpbin.FullName /dependents src-tauri\target\release\opsdeck.exe | Where-Object { $_ -match '\.dll\s*$' } | ForEach-Object { $_.Trim() }
+          $deps
+          $bad = $deps | Where-Object { $_ -match '^(vcruntime|msvcp|concrt|vccorlib)' }
+          if ($bad) { Write-Error "opsdeck.exe needs the VC++ Redistributable: $bad"; exit 1 }
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4

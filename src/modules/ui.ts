@@ -55,3 +55,18 @@ export function toast(text: string, kind: "ok" | "err" = "ok") {
   document.body.appendChild(el);
   setTimeout(() => el.remove(), kind === "err" ? 7000 : 3000);
 }
+
+/** Context menu at a point: [label, action, danger?]; closes on any click. */
+export function popupMenu(rect: { left: number; top: number; bottom: number }, items: [string, () => void, boolean?][]) {
+  document.querySelector(".ctx-menu")?.remove();
+  const m = document.createElement("div");
+  m.className = "ctx-menu";
+  m.innerHTML = items.map(([label, , danger], i) => `<div class="ctx-item ${danger ? "danger" : ""}" data-i="${i}">${esc(label)}</div>`).join("");
+  document.body.appendChild(m);
+  const x = Math.min(rect.left, window.innerWidth - m.offsetWidth - 8);
+  const y = rect.bottom + m.offsetHeight > window.innerHeight ? rect.top - m.offsetHeight : rect.bottom;
+  m.style.left = `${x}px`;
+  m.style.top = `${Math.max(4, y)}px`;
+  m.onclick = (e) => { const i = (e.target as HTMLElement).closest<HTMLElement>("[data-i]")?.dataset.i; m.remove(); if (i !== undefined) items[Number(i)][1](); };
+  setTimeout(() => document.addEventListener("click", () => m.remove(), { once: true }), 0);
+}

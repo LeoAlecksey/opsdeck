@@ -14,6 +14,9 @@ pub struct Settings {
     pub keepass_lock_minutes: u64,
     /// once unlocked, stay unlocked until OpsDeck exits (auto-lock minutes are ignored)
     pub keepass_keep_open: bool,
+    pub passbolt_lock_minutes: u64,
+    /// once unlocked, stay unlocked until OpsDeck exits (auto-lock minutes are ignored)
+    pub passbolt_keep_open: bool,
     pub obsidian_vault: String,
     pub winbox_path: String,
     /// Also list contexts from ~/.kube/config and $KUBECONFIG (off: OpsDeck uses only its own store).
@@ -45,6 +48,8 @@ impl Default for Settings {
             keepass_keyfile: String::new(),
             keepass_lock_minutes: 15,
             keepass_keep_open: true,
+            passbolt_lock_minutes: 15,
+            passbolt_keep_open: true,
             obsidian_vault: String::new(),
             winbox_path: String::new(),
             k8s_include_system: false,

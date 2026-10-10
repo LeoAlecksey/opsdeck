@@ -26,8 +26,14 @@
   const ctx = { file: "/home/demo/.config/opsdeck/kube/prod-eu.yaml", source: "opsdeck", label: "prod-eu", context: "prod-eu", cluster: "prod-eu", user: "admin", namespace: "shop", current: true, server: "https://k8s.example.com:6443" };
   const ctx2 = { ...ctx, file: "/home/demo/.config/opsdeck/kube/stage.yaml", label: "stage", context: "stage", cluster: "stage", current: false, server: "https://stage.k8s.example.com:6443" };
   let uid = 0;
+  // a pod is always made by something: a ReplicaSet of a Deployment, a StatefulSet, a Job of a CronJob
+  const app = (name) => (/-\d+$/.test(name) ? name.replace(/-\d+$/, "") : name.split("-").slice(0, -2).join("-"));
+  const hash = (name) => (/-\d+$/.test(name) ? "" : name.split("-").at(-2));
+  const owner = (name) => (/-\d+$/.test(name) ? { kind: "StatefulSet", name: app(name), controller: true }
+    : /^cron-/.test(name) ? { kind: "Job", name: name.split("-").slice(0, -1).join("-"), controller: true }
+    : { kind: "ReplicaSet", name: `${app(name)}-${hash(name)}`, controller: true });
   const pod = (name, nsx, node, status = "Running", restarts = 0, ageMs = 3 * D, ready = true, img = "registry.example.com/shop/api:1.42.0") => ({
-    metadata: { name, namespace: nsx, uid: `u${++uid}`, creationTimestamp: iso(ageMs), labels: { app: name.split("-").slice(0, -2).join("-") } },
+    metadata: { name, namespace: nsx, uid: `u${++uid}`, creationTimestamp: iso(ageMs), labels: { app: app(name), "pod-template-hash": hash(name) }, ownerReferences: [owner(name)] },
     spec: { nodeName: node, containers: [{ name: "app", image: img }] },
     status: {
       phase: status === "CrashLoopBackOff" ? "Running" : status, podIP: `10.244.${(uid % 3) + 1}.${20 + uid}`,
@@ -46,6 +52,28 @@
     pod("postgres-0", "shop", "node-3", "Running", 0, 21 * D, true, "postgres:17"),
     pod("cron-report-29338140-8kx7d", "shop", "node-1", "Succeeded", 0, 3 * H, false, "registry.example.com/shop/report:1.0.4"),
   ];
+  // ---- objects for the Kubernetes diagnostics (Проблемы / Проверки) ----
+  const tmpl = (app, image, extra = {}) => ({ metadata: { labels: { app } }, spec: { containers: [{ name: "app", image, ...extra }] } });
+  const okc = { livenessProbe: {}, readinessProbe: {}, resources: { requests: { cpu: "100m", memory: "128Mi" }, limits: { memory: "256Mi" } } };
+  const diag = {
+    deployments: [
+      { metadata: { name: "api", namespace: "shop", labels: { app: "api" } }, spec: { replicas: 3, template: tmpl("api", "registry.example.com/shop/api:1.42.0", okc) }, status: { availableReplicas: 3 } },
+      { metadata: { name: "worker", namespace: "shop", labels: { app: "worker" } }, spec: { replicas: 2, template: tmpl("worker", "registry.example.com/shop/worker:2.3.1") }, status: { availableReplicas: 1, updatedReplicas: 2 } },
+      { metadata: { name: "frontend", namespace: "shop", labels: { app: "frontend" } }, spec: { replicas: 1, template: tmpl("frontend", "registry.example.com/shop/web:latest", { securityContext: { privileged: true } }) }, status: { availableReplicas: 1 } },
+    ],
+    services: [
+      { metadata: { name: "api", namespace: "shop" }, spec: { selector: { app: "api" }, ports: [{ port: 80, targetPort: 8080 }] } },
+      { metadata: { name: "legacy", namespace: "shop" }, spec: { selector: { app: "legacy-api" }, ports: [{ port: 80 }] } },
+    ],
+    "crd:discovery.k8s.io/v1/endpointslices/EndpointSlice/true": [
+      { metadata: { name: "api-x1", namespace: "shop", labels: { "kubernetes.io/service-name": "api" } }, endpoints: [{ conditions: { ready: true } }] },
+    ],
+    ingresses: [
+      { metadata: { name: "shop", namespace: "shop" }, spec: { rules: [{ host: "shop.example.com", http: { paths: [
+        { path: "/", backend: { service: { name: "api", port: { number: 80 } } } },
+        { path: "/old", backend: { service: { name: "catalog", port: { number: 80 } } } }] } }] } },
+    ],
+  };
   const usage = pods.filter((p) => p.status.phase === "Running").map((p, i) => ({ namespace: "shop", name: p.metadata.name, cpu_m: [42, 38, 51, 3, 120, 12, 9, 7, 64][i % 9], mem: [180, 176, 190, 40, 260, 95, 92, 30, 410][i % 9] * 1048576 }));
 
   // ---- SSH, KeePass, alerts ----
@@ -127,11 +155,53 @@
   // ---- IDE ----
   const proj = "/home/demo/projects/infra";
   const files = {
-    [proj]: [["modules", 1], ["envs", 1], ["helm", 1], [".gitlab-ci.yml", 0], ["main.tf", 0], ["variables.tf", 0], ["outputs.tf", 0], ["versions.tf", 0], ["README.md", 0], ["Dockerfile", 0]],
+    [proj]: [["modules", 1], ["envs", 1], ["helm", 1], [".gitlab", 1], [".gitlab-ci.yml", 0], ["main.tf", 0], ["variables.tf", 0], ["outputs.tf", 0], ["versions.tf", 0], ["README.md", 0], ["Dockerfile", 0]],
     [proj + "/helm"]: [["shop", 1], ["values-prod.yaml", 0], ["values-stage.yaml", 0]],
     [proj + "/modules"]: [["k8s-cluster", 1], ["network", 1]],
     [proj + "/envs"]: [["prod", 1], ["stage", 1]],
+    [proj + "/.gitlab"]: [["tests.yml", 0]],
   };
+  const gitlabCi = `include:
+  - local: .gitlab/tests.yml
+
+stages: [build, test, deploy]
+
+.base:
+  image: registry.example.com/ci/base:1.4
+  before_script: [make deps]
+
+build:
+  extends: .base
+  stage: build
+  script: [make build]
+
+deploy-prod:
+  stage: deploy
+  needs: [build, unit]
+  script: [make deploy]
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      when: manual
+    - when: never
+
+docs:
+  stage: test
+  script: [make docs]
+  rules:
+    - changes: ["docs/**/*", "*.md"]
+`;
+  const gitlabTests = `unit:
+  extends: .base
+  stage: test
+  needs: [build]
+  script: [make test]
+
+lint:
+  extends: .base
+  stage: test
+  needs: []
+  script: [make lint]
+`;
   const mainTf = `terraform {\n  required_version = ">= 1.7"\n  backend "s3" {\n    bucket = "tf-state-example"\n    key    = "infra/prod.tfstate"\n    region = "eu-central-1"\n  }\n}\n\nmodule "network" {\n  source     = "./modules/network"\n  cidr_block = var.vpc_cidr\n  zones      = ["a", "b", "c"]\n}\n\nmodule "cluster" {\n  source       = "./modules/k8s-cluster"\n  name         = "prod-eu"\n  version      = "1.31"\n  node_count   = 3\n  node_type    = "c6i.xlarge"\n  subnet_ids   = module.network.private_subnets\n\n  labels = {\n    team = "platform"\n    env  = "prod"\n  }\n}\n\noutput "kubeconfig" {\n  value     = module.cluster.kubeconfig\n  sensitive = true\n}\n`;
   const commit = (h, parents, refs, subject, ago, author = "Alex") => ({ hash: h, parents, refs, author, time: Math.floor((now - ago) / 1000), subject });
   const commits = [
@@ -251,12 +321,19 @@
         setTimeout(tick, 30);
         return null;
       }
+      if (cmd === "k8s_names") return [];
+      if (cmd === "k8s_list" && args.kind in diag) return diag[args.kind];
+      if (cmd === "k8s_list" && ["statefulsets", "daemonsets", "jobs", "cronjobs", "persistentvolumeclaims", "crd:policy/v1/poddisruptionbudgets/PodDisruptionBudget/true"].includes(args.kind)) return [];
       if (cmd === "k8s_list") return args.kind === "namespaces" ? ["default", "kube-system", "monitoring", "shop"].map((n) => ({ metadata: { name: n, uid: n } })) : pods;
       if (cmd === "k8s_watch_start") { setTimeout(() => emit(`k8s-watch-${args.id}`, { type: "reset", items: args.kind === "pods" ? pods : [] }), 50); return null; }
       if (cmd === "db_tree") return dbTree(args.path);
       if (cmd === "note_read") return noteText[args.path] ?? `# ${args.path.split("/").pop().replace(/\.md$/, "")}\n\n${L("Заметка.", "A note.")}\n`;
       if (cmd === "fs_list") { const l = files[args.path]; if (!l) throw "not a dir"; return l.map(([n, d]) => ({ name: n, dir: !!d, link: false, size: d ? 0 : 1200 })); }
-      if (cmd === "code_read") return { text: args.path.endsWith("main.tf") ? mainTf : "# demo\n", mtime: now };
+      if (cmd === "code_read") {
+        const p = args.path;
+        const text = p.endsWith("main.tf") ? mainTf : p.endsWith(".gitlab-ci.yml") ? gitlabCi : p.endsWith(".gitlab/tests.yml") ? gitlabTests : "# demo\n";
+        return { text, mtime: now };
+      }
       if (cmd === "code_tf_fmt") return { text: null, errors: [], tool: "terraform" };
       if (cmd === "code_git_diff" || cmd === "code_git_show") return "";
       if (cmd in R) return R[cmd];

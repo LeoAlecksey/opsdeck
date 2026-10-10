@@ -7,6 +7,7 @@ mod cmdindex;
 mod code;
 mod connectors;
 mod db;
+mod dbtunnel;
 mod diag;
 mod editor;
 mod embed;
@@ -17,6 +18,7 @@ mod k8s_events;
 mod keepass;
 mod mikrotik;
 mod notes;
+mod passbolt;
 mod ports;
 mod process;
 mod pty;
@@ -62,6 +64,8 @@ pub fn run() {
         .manage(tools::ToolState::default())
         .manage(k8s::K8sState::default())
         .manage(keepass::KeepassState::default())
+        .manage(dbtunnel::TunnelState::default())
+        .manage(passbolt::PassboltState::default())
         .manage(ide::IdeState::default())
         .manage(alerts::AlertsState::default())
         .manage(sysmon::SysState::default())
@@ -74,6 +78,7 @@ pub fn run() {
             diag::start_watchdog(app.handle().clone());
             log::info!("OpsDeck {} started", app.package_info().version);
             keepass::spawn_autolock(app.handle().clone());
+            passbolt::spawn_autolock(app.handle().clone());
             tasks::spawn_reminders(app.handle().clone());
             ai::spawn_idle_stop(app.handle().clone());
             k8s_events::spawn(app.handle().clone());
@@ -125,6 +130,7 @@ pub fn run() {
             k8s::k8s_remove_source,
             k8s::k8s_shell_config,
             k8s::k8s_list,
+            k8s::k8s_names,
             k8s::k8s_get_yaml,
             k8s::k8s_apply_yaml,
             k8s::k8s_delete,
@@ -159,9 +165,25 @@ pub fn run() {
             keepass::kp_open_external,
             keepass::clip_write,
             keepass::clip_read,
+            passbolt::pb_status,
+            passbolt::pb_import_kit,
+            passbolt::pb_forget,
+            passbolt::pb_unlock,
+            passbolt::pb_mfa,
+            passbolt::pb_lock,
+            passbolt::pb_reload,
+            passbolt::pb_entries,
+            passbolt::pb_copy,
+            passbolt::pb_reveal,
+            passbolt::pb_notes,
+            passbolt::pb_open_external,
+            passbolt::pb_pick_file,
             code::code_read,
             code::code_write,
             code::code_create,
+            code::code_rename,
+            code::code_copy,
+            code::code_delete,
             code::code_tf_fmt,
             code::code_git_log,
             code::code_git_stamp,
@@ -270,6 +292,7 @@ pub fn run() {
         .run(|app, event| {
             if let tauri::RunEvent::Exit = event {
                 k8s_events::flush(app);
+                dbtunnel::close_all(&app.state::<dbtunnel::TunnelState>());
                 log::info!("OpsDeck exiting");
                 ide::cleanup(app);
                 ai::shutdown(app);

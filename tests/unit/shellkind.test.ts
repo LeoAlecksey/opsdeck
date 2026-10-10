@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isProgramPath, isWsl, shellName } from "../../src/modules/shellkind";
+import { cdCommand, isProgramPath, isWsl, shellName } from "../../src/modules/shellkind";
 
 const WSL = "C:\\Windows\\System32\\wsl.exe";
 
@@ -34,5 +34,17 @@ describe("pane shell", () => {
     expect(isProgramPath("C:\\Windows\\System32\\cmd.exe", WSL)).toBe(false);
     expect(isProgramPath("C:\\WINDOWS\\System32\\wsl.exe", undefined)).toBe(false);
     expect(isProgramPath("wsl", WSL)).toBe(false);
+  });
+});
+
+describe("cd into the project folder", () => {
+  it("quotes for the shell that is running", () => {
+    expect(cdCommand({ program: "/bin/bash", args: [] }, "/home/a/proj")).toBe("cd -- /home/a/proj");
+    expect(cdCommand({ program: "/bin/zsh", args: [] }, "/home/a/my proj's")).toBe("cd -- '/home/a/my proj'\\''s'");
+    expect(cdCommand({ program: "C:\\Program Files\\PowerShell\\7\\pwsh.exe", args: [] }, "C:\\Users\\a\\it's")).toBe("Set-Location -LiteralPath 'C:\\Users\\a\\it''s'");
+    expect(cdCommand({ program: "cmd.exe", args: [] }, "D:\\work space")).toBe('cd /d "D:\\work space"');
+  });
+  it("WSL can't be moved by a Windows path", () => {
+    expect(cdCommand({ program: WSL, args: [] }, "C:\\proj")).toBeNull();
   });
 });

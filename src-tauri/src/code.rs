@@ -77,6 +77,90 @@ pub async fn code_create(path: String, dir: bool) -> Result<(), String> {
     }
 }
 
+// ---------- tree operations: rename / copy / delete ----------
+
+/// `path` must lie strictly inside the project folder and not walk out through "..": the tree is the only
+/// caller, but a bug there must not be able to touch a parent folder, the home folder or a drive root.
+fn inside(root: &str, path: &str) -> Result<(PathBuf, PathBuf), String> {
+    let (root, p) = (expand(root), expand(path));
+    let clean = |x: &Path| !x.as_os_str().is_empty() && x.is_absolute() && !x.components().any(|c| matches!(c, std::path::Component::ParentDir));
+    if !clean(&root) || !clean(&p) || p == root || !p.starts_with(&root) {
+        return Err(format!("{}: вне папки проекта", p.display()));
+    }
+    Ok((root, p))
+}
+
+fn copy_tree(from: &Path, to: &Path) -> Result<(), String> {
+    let meta = fs::symlink_metadata(from).map_err(|e| format!("{}: {e}", from.display()))?;
+    if meta.file_type().is_symlink() {
+        return Ok(()); // links are not followed: a loop or a way out of the project
+    }
+    if meta.is_dir() {
+        fs::create_dir_all(to).map_err(|e| format!("{}: {e}", to.display()))?;
+        for e in fs::read_dir(from).map_err(|e| format!("{}: {e}", from.display()))?.flatten() {
+            copy_tree(&e.path(), &to.join(e.file_name()))?;
+        }
+        Ok(())
+    } else {
+        fs::copy(from, to).map(|_| ()).map_err(|e| format!("{}: {e}", to.display()))
+    }
+}
+
+/// Moves a file or folder (also renames: same folder, new name). The target must not exist.
+#[tauri::command]
+pub async fn code_rename(root: String, from: String, to: String) -> Result<(), String> {
+    let (_, from) = inside(&root, &from)?;
+    let (_, to) = inside(&root, &to)?;
+    if fs::symlink_metadata(&to).is_ok() {
+        return Err(format!("{} уже существует", to.display()));
+    }
+    if to.starts_with(&from) {
+        return Err("нельзя переместить папку в саму себя".into());
+    }
+    fs::rename(&from, &to).map_err(|e| format!("{}: {e}", from.display()))
+}
+
+/// Copies a file or folder (recursively, symlinks skipped). The target must not exist.
+#[tauri::command]
+pub async fn code_copy(root: String, from: String, to: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let (_, from) = inside(&root, &from)?;
+        let (_, to) = inside(&root, &to)?;
+        if fs::symlink_metadata(&to).is_ok() {
+            return Err(format!("{} уже существует", to.display()));
+        }
+        if to.starts_with(&from) {
+            return Err("нельзя скопировать папку в саму себя".into());
+        }
+        copy_tree(&from, &to)
+    })
+    .await
+    .map_err(err)?
+}
+
+/// Deletes a file or a folder with everything in it. There is no trash: the UI asks first.
+#[tauri::command]
+pub async fn code_delete(root: String, path: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let (root, p) = inside(&root, &path)?;
+        if p.starts_with(root.join(".git")) && p.components().count() <= root.components().count() + 1 {
+            return Err("папку .git удалять нельзя".into());
+        }
+        let meta = fs::symlink_metadata(&p).map_err(|e| format!("{}: {e}", p.display()))?;
+        let r = if meta.file_type().is_symlink() {
+            // the link itself, never what it points to
+            fs::remove_file(&p).or_else(|_| fs::remove_dir(&p))
+        } else if meta.is_dir() {
+            fs::remove_dir_all(&p)
+        } else {
+            fs::remove_file(&p)
+        };
+        r.map_err(|e| format!("{}: {e}", p.display()))
+    })
+    .await
+    .map_err(err)?
+}
+
 // ---------- terraform fmt ----------
 
 #[derive(Serialize)]
@@ -478,6 +562,48 @@ mod tests {
         assert!(code_git_stamp(wt.to_string_lossy().into_owned()).starts_with("ref: refs/heads/feature|"));
         assert_eq!(code_git_stamp(std::env::temp_dir().join("opsdeck-no-such").to_string_lossy().into_owned()), "");
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn tree_operations_stay_inside_the_project() {
+        let base = std::env::temp_dir().join(format!("opsdeck-tree-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&base);
+        let root = base.join("proj");
+        fs::create_dir_all(root.join("a/b")).unwrap();
+        fs::write(root.join("a/b/f.txt"), "x").unwrap();
+        fs::write(base.join("outside.txt"), "keep").unwrap();
+        let (r, f, o) = (root.to_string_lossy().into_owned(), |p: &str| root.join(p).to_string_lossy().into_owned(), base.join("outside.txt").to_string_lossy().into_owned());
+        macro_rules! rt {
+            ($f:expr) => {
+                tauri::async_runtime::block_on($f)
+            };
+        }
+        // copy a folder, then rename the copy
+        rt!(code_copy(r.clone(), f("a"), f("a2"))).unwrap();
+        assert_eq!(fs::read_to_string(root.join("a2/b/f.txt")).unwrap(), "x");
+        assert!(rt!(code_copy(r.clone(), f("a"), f("a2"))).unwrap_err().contains("уже существует"));
+        assert!(rt!(code_copy(r.clone(), f("a"), f("a/b/in"))).unwrap_err().contains("саму себя"));
+        rt!(code_rename(r.clone(), f("a2"), f("c"))).unwrap();
+        assert!(root.join("c/b/f.txt").is_file() && !root.join("a2").exists());
+        // nothing outside the project, the project itself or ".." can be touched
+        assert!(rt!(code_delete(r.clone(), o.clone())).is_err());
+        assert!(rt!(code_delete(r.clone(), r.clone())).is_err());
+        assert!(rt!(code_delete(r.clone(), format!("{r}/../outside.txt"))).is_err());
+        assert!(rt!(code_rename(r.clone(), f("c"), o.clone())).is_err());
+        assert_eq!(fs::read_to_string(base.join("outside.txt")).unwrap(), "keep");
+        // .git stays
+        fs::create_dir_all(root.join(".git")).unwrap();
+        assert!(rt!(code_delete(r.clone(), f(".git"))).is_err());
+        // a link is removed itself, not its target
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(&base, root.join("link")).unwrap();
+            rt!(code_delete(r.clone(), f("link"))).unwrap();
+            assert!(base.join("outside.txt").is_file() && !root.join("link").exists());
+        }
+        rt!(code_delete(r.clone(), f("c"))).unwrap();
+        assert!(!root.join("c").exists() && root.join("a/b/f.txt").is_file());
+        let _ = fs::remove_dir_all(&base);
     }
 }
 

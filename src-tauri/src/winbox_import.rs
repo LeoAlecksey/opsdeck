@@ -227,6 +227,7 @@ fn merge(items: Vec<Saved>, existing: &[Device], chosen: &[String], passwords: b
                 username: s.login.clone(),
                 auth: if secret.is_some() { "password" } else { "none" }.into(),
                 keepass_entry: String::new(),
+                passbolt_entry: String::new(),
                 winbox_port: port,
                 ssh_port: 22,
                 host,
@@ -313,7 +314,18 @@ mod tests {
         assert_eq!(p[1].name, "Склад", "the note when there is no session name");
         assert_eq!(p[2].name, "E4:8D:8C:00:11:22");
         assert!(p[0].has_password && !p[1].has_password);
-        let existing = Device { id: "x".into(), name: "x".into(), host: "198.51.100.7".into(), group: String::new(), username: String::new(), auth: "none".into(), keepass_entry: String::new(), winbox_port: 8292, ssh_port: 22 };
+        let existing = Device {
+            id: "x".into(),
+            name: "x".into(),
+            host: "198.51.100.7".into(),
+            group: String::new(),
+            username: String::new(),
+            auth: "none".into(),
+            keepass_entry: String::new(),
+            passbolt_entry: String::new(),
+            winbox_port: 8292,
+            ssh_port: 22,
+        };
         assert!(preview(&list, &[existing])[1].exists);
     }
 

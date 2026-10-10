@@ -647,6 +647,22 @@ pub async fn k8s_list(
     }
 }
 
+/// Names of ConfigMaps or Secrets (for the diagnostics' "missing reference" check): the data never leaves
+/// the backend, so listing Secrets here does not put their values into the UI.
+#[tauri::command]
+pub async fn k8s_names(
+    state: State<'_, K8sState>,
+    ctx: Ctx,
+    kind: String,
+    namespace: Option<String>,
+) -> Result<Vec<Value>, String> {
+    if kind != "configmaps" && kind != "secrets" {
+        return Err(format!("names of {kind} are not listed"));
+    }
+    let list = k8s_list(state, ctx, kind, namespace).await?;
+    Ok(list.iter().map(|o| serde_json::json!({ "namespace": o["metadata"]["namespace"], "name": o["metadata"]["name"] })).collect())
+}
+
 #[tauri::command]
 pub async fn k8s_get_yaml(
     state: State<'_, K8sState>,

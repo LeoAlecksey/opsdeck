@@ -99,7 +99,7 @@ fn local(state: &SysState) -> Stats {
 }
 
 /// Only these ssh options are passed on to the probe (no -o, so no ProxyCommand/LocalCommand).
-fn sanitize_ssh_args(args: &[String]) -> Result<Vec<String>, String> {
+pub(crate) fn sanitize_ssh_args(args: &[String]) -> Result<Vec<String>, String> {
     let mut out = Vec::new();
     let mut it = args.iter();
     let mut dest = None;

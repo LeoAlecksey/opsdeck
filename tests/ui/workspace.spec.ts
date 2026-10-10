@@ -264,7 +264,7 @@ test.describe("settings", () => {
 });
 
 test.describe("other sections", () => {
-  test("web panels open as tabs", async ({ app, page }) => {
+  test("web panels open as tabs; the list and an open panel survive a section switch", async ({ app, page }) => {
     await app.view("web");
     await expect(page.locator(".card-name")).toHaveCount(3);
     // ⧉ — the panel in its own window (#28: froze on Windows when the command was sync)
@@ -272,6 +272,23 @@ test.describe("other sections", () => {
     expect((await app.called("connector_open")).args).toEqual({ id: "c2" });
     await page.locator(".card", { hasText: "Grafana" }).locator("[data-act=open]").click();
     await app.called("web_embed_show");
+    await expect(page.locator(".web-tablist .tab.active")).toContainText("Grafana");
+    await expect(page.locator(".web-slot")).toBeVisible();
+    await expect(page.locator(".web-home")).toBeHidden();
+    // return to services page via ☰ Панели tab
+    await page.locator(".web-tabs [data-t=home]").click();
+    await expect(page.locator(".web-home")).toBeVisible();
+    await expect(page.locator(".web-slot")).toBeHidden();
+    // another section and back: the list stays, it was chosen on purpose
+    await app.view("terminal");
+    await app.view("web");
+    await expect(page.locator(".web-home")).toBeVisible();
+    // and an open panel stays open
+    await page.locator(".web-tablist .tab", { hasText: "Grafana" }).click();
+    await app.view("terminal");
+    await app.view("web");
+    await expect(page.locator(".web-tablist .tab.active")).toContainText("Grafana");
+    await expect(page.locator(".web-slot")).toBeVisible();
   });
 
   test("a page being created is shown once at a time and not over a dialog (from feedback)", async ({ app, page }) => {
