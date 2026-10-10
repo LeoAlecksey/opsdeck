@@ -1,0 +1,6 @@
+# The Rust version for OpsDeck: local builds and CI (build.yml installs exactly this one).
+# Raising it is a commit of its own, with the full CI run (tests on Linux/Windows/macOS, e2e, all builds).
+[toolchain]
+channel = "1.93.1"
+components = ["clippy"]
+profile = "minimal"
