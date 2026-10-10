@@ -1,0 +1,16 @@
+name: bisect-win-tests
+on:
+  push:
+    branches: ["bisect/**"]
+permissions:
+  contents: read
+jobs:
+  t:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d # stable
+      - name: cargo test (minimal pgp+rand repro, isolated workspace)
+        working-directory: mini
+        run: cargo test
