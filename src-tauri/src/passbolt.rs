@@ -1540,26 +1540,18 @@ mod tests {
             secrets: HashMap::from([(id.to_string(), secret)]),
             unreadable: 0,
             warnings: vec![],
-            last_used: Instant::now() - Duration::from_secs(600),
+            last_used: Instant::now(),
         });
-        let idle = || {
-            let inner = state.inner.lock().unwrap();
-            inner.as_ref().unwrap().last_used.elapsed()
-        };
-
-        let got = credentials(&state, id, keepass::Use::Background)
-            .await
-            .unwrap();
+        // compared as instants, not "now minus 10 minutes": on a just-booted Windows machine (CI)
+        // Instant cannot go that far back
+        let last = || state.inner.lock().unwrap().as_ref().unwrap().last_used;
+        let before = last();
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        let got = credentials(&state, id, keepass::Use::Background).await.unwrap();
         assert_eq!(got, ("grafana".into(), "s3cret".into()));
-        assert!(
-            idle() >= Duration::from_secs(600),
-            "alert polling must not reset the auto-lock timer"
-        );
+        assert_eq!(last(), before, "alert polling must not reset the auto-lock timer");
         credentials(&state, id, keepass::Use::User).await.unwrap();
-        assert!(
-            idle() < Duration::from_secs(5),
-            "the user's own action does"
-        );
+        assert!(last() > before, "the user's own action does");
     }
 
     #[test]

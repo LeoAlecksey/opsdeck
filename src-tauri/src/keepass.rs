@@ -373,8 +373,8 @@ pub async fn clip_read(app: AppHandle) -> String {
 mod tests {
     use super::*;
 
-    /// An unlocked in-memory database with one entry, last used `idle` ago.
-    fn unlocked(idle: Duration) -> (KeepassState, String) {
+    /// An unlocked in-memory database with one entry.
+    fn unlocked() -> (KeepassState, String) {
         let mut db = Database::new();
         let id = {
             let mut root = db.root_mut();
@@ -386,7 +386,8 @@ mod tests {
         let u = Unlocked {
             db,
             path: String::new(),
-            last_used: Instant::now() - idle,
+            // not "now minus 10 minutes": on a just-booted Windows machine (CI) Instant cannot go that far back
+            last_used: Instant::now(),
             key: DatabaseKey::new(),
             stamp: None,
             reload_fails: 0,
@@ -398,23 +399,22 @@ mod tests {
             id,
         )
     }
-    fn idle(state: &KeepassState) -> Duration {
-        state.inner.lock().unwrap().as_ref().unwrap().last_used.elapsed()
+    fn last_used(state: &KeepassState) -> Instant {
+        state.inner.lock().unwrap().as_ref().unwrap().last_used
     }
 
     #[test]
     fn background_reads_do_not_keep_the_database_open() {
-        let (state, id) = unlocked(Duration::from_secs(600));
+        let (state, id) = unlocked();
+        let before = last_used(&state);
+        std::thread::sleep(Duration::from_millis(20));
         assert_eq!(
             credentials(&state, &id, Use::Background).unwrap(),
             ("grafana".into(), "s3cret".into())
         );
-        assert!(
-            idle(&state) >= Duration::from_secs(600),
-            "alert polling must not reset the auto-lock timer"
-        );
+        assert_eq!(last_used(&state), before, "alert polling must not reset the auto-lock timer");
         credentials(&state, &id, Use::User).unwrap();
-        assert!(idle(&state) < Duration::from_secs(5), "the user's own action does");
+        assert!(last_used(&state) > before, "the user's own action does");
     }
 
     #[test]
