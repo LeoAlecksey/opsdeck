@@ -320,6 +320,20 @@ jobs:
           command -v unsquashfs >/dev/null || { sudo apt-get update && sudo apt-get install -y squashfs-tools; }
           scripts/check-appimage.sh $(find src-tauri/target -path '*/bundle/appimage/*.AppImage')
 
+      # The Visual C++ runtime is linked into the exe (tauri-build: staticVCRuntime, on by default), so
+      # OpsDeck starts on a machine without the VC++ Redistributable. The Universal CRT (api-ms-win-crt-*)
+      # is part of Windows 10/11 itself. A dependency on vcruntime/msvcp DLLs fails the build.
+      - name: No VC++ runtime DLLs needed (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $vs = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath
+          $dumpbin = Get-ChildItem "$vs\VC\Tools\MSVC\*\bin\Hostx64\x64\dumpbin.exe" | Select-Object -First 1
+          $deps = & $dumpbin.FullName /dependents src-tauri\target\release\opsdeck.exe | Where-Object { $_ -match '\.dll\s*$' } | ForEach-Object { $_.Trim() }
+          $deps
+          $bad = $deps | Where-Object { $_ -match '^(vcruntime|msvcp|concrt|vccorlib)' }
+          if ($bad) { Write-Error "opsdeck.exe needs the VC++ Redistributable: $bad"; exit 1 }
+
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
