@@ -1162,6 +1162,9 @@ body.no-select, body.no-select * { user-select: none; -webkit-user-select: none;
 .k8s-dir .icon { width: 22px; height: 22px; padding: 0; }
 
 /* Kubernetes: event history */
+.diag-bar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 6px 12px; border-bottom: 1px solid var(--border); font-size: 12.5px; }
+.diag-bar .bad, .hist-detail .bad { color: var(--danger); } .diag-bar .warn { color: #e6c07b; }
+.diag-title { margin: 8px 0 4px; font-size: 14px; }
 .hist-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 6px 12px; border-bottom: 1px solid var(--border); font-size: 12.5px; }
 .hist-bar .chip { cursor: pointer; font-size: 12px; padding: 1px 8px; }
 .hist-detail { padding: 10px 14px; display: flex; flex-direction: column; gap: 6px; }

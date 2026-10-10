@@ -130,6 +130,7 @@ pub fn run() {
             k8s::k8s_remove_source,
             k8s::k8s_shell_config,
             k8s::k8s_list,
+            k8s::k8s_names,
             k8s::k8s_get_yaml,
             k8s::k8s_apply_yaml,
             k8s::k8s_delete,

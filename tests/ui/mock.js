@@ -46,6 +46,28 @@
     pod("postgres-0", "shop", "node-3", "Running", 0, 21 * D, true, "postgres:17"),
     pod("cron-report-29338140-8kx7d", "shop", "node-1", "Succeeded", 0, 3 * H, false, "registry.example.com/shop/report:1.0.4"),
   ];
+  // ---- objects for the Kubernetes diagnostics (Проблемы / Проверки) ----
+  const tmpl = (app, image, extra = {}) => ({ metadata: { labels: { app } }, spec: { containers: [{ name: "app", image, ...extra }] } });
+  const okc = { livenessProbe: {}, readinessProbe: {}, resources: { requests: { cpu: "100m", memory: "128Mi" }, limits: { memory: "256Mi" } } };
+  const diag = {
+    deployments: [
+      { metadata: { name: "api", namespace: "shop", labels: { app: "api" } }, spec: { replicas: 3, template: tmpl("api", "registry.example.com/shop/api:1.42.0", okc) }, status: { availableReplicas: 3 } },
+      { metadata: { name: "worker", namespace: "shop", labels: { app: "worker" } }, spec: { replicas: 2, template: tmpl("worker", "registry.example.com/shop/worker:2.3.1") }, status: { availableReplicas: 1, updatedReplicas: 2 } },
+      { metadata: { name: "frontend", namespace: "shop", labels: { app: "frontend" } }, spec: { replicas: 1, template: tmpl("frontend", "registry.example.com/shop/web:latest", { securityContext: { privileged: true } }) }, status: { availableReplicas: 1 } },
+    ],
+    services: [
+      { metadata: { name: "api", namespace: "shop" }, spec: { selector: { app: "api" }, ports: [{ port: 80, targetPort: 8080 }] } },
+      { metadata: { name: "legacy", namespace: "shop" }, spec: { selector: { app: "legacy-api" }, ports: [{ port: 80 }] } },
+    ],
+    "crd:discovery.k8s.io/v1/endpointslices/EndpointSlice/true": [
+      { metadata: { name: "api-x1", namespace: "shop", labels: { "kubernetes.io/service-name": "api" } }, endpoints: [{ conditions: { ready: true } }] },
+    ],
+    ingresses: [
+      { metadata: { name: "shop", namespace: "shop" }, spec: { rules: [{ host: "shop.example.com", http: { paths: [
+        { path: "/", backend: { service: { name: "api", port: { number: 80 } } } },
+        { path: "/old", backend: { service: { name: "catalog", port: { number: 80 } } } }] } }] } },
+    ],
+  };
   const usage = pods.filter((p) => p.status.phase === "Running").map((p, i) => ({ namespace: "shop", name: p.metadata.name, cpu_m: [42, 38, 51, 3, 120, 12, 9, 7, 64][i % 9], mem: [180, 176, 190, 40, 260, 95, 92, 30, 410][i % 9] * 1048576 }));
 
   // ---- SSH, KeePass, alerts ----
@@ -251,6 +273,9 @@
         setTimeout(tick, 30);
         return null;
       }
+      if (cmd === "k8s_names") return [];
+      if (cmd === "k8s_list" && args.kind in diag) return diag[args.kind];
+      if (cmd === "k8s_list" && ["statefulsets", "daemonsets", "jobs", "cronjobs", "persistentvolumeclaims", "crd:policy/v1/poddisruptionbudgets/PodDisruptionBudget/true"].includes(args.kind)) return [];
       if (cmd === "k8s_list") return args.kind === "namespaces" ? ["default", "kube-system", "monitoring", "shop"].map((n) => ({ metadata: { name: n, uid: n } })) : pods;
       if (cmd === "k8s_watch_start") { setTimeout(() => emit(`k8s-watch-${args.id}`, { type: "reset", items: args.kind === "pods" ? pods : [] }), 50); return null; }
       if (cmd === "db_tree") return dbTree(args.path);
