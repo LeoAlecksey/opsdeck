@@ -1,7 +1,7 @@
 import { locale } from "../i18n";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { ask, esc, toast } from "./ui";
+import { ask, esc, logUi, toast } from "./ui";
 
 type UpdateInfo = { current: string; available: boolean; version?: string; notes?: string; date?: number; rollback?: boolean };
 type Release = { version: string; date: string | null; notes: string; withdrawn: boolean; installable: boolean };
@@ -29,6 +29,8 @@ export async function checkUpdates(silent = false): Promise<UpdateInfo | null> {
     return last;
   } catch (e) {
     if (!silent) throw e;
+    logUi("warn", `update check: ${e}`);
+    window.dispatchEvent(new CustomEvent("update-error", { detail: String(e) }));
     return null;
   }
 }
@@ -142,12 +144,12 @@ export function mountUpdates(el: HTMLElement) {
     btn.textContent = `Скачиваю… ${((p.downloaded ?? 0) / 1048576).toFixed(1)} МБ${p.total ? ` из ${(p.total / 1048576).toFixed(1)}` : ""}`;
   });
   window.addEventListener("update-info", (e) => show((e as CustomEvent<UpdateInfo>).detail));
+  window.addEventListener("update-error", (e) => ($(".upd-result").textContent = (e as CustomEvent<string>).detail));
+  // Settings are mounted at every start: no request to the release server from here, or the app
+  // goes online even with the startup check turned off. The check is the button or that startup
+  // check (main.ts); its result arrives as "update-info".
   if (last) show(last);
-  else invoke<UpdateInfo>("update_check").then(show).catch((err) => {
-    // not reachable / no releases yet: still show the installed version
-    invoke<string>("app_version").then((v) => ($(".upd-cur").textContent = v)).catch(() => {});
-    $(".upd-result").textContent = String(err);
-  });
+  else invoke<string>("app_version").then((v) => ($(".upd-cur").textContent = v)).catch((err) => ($(".upd-result").textContent = String(err)));
 }
 
 function cmpVer(a: string, b: string): number {
