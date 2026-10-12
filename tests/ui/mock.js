@@ -2,6 +2,7 @@
 // documentation IP ranges (192.0.2.0/24, 198.51.100.0/24, 203.0.113.0/24).
 //   window.__calls            — every invoke: { cmd, args }
 //   window.__demoEmit(e, p)   — fire a backend event
+//   window.__demoListeners    — event -> [callback id] of the listeners still subscribed
 //   window.__DEMO_OVERRIDES   — { command: value | (args) => value } replaces an answer
 //   window.__DEMO_LANG        — "ru" (default) or "en": UI language and demo texts
 (() => {
@@ -20,6 +21,7 @@
   const handlers = {}; // event -> [callback id]
   const emit = (event, payload) => (handlers[event] || []).forEach((id) => { try { window[`_${id}`]?.({ event, payload, id }); } catch (e) { console.error(e); } });
   window.__demoEmit = emit;
+  window.__demoListeners = handlers;
   window.__calls = [];
 
   // ---- Kubernetes ----
@@ -290,7 +292,7 @@ lint:
   window.__TAURI_INTERNALS__ = {
     metadata: { currentWindow: { label: "main" }, currentWebview: { label: "main", windowLabel: "main" } },
     transformCallback: (cb) => { const id = ++cbid; window[`_${id}`] = cb; return id; },
-    unregisterCallback: () => {},
+    unregisterCallback: (id) => { delete window[`_${id}`]; },
     convertFileSrc: (p) => p,
     invoke: async (cmd, args = {}) => {
       if (cmd === "plugin:event|listen") { (handlers[args.event] ||= []).push(args.handler); return args.handler; }
@@ -340,5 +342,11 @@ lint:
       return null;
     },
   };
-  window.__TAURI_EVENT_PLUGIN_INTERNALS__ = { unregisterListener: () => {} };
+  // like Tauri: unlisten drops the callback, so whatever its closure holds can be collected
+  window.__TAURI_EVENT_PLUGIN_INTERNALS__ = {
+    unregisterListener: (event, id) => {
+      handlers[event] = (handlers[event] || []).filter((h) => h !== id);
+      delete window[`_${id}`];
+    },
+  };
 })();

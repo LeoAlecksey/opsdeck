@@ -4,6 +4,10 @@ const tabs = (page: import("@playwright/test").Page) => page.locator(".tabs .tab
 const activeIndex = (page: import("@playwright/test").Page) =>
   tabs(page).evaluateAll((els) => els.findIndex((e) => e.classList.contains("active")));
 const panes = (page: import("@playwright/test").Page) => page.locator(".term-host:not([hidden]) .pane");
+/** Backend events of one terminal that still have a listener (the fake backend tracks unlisten). */
+const listeners = (page: import("@playwright/test").Page, id: string) => page.evaluate((id) =>
+  Object.entries((window as any).__demoListeners as Record<string, number[]>)
+    .filter(([e, l]) => e.endsWith(`-${id}`) && l.length).map(([e]) => e.slice(0, -id.length - 1)).sort(), id);
 
 test.describe("terminal", () => {
   test("shows the shell output and sends typed keys", async ({ app, page }) => {
@@ -80,6 +84,49 @@ test.describe("terminal", () => {
     await expect(size).toHaveText("12");
     await page.keyboard.press("Control+Digit0");
     await expect(size).toHaveText("13");
+  });
+
+  // a listener left behind holds the closed pane with its whole scrollback
+  test("a closed tab and a reconnected pane leave no event listeners", async ({ app, page }) => {
+    const spawned = async () => ((await app.calls("pty_spawn")).at(-1)!.args as any).req;
+    await app.called("pty_spawn");
+    await page.evaluate(() => window.dispatchEvent(new CustomEvent("open-terminal", { detail: { program: "ssh", args: ["demo"], keepOpen: true } })));
+    await expect.poll(async () => (await spawned()).program).toBe("ssh");
+    const first = (await spawned()).id;
+    await expect.poll(() => listeners(page, first)).toEqual(["pty-data", "pty-exit", "pty-record"]);
+
+    await app.emit(`pty-exit-${first}`, null);
+    await page.locator(".reconnect-bar:visible [data-rc=go]").click();
+    await expect.poll(async () => (await spawned()).id).not.toBe(first);
+    const second = (await spawned()).id;
+    await expect.poll(() => listeners(page, second)).toEqual(["pty-data", "pty-exit", "pty-record"]);
+    expect(await listeners(page, first), "reconnect drops the old terminal's listeners").toEqual([]);
+
+    // a recording tab saves its file on close: no listener is left to hear the backend's «saved»
+    await app.override("pty_record_start", "/home/demo/sessions/x.log");
+    await app.override("pty_record_stop", "/home/demo/sessions/x.log");
+    await page.locator("[data-act=rec]").click();
+    await app.called("pty_record_start");
+    await tabs(page).last().locator(".x").click();
+    expect(((await app.called("pty_record_stop")).args as any).id).toBe(second);
+    await expect(page.locator(".toast").last()).toContainText("Запись сохранена: /home/demo/sessions/x.log");
+    await expect.poll(() => listeners(page, second), "closing the tab drops its listeners").toEqual([]);
+  });
+
+  test("a tab closed before its shell started starts no shell", async ({ app, page }) => {
+    await app.called("pty_spawn");
+    // open and close in one go: the close lands while the terminal is still subscribing to its events
+    await page.evaluate(() => {
+      window.dispatchEvent(new CustomEvent("open-terminal", { detail: {} }));
+      document.querySelector<HTMLElement>(".tabs .tab:last-child .x")!.click();
+    });
+    const closed = ((await app.called("pty_kill")).args as any).id as string;
+    // a tab opened afterwards subscribes and spawns later than the closed one would have
+    await page.keyboard.press("Control+Shift+KeyT");
+    await expect(tabs(page)).toHaveCount(2);
+    await expect.poll(async () => (await app.calls("pty_spawn")).length).toBeGreaterThanOrEqual(2);
+    expect((await app.calls("pty_spawn")).map((c) => (c.args as any).req.id), "no shell for the closed tab").not.toContain(closed);
+    expect(await listeners(page, closed), "no listeners of the closed tab").toEqual([]);
   });
 
   test("session recording and the AI panel", async ({ app, page }) => {

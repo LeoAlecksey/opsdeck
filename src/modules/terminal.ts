@@ -268,7 +268,7 @@ export function mountTerminal(root: HTMLElement) {
       bar.querySelector(".reconnect-text")!.textContent = pane.spawn.program ? `${t("Соединение закрыто")}: ${[pane.spawn.program, ...(pane.spawn.args ?? [])].join(" ").slice(0, 80)}` : t("Сессия завершена");
       bar.hidden = false;
     };
-    listen<string>(`pty-record-${pty.id}`, (e) => {
+    pty.listen<string>(`pty-record-${pty.id}`, (e) => {
       if (!pane.recording) return;
       pane.recording = undefined;
       toast(`Сессия завершилась, запись сохранена: ${e.payload}`);
@@ -294,12 +294,22 @@ export function mountTerminal(root: HTMLElement) {
     pane.pty.term.focus();
   }
 
+  /** A recording pane saves its file here: once disposed, its terminal no longer hears «pty-record» from the backend. */
+  function disposePane(p: Pane) {
+    if (p.recording) {
+      invoke<string | null>("pty_record_stop", { id: p.pty.id })
+        .then((path) => { if (path) toast(`Запись сохранена: ${path}`); })
+        .catch((e) => toast(String(e), "err"));
+    }
+    p.pty.dispose();
+  }
+
   function closePane(p: Pane) {
     const tab = p.tab;
     const i = tab.panes.indexOf(p);
     if (i < 0) return;
     tab.panes.splice(i, 1);
-    p.pty.dispose();
+    disposePane(p);
     p.el.remove();
     if (!tab.panes.length) return closeTab(tab);
     layoutTab(tab);
@@ -455,7 +465,7 @@ export function mountTerminal(root: HTMLElement) {
     const i = tabs.indexOf(t);
     if (i < 0) return;
     tabs.splice(i, 1);
-    t.panes.splice(0).forEach((p) => p.pty.dispose());
+    t.panes.splice(0).forEach(disposePane);
     t.btn.remove();
     t.host.remove();
     if (!tabs.length) newTab();
