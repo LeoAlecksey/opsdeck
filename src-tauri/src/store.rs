@@ -10,7 +10,12 @@ pub fn err(e: impl std::fmt::Display) -> String {
 }
 
 pub fn config_dir() -> Result<PathBuf, String> {
-    let dir = dirs::config_dir().ok_or("no config dir")?.join("opsdeck");
+    #[cfg(not(test))]
+    let base = dirs::config_dir().ok_or("no config dir")?;
+    // unit tests must not read or rewrite the developer's own settings
+    #[cfg(test)]
+    let base = std::env::temp_dir().join(format!("opsdeck-test-config-{}", std::process::id()));
+    let dir = base.join("opsdeck");
     fs::create_dir_all(&dir).map_err(err)?;
     Ok(dir)
 }
@@ -95,7 +100,14 @@ pub fn is_executable(p: &Path) -> bool {
     }
 }
 
+/// Keyring accesses, for tests that check a code path doesn't reach the keyring.
+#[cfg(test)]
+pub(crate) static KEYRING_CALLS: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+
 fn entry(key: &str) -> Result<keyring::Entry, String> {
+    #[cfg(test)]
+    KEYRING_CALLS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
     keyring::Entry::new(KEYRING_SERVICE, key).map_err(err)
 }
 
