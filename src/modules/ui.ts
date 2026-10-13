@@ -37,6 +37,26 @@ export function ask(
   });
 }
 
+/**
+ * Enter in a dialog field means its main action, not «Отмена».
+ *
+ * The browser submits a form by Enter through its *first* submit button, and in every dialog here that is
+ * «Отмена» — so Enter closed the dialog and threw the typed values away (#68, and the same in notes, SSH,
+ * databases…). One listener covers every dialog, including ones added later.
+ */
+document.addEventListener("keydown", (e) => {
+  if (e.key !== "Enter" || e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey || e.isComposing) return;
+  const target = e.target as HTMLElement | null;
+  // a textarea takes Enter as a newline; on a button Enter means that button
+  if (!target || target instanceof HTMLTextAreaElement || target instanceof HTMLButtonElement) return;
+  const form = target.closest("form");
+  if (!form || !form.closest("dialog")?.open) return;
+  const main = form.querySelector<HTMLButtonElement>("button.primary:not([hidden]), button.danger-solid:not([hidden])");
+  if (!main || main.disabled) return;
+  e.preventDefault();
+  main.click();
+});
+
 /** Modal UI is about to cover the page: embedded web panels (native views on top) hide meanwhile. */
 export function overlay(open: boolean) {
   window.dispatchEvent(new Event(open ? "overlay-open" : "overlay-close"));
