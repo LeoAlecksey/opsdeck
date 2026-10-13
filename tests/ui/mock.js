@@ -318,6 +318,26 @@ lint:
       if (!l) throw `Couldn't stat remote file: No such file or directory`;
       return { path, entries: l.map(([name, dir, modified, perms, target]) => ({ name, dir: !!dir, link: !!target, size: dir ? 0 : 1048576, modified, perms, target: target || "" })) };
     },
+    // ---- Yandex Cloud: демо-каталог (документационные адреса) ----
+    yc_status: { found: true, version: "yandex-cloud/0.142.0", profile: "default", profiles: ["default", "work"], cloud_id: "b1g1", folder_id: "b1gf1", error: "" },
+    yc_clouds: [{ id: "b1g1", name: "shop", parent: "org1", description: "" }],
+    yc_folders: [{ id: "b1gf1", name: "prod", parent: "b1g1", description: "боевой" }, { id: "b1gf2", name: "stage", parent: "b1g1", description: "" }],
+    yc_instances: [
+      { id: "fhm1", name: "app-1", status: "RUNNING", zone: "ru-central1-a", platform: "standard-v3", cores: 2, memory: 4294967296, core_fraction: 20, preemptible: true, internal_ip: "10.128.0.7", public_ip: "203.0.113.7", subnet_id: "e9b1" },
+      { id: "fhm2", name: "db-1", status: "STOPPED", zone: "ru-central1-b", platform: "standard-v2", cores: 4, memory: 8589934592, core_fraction: 100, preemptible: false, internal_ip: "10.128.1.3", public_ip: "", subnet_id: "e9b2" }],
+    yc_instance_op: null, yc_use_profile: null,
+    yc_networks: [{ id: "enp1", name: "default", parent: "b1gf1", description: "" }],
+    yc_subnets: [{ id: "e9b1", name: "app-a", network_id: "enp1", zone: "ru-central1-a", cidrs: ["10.128.0.0/24"], route_table_id: "" },
+      { id: "e9b2", name: "db-b", network_id: "enp1", zone: "ru-central1-b", cidrs: ["10.128.1.0/24"], route_table_id: "rt1" }],
+    yc_sec_groups: [{ id: "enp9", name: "web", network_id: "enp1", rules: [
+      { direction: "INGRESS", protocol: "tcp", ports: "443", source: "0.0.0.0/0", description: "https" },
+      { direction: "INGRESS", protocol: "tcp", ports: "30000-32767", source: "эта же группа", description: "" },
+      { direction: "EGRESS", protocol: "любой", ports: "любые", source: "0.0.0.0/0", description: "" }] }],
+    yc_addresses: [{ id: "e9a1", address: "203.0.113.7", reserved: true, used: true, zone: "ru-central1-a", name: "app" },
+      { id: "e9a2", address: "203.0.113.10", reserved: true, used: false, zone: "ru-central1-b", name: "" }],
+    yc_service_accounts: [{ id: "aje1", name: "ci-deploy", parent: "b1gf1", description: "раскатка из GitLab" }],
+    yc_bindings: [{ role: "editor", kind: "serviceAccount", subject: "aje1" }, { role: "viewer", kind: "userAccount", subject: "ajeu2" }],
+    yc_billing: [{ id: "dn2", name: "основной", balance: "12 430.55", currency: "RUB", active: true }],
     sftp_get: (a) => a.remote.length,
     sftp_put: (a) => a.local.length,
     sftp_between: (a) => a.paths.length,

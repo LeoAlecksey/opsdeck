@@ -34,6 +34,7 @@ mod transfer;
 mod updater;
 mod winbox_import;
 mod winshell;
+mod yc;
 
 /// The main window, from tauri.conf.json ("create": false there).
 fn main_window(app: &tauri::App) -> tauri::Result<()> {
@@ -276,6 +277,19 @@ pub fn run() {
             ssh::ssh_keys,
             dbtunnel::web_share_tunnel,
             dbtunnel::web_share_close,
+            yc::yc_status,
+            yc::yc_use_profile,
+            yc::yc_clouds,
+            yc::yc_folders,
+            yc::yc_instances,
+            yc::yc_instance_op,
+            yc::yc_networks,
+            yc::yc_subnets,
+            yc::yc_sec_groups,
+            yc::yc_addresses,
+            yc::yc_service_accounts,
+            yc::yc_bindings,
+            yc::yc_billing,
             sftp::sftp_list,
             sftp::sftp_get,
             sftp::sftp_put,

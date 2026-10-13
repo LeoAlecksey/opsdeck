@@ -139,6 +139,23 @@ export const HELP_EN: Record<string, { title: string; html: string }> = {
       <li>For DNS you can set the record type and the server (e.g. 8.8.8.8), for ping/mtr — the packet count.</li>
       <li><b>Stop</b> interrupts a long command.</li></ul>`,
   },
+  yc: {
+    title: "Yandex Cloud",
+    html: `
+      <h4>What it is</h4>
+      <p>The cloud at a glance: instances, networks, security groups, public addresses, service accounts with their roles, and billing accounts. OpsDeck works through the cloud's own <code>yc</code> CLI and its profiles (<code>yc init</code>), so it <b>stores no tokens and no service-account keys</b> — everything comes from your own login.</p>
+      <h4>What you need</h4>
+      <ul><li>The module is enabled with a tick in the ⊞ menu at the bottom of the left column.</li>
+      <li><code>yc</code> in PATH and <code>yc init</code> done. With several profiles a list appears at the top — switching changes the CLI's own active profile.</li>
+      <li>Pick the <b>cloud</b> and the <b>folder</b> at the top; everything below is shown for that folder.</li></ul>
+      <h4>What's where</h4>
+      <ul><li><b>Instances</b> — status, zone, configuration (platform, vCPU with core fraction, memory, “preemptible”) and addresses. Start, stop and restart ask for confirmation: these are real machines. <b>SSH</b> opens a terminal tab with the public address, or the internal one when there is none.</li>
+      <li><b>Networks</b> — subnets grouped by network: zone, addresses, route table.</li>
+      <li><b>Security groups</b> — rules in plain words: direction, protocol, ports and where from (addresses, “the same group”, another group, load-balancer health checks). A group with no rules lets nothing through.</li>
+      <li><b>Addresses</b> — public addresses; a reserved address that is not in use is marked, as it is billed.</li>
+      <li><b>Access</b> — the folder's service accounts and the roles granted on the folder.</li>
+      <li><b>Billing</b> — billing accounts with their balance (visible if the profile has rights to them).</li></ul>`,
+  },
   sftp: {
     title: "Files on hosts",
     html: `
