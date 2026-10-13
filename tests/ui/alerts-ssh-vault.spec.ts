@@ -87,6 +87,17 @@ test.describe("ssh", () => {
     await expect.poll(async () => (await app.calls("pty_spawn")).map((c) => (c.args as any).req.program)).toContain("ssh");
   });
 
+  // привычка из Termius: двойной клик по строке подключает (из пожеланий)
+  test("a double click on the row connects, for an own profile and for a ~/.ssh/config host", async ({ app, page }) => {
+    await page.locator("tr[data-id=h3] .mt-name").dblclick();
+    expect((await app.called("ssh_connect")).args).toEqual({ id: "h3", alias: null });
+    await app.view("ssh");
+    const cfg = page.locator("tr[data-alias]").first();
+    const alias = await cfg.getAttribute("data-alias");
+    await cfg.locator(".mono").dblclick();
+    await expect.poll(async () => (await app.calls("ssh_connect")).at(-1)!.args).toEqual({ id: null, alias });
+  });
+
   test("filter", async ({ page }) => {
     await page.locator(".ssh-filter").fill("app-");
     await expect(page.locator("tr[data-id]:visible, tr[data-alias]:visible")).toHaveCount(2);

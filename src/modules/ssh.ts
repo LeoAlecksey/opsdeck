@@ -293,6 +293,18 @@ export function mountSsh(root: HTMLElement) {
     } catch (err) { toast(String(err), "err"); }
   }
 
+  // двойной клик по строке подключает — как в Termius и MobaXterm (из пожеланий)
+  list.addEventListener("dblclick", (e) => {
+    const t = e.target as HTMLElement;
+    if (dragJustEnded || t.closest("button") || t.closest("summary")) return;
+    const tr = t.closest<HTMLElement>("tr[data-id], tr[data-alias]");
+    if (!tr) return;
+    const h = data.hosts.find((x) => x.id === tr.dataset.id);
+    const c = data.config.find((x) => x.alias === tr.dataset.alias);
+    if (h) connect(`ssh ${h.name}`, { id: h.id });
+    else if (c) connect(`ssh ${c.alias}`, { alias: c.alias });
+  });
+
   let dragJustEnded = false;
   list.addEventListener("click", (e) => { if (dragJustEnded) { e.stopPropagation(); e.preventDefault(); } }, true);
   list.addEventListener("pointerdown", (e) => {

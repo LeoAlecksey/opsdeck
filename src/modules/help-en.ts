@@ -157,9 +157,9 @@ export const HELP_EN: Record<string, { title: string; html: string }> = {
     title: "SSH",
     html: `
       <h4>How it works</h4>
-      <p>“Connect” opens a terminal tab with ssh. Hosts from ~/.ssh/config connect by alias with all their settings (keys, ProxyJump).</p>
+      <p>“Connect”, or a double click on the row, opens a terminal tab with ssh. Hosts from ~/.ssh/config connect by alias with all their settings (keys, ProxyJump).</p>
       <h4>What's where</h4>
-      <ul><li><b>＋ Host</b> — your own profile: address, port, user, key (-i), jump host (-J), login method.</li>
+      <ul><li><b>＋ Host</b> — your own profile: address, port, user, key (-i), jump host (-J), login method. If the key's permissions are wider than ssh allows, it says so under the field, with a “Fix permissions” button next to it.</li>
       <li>A password from KeePass/Passbolt/keyring goes to the clipboard for 30 seconds — paste with ${kbd("Ctrl+Shift+V")} when ssh asks.</li>
       <li><b>Groups</b> — collapsible blocks. For your own profile the group is set in ✎, for a host from ~/.ssh/config — with the 📁 button (OpsDeck keeps it to itself and doesn't change the ssh config) or with a <code># group: prod</code> comment on the line above <code>Host</code>. ✎ in a group header renames the whole group.</li>
       <li><b>⧉</b> on a host from ~/.ssh/config — save as a profile to bind a KeePass password.</li>
