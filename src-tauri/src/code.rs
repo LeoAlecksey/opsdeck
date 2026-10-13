@@ -451,6 +451,39 @@ pub async fn code_git_diff(root: String, file: String) -> Result<String, String>
     .map_err(err)?
 }
 
+/// Строки файла, которых ещё нет в удалённой ветке: номера из заголовков ханков `@@`.
+/// Ханк без строк справа (`+a,0`) — только удаление, его показывать нечего.
+fn hunk_lines(diff: &str) -> Vec<(u32, u32)> {
+    diff.lines()
+        .filter_map(|l| {
+            let rest = l.strip_prefix("@@ ")?;
+            let plus = rest.split_whitespace().find(|p| p.starts_with('+'))?;
+            let mut it = plus[1..].splitn(2, ',');
+            let start: u32 = it.next()?.parse().ok()?;
+            let count: u32 = it.next().map_or(Ok(1), str::parse).ok()?;
+            (count > 0).then(|| (start, start + count - 1))
+        })
+        .collect()
+}
+
+/// Строки файла, отличающиеся от его состояния в отслеживаемой ветке (origin/…): то, что ещё не
+/// отправлено. Нет upstream (ветка только локальная) — сравниваем с origin/HEAD, нет и его — пусто.
+#[tauri::command]
+pub async fn code_unpushed(root: String, file: String) -> Result<Vec<(u32, u32)>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let dir = expand(&root);
+        for base in ["@{upstream}", "origin/HEAD"] {
+            // -- <file>: только этот файл; --unified=0 — ханки ровно по изменённым строкам
+            if let Ok(d) = git(&dir, &["diff", "--no-color", "--unified=0", base, "--", &file]) {
+                return Ok(hunk_lines(&d));
+            }
+        }
+        Ok(Vec::new())
+    })
+    .await
+    .map_err(err)?
+}
+
 /// One commit: header, stat and patch (trimmed for huge commits).
 #[tauri::command]
 pub async fn code_git_show(root: String, hash: String) -> Result<String, String> {
@@ -612,6 +645,15 @@ pub async fn code_git_op(root: String, op: String, name: Option<String>, from: O
 
 #[cfg(test)]
 mod tests {
+    /// Подсветка строк, не отправленных в удалённую ветку: номера берутся из правой части `@@`.
+    #[test]
+    fn hunk_headers_give_the_changed_lines() {
+        let diff = "diff --git a/main.tf b/main.tf\n--- a/main.tf\n+++ b/main.tf\n@@ -3,0 +4,2 @@ resource \"x\" {\n+  tags = {}\n+  name = \"y\"\n@@ -20 +22 @@\n-old\n+new\n@@ -30,2 +33,0 @@\n-gone\n-gone\n";
+        assert_eq!(hunk_lines(diff), vec![(4, 5), (22, 22)], "удаление без новых строк не подсвечивается");
+        assert!(hunk_lines("").is_empty());
+        assert!(hunk_lines("@@ broken @@").is_empty());
+    }
+
     use super::*;
 
     #[test]

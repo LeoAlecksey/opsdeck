@@ -275,6 +275,7 @@ pub fn run() {
             ssh::ssh_keys,
             dbtunnel::web_share_tunnel,
             dbtunnel::web_share_close,
+            code::code_unpushed,
             ssh::ssh_key_perms,
             ssh::ssh_key_fix_perms,
             ssh::ssh_save,

@@ -62,6 +62,25 @@ test.describe("IDE tree: rename, copy, delete", () => {
   });
 });
 
+test.describe("IDE: lines not pushed yet", () => {
+  // видно, что ещё не ушло в удалённую ветку, прямо в редакторе (из пожеланий)
+  test("the lines git reports as unpushed are marked, another file stays clean", async ({ app, page }) => {
+    await openProject(app, page);
+    await page.evaluate((p) => window.dispatchEvent(new CustomEvent("open-in-code", { detail: { path: p + "/main.tf" } })), PROJ);
+    await expect(page.locator(".cm-content")).toContainText('module "cluster"');
+    expect((await app.called("code_unpushed")).args).toEqual({ root: PROJ, file: "main.tf" });
+    // ханки 2–3 и 6 из git diff --unified=0
+    await expect.poll(async () => page.locator(".cm-line.cm-unpushed").count()).toBe(3);
+    const marked = await page.locator(".cm-content .cm-line").evaluateAll((els) =>
+      els.map((e, i) => (e.classList.contains("cm-unpushed") ? i + 1 : 0)).filter(Boolean));
+    expect(marked).toEqual([2, 3, 6]);
+
+    // в другом файле ничего не помечено
+    await page.evaluate((p) => window.dispatchEvent(new CustomEvent("open-in-code", { detail: { path: p + "/variables.tf" } })), PROJ);
+    await expect.poll(async () => page.locator(".cm-line.cm-unpushed").count()).toBe(0);
+  });
+});
+
 test.describe("IDE keys on the Russian layout", () => {
   test("Ctrl+F opens the search, Ctrl+S saves (physical keys, not letters)", async ({ app, page }) => {
     await openProject(app, page);

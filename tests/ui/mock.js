@@ -301,6 +301,8 @@ lint:
       { id: "c3", kind: "gitlab", name: "GitLab", group: "", url: "https://gitlab.example.com", username: "ops", auth: "keepass", keepass_entry: "k4" }],
     sys_local: { host: "workstation", remote: false, cpu: 14, cores: 16, load: [1.2, 1.4, 1.1], mem_used: 11.4 * GiB, mem_total: 32 * GiB, swap_used: 0, swap_total: 8 * GiB, disk_mount: "/", disk_used: 312 * GiB, disk_total: 954 * GiB, uptime: 4 * 86400 },
     ide_status: { clients: 1 }, editors_detect: [], shell_commands: ["kubectl", "helm", "terraform", "git", "ssh", "docker", "ls", "cd", "cat", "grep"], cmd_suggest: [],
+    // строки, которых ещё нет в удалённой ветке (git diff с @{upstream})
+    code_unpushed: (a) => (a.file === "main.tf" ? [[2, 3], [6, 6]] : []),
     code_git_log: commits, code_git_branches: branches, fs_git_status: { root: proj, branch: "feature/monitoring", files: { "main.tf": "M", "helm/values-prod.yaml": "M", "outputs.tf": "A" } },
     update_check: { available: false, version: "0.5.0", notes: "", date: "" }, releases_list: [],
     ai_status: { engine: true, model: true, running: true, installing: false, size: 5.9e9, download_size: 0, dir: "/home/demo/.local/share/opsdeck/ai", supported: true, model_title: "Мощная — Qwen3.5 9B" },

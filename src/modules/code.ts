@@ -14,8 +14,8 @@ import { diffContext, fileContext, projectContext } from "./aictx";
 import { attachPathLinks } from "./files";
 import { fileIcon, folderIcon } from "./fileicons";
 import { basicSetup } from "codemirror";
-import { EditorView, keymap } from "@codemirror/view";
-import { Compartment, EditorState, Prec, type Extension } from "@codemirror/state";
+import { Decoration, EditorView, keymap, type DecorationSet } from "@codemirror/view";
+import { Compartment, EditorState, Prec, StateEffect, StateField, type Extension } from "@codemirror/state";
 import { openSearchPanel, selectNextOccurrence } from "@codemirror/search";
 import { StreamLanguage, indentUnit } from "@codemirror/language";
 import { linter, lintGutter, type Diagnostic } from "@codemirror/lint";
@@ -104,6 +104,29 @@ function languageFor(path: string): { ext: Extension; name: string } {
 }
 
 /** YAML: syntax errors and warnings for every document in the file. */
+/** Строки, которых ещё нет в удалённой ветке (git diff с @{upstream}): полоса слева от строки. */
+const setUnpushed = StateEffect.define<[number, number][]>();
+const unpushedLine = Decoration.line({ class: "cm-unpushed" });
+/** разумный предел: новый файл целиком — это весь документ, подсвечивать каждую строку незачем */
+const MAX_UNPUSHED_LINES = 5000;
+
+const unpushedField = StateField.define<DecorationSet>({
+  create: () => Decoration.none,
+  update(set, tr) {
+    const eff = tr.effects.find((e) => e.is(setUnpushed));
+    if (!eff) return set.map(tr.changes);
+    const doc = tr.state.doc;
+    const marks = [];
+    for (const [a, b] of eff.value as [number, number][]) {
+      for (let n = Math.max(1, a); n <= Math.min(b, doc.lines) && marks.length < MAX_UNPUSHED_LINES; n++) {
+        marks.push(unpushedLine.range(doc.line(n).from));
+      }
+    }
+    return Decoration.set(marks, true);
+  },
+  provide: (f) => EditorView.decorations.from(f),
+});
+
 function yamlLint(view: EditorView): Diagnostic[] {
   const text = view.state.doc.toString();
   const out: Diagnostic[] = [];
@@ -244,6 +267,7 @@ export function mountCode(root: HTMLElement) {
     return [
       basicSetup,
       oneDark,
+      unpushedField,
       indentUnit.of("  "),
       keymap.of([indentWithTab]),
       // By physical key (event.code): CodeMirror binds by the typed letter, so on the Russian layout
@@ -277,6 +301,14 @@ export function mountCode(root: HTMLElement) {
       roC.of(EditorState.readOnly.of(t.readonly)),
       EditorView.theme({ "&": { height: "100%", fontSize: "13px" }, ".cm-scroller": { fontFamily: "'JetBrains Mono', 'Fira Code', monospace" } }),
     ];
+  }
+
+  /** Что в этом файле ещё не отправлено в удалённую ветку: спрашиваем git и красим строки. */
+  async function loadUnpushed(t: Tab | null) {
+    if (!t) return;
+    const rel = t.path ? relToGit(t.path) : null;
+    const ranges = !rel || !git.root ? [] : await invoke<[number, number][]>("code_unpushed", { root: git.root, file: rel }).catch(() => []);
+    if (active === t) view.dispatch({ effects: setUnpushed.of(ranges) });
   }
 
   const isDirty = (t: Tab) => !t.readonly && (t === active ? view.state : t.state).doc.toString() !== t.saved;
@@ -313,6 +345,7 @@ export function mountCode(root: HTMLElement) {
     tfErrors = [];
     syncStatus();
     syncPos();
+    loadUnpushed(t);
     ls.set("opsdeck.code.tabs", JSON.stringify(tabs.filter((x) => x.path).map((x) => x.path)));
     ls.set("opsdeck.code.active", t?.path ?? "");
     saveProjectState();
@@ -398,6 +431,7 @@ export function mountCode(root: HTMLElement) {
       markDirty(t);
       toast(`Сохранено: ${t.title}`);
       refreshGit();
+      loadUnpushed(t);
     } catch (e) {
       if (String(e).startsWith("CONFLICT")) {
         const choice = await ask("Файл изменён на диске", `«${t.title}» поменялся снаружи после открытия. Перезаписать своей версией?`, { ok: "Перезаписать", danger: true });
@@ -883,6 +917,7 @@ export function mountCode(root: HTMLElement) {
     git = await invoke<Git>("fs_git_status", { path: project }).catch(() => ({ root: "", branch: "", files: {} }));
     if (redraw) drawTree();
     if (!gitPanel.hidden) drawChanges();
+    loadUnpushed(active);
   }
 
   function drawChanges() {
