@@ -34,10 +34,11 @@
     : { kind: "ReplicaSet", name: `${app(name)}-${hash(name)}`, controller: true });
   const pod = (name, nsx, node, status = "Running", restarts = 0, ageMs = 3 * D, ready = true, img = "registry.example.com/shop/api:1.42.0") => ({
     metadata: { name, namespace: nsx, uid: `u${++uid}`, creationTimestamp: iso(ageMs), labels: { app: app(name), "pod-template-hash": hash(name) }, ownerReferences: [owner(name)] },
-    spec: { nodeName: node, containers: [{ name: "app", image: img }] },
+    spec: { nodeName: node, containers: [{ name: "app", image: img, resources: { requests: { cpu: "100m", memory: "256Mi" }, limits: { cpu: "500m", memory: "512Mi" } } }] },
     status: {
       phase: status === "CrashLoopBackOff" ? "Running" : status, podIP: `10.244.${(uid % 3) + 1}.${20 + uid}`,
-      containerStatuses: [{ name: "app", ready, restartCount: restarts, state: status === "CrashLoopBackOff" ? { waiting: { reason: "CrashLoopBackOff" } } : { running: {} } }],
+      containerStatuses: [{ name: "app", ready, restartCount: restarts, state: status === "CrashLoopBackOff" ? { waiting: { reason: "CrashLoopBackOff" } } : { running: { startedAt: iso(ageMs) } },
+        ...(restarts ? { lastState: { terminated: { reason: "OOMKilled", exitCode: 137, finishedAt: iso(M * 7) } } } : {}) }],
     },
   });
   const pods = [

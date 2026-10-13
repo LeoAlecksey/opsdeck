@@ -87,6 +87,17 @@ function containerState(st?: Obj): string {
   return "";
 }
 
+/** Why the previous run ended: `kubectl describe` shows this as Last State, and an exit code of 137 (OOM)
+ *  or 1 is usually the whole answer (#79). */
+function lastState(st?: Obj): string {
+  const t = st?.lastState?.terminated;
+  if (!t) return "";
+  const why = t.reason ?? "Error";
+  const code = t.exitCode === undefined ? "" : ` (${t.exitCode}${t.exitCode === 137 ? ", OOM/kill" : ""})`;
+  const sig = t.signal ? `, сигнал ${t.signal}` : "";
+  return `${why}${code}${sig}${t.finishedAt ? ` · ${age(t.finishedAt)}` : ""}`;
+}
+
 function containers(spec: Obj, statuses: Obj[] = [], init = false) {
   const list: Obj[] = (init ? spec?.initContainers : spec?.containers) ?? [];
   if (!list.length) return "";
@@ -96,6 +107,7 @@ function containers(spec: Obj, statuses: Obj[] = [], init = false) {
     return [
       c.name, c.image,
       s ? containerState(s.state) : "",
+      s ? lastState(s) : "",
       s ? (s.ready ? "да" : "нет") : "",
       s ? String(s.restartCount ?? 0) : "",
       res(c.resources?.requests), res(c.resources?.limits),
@@ -103,12 +115,13 @@ function containers(spec: Obj, statuses: Obj[] = [], init = false) {
     ];
   });
   const hasStatus = statuses.length > 0;
-  const head = ["Контейнер", "Образ", ...(hasStatus ? ["Состояние", "Ready", "Рестарты"] : []), "Requests", "Limits", "Порты"];
-  const trimmed = hasStatus ? rows : rows.map((r) => [r[0], r[1], r[5], r[6], r[7]]);
+  const head = ["Контейнер", "Образ", ...(hasStatus ? ["Состояние", "Прошлый выход", "Ready", "Рестарты"] : []), "Requests", "Limits", "Порты"];
+  const trimmed = hasStatus ? rows : rows.map((r) => [r[0], r[1], r[6], r[7], r[8]]);
   return table(head, trimmed, (ri, ci) => {
     if (!hasStatus) return "";
     if (ci === 2) return trimmed[ri][2].startsWith("running") ? "ok" : trimmed[ri][2] ? "warn" : "";
-    if (ci === 4) return Number(trimmed[ri][4]) > 0 ? "warn" : "";
+    if (ci === 3) return trimmed[ri][3] ? "warn" : "";
+    if (ci === 5) return Number(trimmed[ri][5]) > 0 ? "warn" : "";
     return ci === 1 ? "wrap" : "";
   });
 }

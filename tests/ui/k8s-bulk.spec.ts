@@ -102,3 +102,21 @@ test.describe("kubernetes: pods of an object (#72)", () => {
     for (const name of await pods.allTextContents()) expect(name).toContain("worker-");
   });
 });
+
+test.describe("kubernetes: what the pod asked for (#79)", () => {
+  test("the table shows usage next to the request, over the limit is red", async ({ app, page }) => {
+    await open(app, page);
+    const row = rows(page).filter({ hasText: "worker-5c8d7f9b6-t9qjd" });
+    // 120m used of a 100m request / 500m limit
+    await expect(row.locator("td", { hasText: "/ 100m" })).toBeVisible();
+    await expect(row.locator("td", { hasText: "/ 256Mi" })).toBeVisible();
+    expect(await row.locator("td span[title]").first().getAttribute("title")).toContain("запрос 100m");
+  });
+
+  test("details show why the previous run ended", async ({ app, page }) => {
+    await open(app, page);
+    await rows(page).filter({ hasText: "api-7d9f8c6b5d-m4hrt" }).click();
+    await expect(page.locator(".drawer-body")).toContainText("Прошлый выход");
+    await expect(page.locator(".drawer-body")).toContainText("OOMKilled (137, OOM/kill)");
+  });
+});

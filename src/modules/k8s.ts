@@ -281,6 +281,36 @@ function ownerChain(pod: Obj, owner: Obj): boolean {
   });
 }
 
+/** Sum of requests and limits over a pod's containers (init containers do not add up at runtime). */
+function podAsk(o: Obj): { cpuReq: number; cpuLim: number; memReq: number; memLim: number } {
+  const cs: Obj[] = o?.spec?.containers ?? [];
+  const add = (where: "requests" | "limits", key: "cpu" | "memory") =>
+    cs.reduce((n, c) => {
+      const v = c.resources?.[where]?.[key];
+      return n + (key === "cpu" ? cpuMilli(v) : memBytes(v));
+    }, 0);
+  return { cpuReq: add("requests", "cpu"), cpuLim: add("limits", "cpu"), memReq: add("requests", "memory"), memLim: add("limits", "memory") };
+}
+
+/** "120m / 500m" — what is used and what was requested; the limit goes into the tooltip. */
+function askedHtml(used: number | undefined, req: number, lim: number, fmt: (n: number) => string): string {
+  const u = used === undefined ? "" : fmt(used);
+  if (!req && !lim) return esc(u);
+  const share = (base: number) => (base ? ` (${Math.round(((used ?? 0) / base) * 100)}%)` : "");
+  const title = [req ? `${t("запрос")} ${fmt(req)}${used !== undefined ? share(req) : ""}` : "", lim ? `${t("лимит")} ${fmt(lim)}${used !== undefined ? share(lim) : ""}` : ""]
+    .filter(Boolean).join(", ");
+  return `<span title="${esc(title)}">${esc(u || "—")}<span class="muted"> / ${esc(req ? fmt(req) : "—")}</span></span>`;
+}
+
+/** Red when over the limit, amber from 85% of it (or of the request when there is no limit). */
+function askedCls(used: number | undefined, req: number, lim: number): string {
+  if (used === undefined) return "";
+  const base = lim || req;
+  if (!base) return "";
+  const p = used / base;
+  return p >= 1 ? "bad" : p >= 0.85 ? "warn" : "";
+}
+
 const POD_COLORS = [36, 33, 35, 32, 34, 91, 96, 93];
 function podColor(pod: string) {
   let h = 0;
@@ -870,8 +900,13 @@ export function mountK8s(root: HTMLElement) {
     if (!metricsOk || !ctx || metricsFor !== `${ctxKey(ctx)}|${kind.id}|${currentNs()}`) return [];
     const u = (o: Obj) => usage.get(`${o.metadata.namespace ?? ""}/${o.metadata.name}`);
     if (kind.id === "pods") return [
-      { h: "CPU", v: (o) => (u(o) ? `${Math.round(u(o)!.cpu_m)}m` : ""), sort: (o) => -(u(o)?.cpu_m ?? -1) },
-      { h: "RAM", v: (o) => (u(o) ? fmtMem(u(o)!.mem) : ""), sort: (o) => -(u(o)?.mem ?? -1) },
+      // usage next to what the pod asked for: a number alone says nothing about whether it fits (#79)
+      { h: "CPU", v: (o) => (u(o) ? `${Math.round(u(o)!.cpu_m)}m` : ""), sort: (o) => -(u(o)?.cpu_m ?? -1),
+        html: (o) => askedHtml(u(o)?.cpu_m, podAsk(o).cpuReq, podAsk(o).cpuLim, (x) => `${Math.round(x)}m`),
+        cls: (o) => askedCls(u(o)?.cpu_m, podAsk(o).cpuReq, podAsk(o).cpuLim) },
+      { h: "RAM", v: (o) => (u(o) ? fmtMem(u(o)!.mem) : ""), sort: (o) => -(u(o)?.mem ?? -1),
+        html: (o) => askedHtml(u(o)?.mem, podAsk(o).memReq, podAsk(o).memLim, fmtMem),
+        cls: (o) => askedCls(u(o)?.mem, podAsk(o).memReq, podAsk(o).memLim) },
     ];
     const pct = (used: number, total: number) => (total ? ` · ${Math.round((used / total) * 100)}%` : "");
     const hot = (used: number, total: number) => (total && used / total > 0.85 ? "bad" : total && used / total > 0.7 ? "warn" : "");
