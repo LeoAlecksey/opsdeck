@@ -100,6 +100,11 @@ pub fn is_executable(p: &Path) -> bool {
     }
 }
 
+/// Tests share one config dir, so the ones that write settings.json take this lock (they ran in parallel
+/// and overwrote each other's vault path).
+#[cfg(test)]
+pub(crate) static SETTINGS_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 /// Keyring accesses, for tests that check a code path doesn't reach the keyring.
 #[cfg(test)]
 pub(crate) static KEYRING_CALLS: std::sync::atomic::AtomicUsize =

@@ -74,6 +74,20 @@
         { path: "/old", backend: { service: { name: "catalog", port: { number: 80 } } } }] } }] } },
     ],
   };
+  const nodes = ["node-1", "node-2", "node-3"].map((name, i) => ({
+    metadata: { name, uid: `n${i}`, labels: i ? { "node-role.kubernetes.io/worker": "" } : { "node-role.kubernetes.io/control-plane": "" }, creationTimestamp: iso(90 * D) },
+    status: { allocatable: { cpu: "4", memory: "16Gi" }, capacity: { cpu: "4", memory: "16Gi" },
+      conditions: [{ type: "Ready", status: "True" }], nodeInfo: { kubeletVersion: "v1.31.2", osImage: "Ubuntu 24.04.1 LTS", architecture: "amd64" },
+      addresses: [{ type: "InternalIP", address: `10.0.1.${10 + i}` }] },
+    spec: { podCIDR: `10.244.${i}.0/24` },
+  }));
+  const logLines = [
+    "2026-10-13T08:21:03.112Z INFO  starting api v1.42.0",
+    "2026-10-13T08:21:03.880Z INFO  connected to postgres://db:5432/shop",
+    "2026-10-13T08:21:09.004Z WARN  slow query 1.8s: SELECT * FROM orders WHERE status = 'new'",
+    "2026-10-13T08:21:14.551Z ERROR upstream timeout: payments (3s)",
+    "2026-10-13T08:21:15.002Z INFO  retry 1/3",
+  ];
   const usage = pods.filter((p) => p.status.phase === "Running").map((p, i) => ({ namespace: "shop", name: p.metadata.name, cpu_m: [42, 38, 51, 3, 120, 12, 9, 7, 64][i % 9], mem: [180, 176, 190, 40, 260, 95, 92, 30, 410][i % 9] * 1048576 }));
 
   // ---- SSH, KeePass, alerts ----
@@ -324,8 +338,16 @@ lint:
       if (cmd === "k8s_names") return [];
       if (cmd === "k8s_list" && args.kind in diag) return diag[args.kind];
       if (cmd === "k8s_list" && ["statefulsets", "daemonsets", "jobs", "cronjobs", "persistentvolumeclaims", "crd:policy/v1/poddisruptionbudgets/PodDisruptionBudget/true"].includes(args.kind)) return [];
+      if (cmd === "k8s_list" && args.kind === "nodes") return nodes;
       if (cmd === "k8s_list") return args.kind === "namespaces" ? ["default", "kube-system", "monitoring", "shop"].map((n) => ({ metadata: { name: n, uid: n } })) : pods;
-      if (cmd === "k8s_watch_start") { setTimeout(() => emit(`k8s-watch-${args.id}`, { type: "reset", items: args.kind === "pods" ? pods : [] }), 50); return null; }
+      if (cmd === "k8s_watch_start") {
+        const items = args.kind === "pods" ? pods : args.kind === "nodes" ? nodes : diag[args.kind] ?? [];
+        setTimeout(() => emit(`k8s-watch-${args.id}`, { type: "reset", items }), 50);
+        return null;
+      }
+      if (cmd === "k8s_logs_start") { setTimeout(() => emit(`k8s-log-${args.id}`, logLines), 40); return null; }
+      if (cmd === "k8s_logs_stop") return null;
+      if (cmd === "k8s_save_text") return `/home/demo/${args.name}`;
       if (cmd === "db_tree") return dbTree(args.path);
       if (cmd === "note_read") return noteText[args.path] ?? `# ${args.path.split("/").pop().replace(/\.md$/, "")}\n\n${L("Заметка.", "A note.")}\n`;
       if (cmd === "fs_list") { const l = files[args.path]; if (!l) throw "not a dir"; return l.map(([n, d]) => ({ name: n, dir: !!d, link: false, size: d ? 0 : 1200 })); }

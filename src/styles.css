@@ -1191,6 +1191,14 @@ body.no-select, body.no-select * { user-select: none; -webkit-user-select: none;
 .k8s-dir .icon { width: 22px; height: 22px; padding: 0; }
 
 /* Kubernetes: event history */
+.pick-bar { display: flex; align-items: center; gap: 12px; padding: 6px 12px; border-bottom: 1px solid var(--border); font-size: 12.5px; background: var(--panel); }
+.pick-bar .pick-n { font-weight: 600; }
+table.res th.pick, table.res td.pick { width: 28px; padding-left: 10px; padding-right: 0; }
+table.res tr.picked { background: #7fdbca14; }
+table.res td.row-acts { width: 1%; white-space: nowrap; text-align: right; padding: 0 6px; }
+table.res td.row-acts .icon { opacity: 0; padding: 2px 4px; }
+table.res tr:hover td.row-acts .icon, table.res td.row-acts .icon:focus-visible { opacity: .7; }
+table.res td.row-acts .icon:hover { opacity: 1; }
 .diag-bar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 6px 12px; border-bottom: 1px solid var(--border); font-size: 12.5px; }
 .diag-bar .bad, .hist-detail .bad { color: var(--danger); } .diag-bar .warn { color: #e6c07b; }
 .diag-title { margin: 8px 0 4px; font-size: 14px; }
