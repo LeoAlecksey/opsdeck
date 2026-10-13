@@ -167,7 +167,12 @@ enum ProbeError {
 /// multiplexing (ControlMaster), so an open tab in OpsDeck cannot help there, and saying otherwise sent
 /// people looking for a problem that is not theirs (#77).
 fn auth_hint(board: bool) -> String {
-    if cfg!(windows) {
+    auth_hint_for(board, cfg!(windows))
+}
+
+/// Split out from [`auth_hint`] so both texts are checked by tests on any OS, not only where they show.
+fn auth_hint_for(board: bool, windows: bool) -> String {
+    if windows {
         let how = "нужен вход без пароля: ключ у хоста (ssh-copy-id) или ключ, добавленный в ssh-agent";
         return format!(
             "{how}. На Windows OpenSSH не умеет общее соединение (ControlMaster), поэтому открытая вкладка {} не помогает.",
@@ -269,6 +274,21 @@ fn parse_probe(text: &str, key: &str, prev: &mut HashMap<String, (u64, u64)>) ->
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// On Windows OpenSSH there is no ControlMaster, so the advice "open a session in OpsDeck" is wrong
+    /// there and sent people hunting a problem that was not theirs (#77).
+    #[test]
+    fn auth_hint_matches_the_os() {
+        for board in [true, false] {
+            let win = auth_hint_for(board, true);
+            assert!(!win.contains("откройте сессию"), "{win}");
+            assert!(win.contains("ssh-copy-id") && win.contains("ssh-agent"), "{win}");
+            assert!(win.contains("ControlMaster"), "the reason is named: {win}");
+            let unix = auth_hint_for(board, false);
+            assert!(unix.contains("OpsDeck"), "{unix}");
+            assert!(!unix.contains("Windows"), "{unix}");
+        }
+    }
 
     fn v(a: &[&str]) -> Vec<String> {
         a.iter().map(|s| s.to_string()).collect()
