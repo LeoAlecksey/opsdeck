@@ -16,6 +16,7 @@ mod i18n;
 mod ide;
 mod k8s;
 mod k8s_events;
+mod kb;
 mod keepass;
 mod mikrotik;
 mod notes;
@@ -277,6 +278,8 @@ pub fn run() {
             ssh::ssh_keys,
             dbtunnel::web_share_tunnel,
             dbtunnel::web_share_close,
+            kb::kb_info,
+            kb::kb_open,
             yc::yc_status,
             yc::yc_use_profile,
             yc::yc_clouds,

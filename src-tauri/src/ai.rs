@@ -841,6 +841,8 @@ pub async fn ai_command(app: AppHandle, request: String, cwd: Option<String>, re
             context += &format!("  {r}\n");
         }
     }
+    // база знаний: проверенные команды по теме запроса — чтобы флаги были настоящими, а не выдуманными
+    context += &crate::kb::hint(&crate::kb::load(), &request, 2, 6);
     if !notes.is_empty() {
         context += "Команды из заметок пользователя (используй их стиль, имена хостов, неймспейсов и ресурсов):\n";
         for n in &notes {
