@@ -42,3 +42,26 @@ test.describe("Enter in dialogs means the main action", () => {
     expect(await app.calls("connector_save")).toHaveLength(0);
   });
 });
+
+test.describe("tasks: deleting (#76)", () => {
+  test("a task is removed from its note after a confirmation", async ({ app, page }) => {
+    await app.view("tasks");
+    const row = page.locator(".tk-row").first();
+    const text = await row.locator(".tk-text").textContent();
+    await row.hover(); // the row actions appear on hover
+    await row.locator("[data-act=del]").click();
+    await expect(page.locator("dialog.ask")).toContainText("будет удалена из заметки");
+    await page.locator("dialog.ask button[value=ok]").click();
+    const call = await app.called("task_delete");
+    expect(call.args).toMatchObject({ path: expect.any(String), line: expect.any(Number) });
+    expect(String(text)).toBeTruthy();
+  });
+
+  test("cancelling deletes nothing", async ({ app, page }) => {
+    await app.view("tasks");
+    await page.locator(".tk-row").first().hover();
+    await page.locator(".tk-row").first().locator("[data-act=del]").click();
+    await page.locator("dialog.ask button[value=cancel]").click();
+    expect(await app.calls("task_delete")).toHaveLength(0);
+  });
+});

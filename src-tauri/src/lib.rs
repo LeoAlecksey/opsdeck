@@ -247,6 +247,7 @@ pub fn run() {
             notes::notes_tags,
             tasks::tasks_list,
             tasks::task_update,
+            tasks::task_delete,
             tasks::task_format,
             tasks::task_add,
             tasks::task_snooze,

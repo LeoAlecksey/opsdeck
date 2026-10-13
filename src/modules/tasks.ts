@@ -2,7 +2,7 @@ import { helpBtn } from "./help";
 import { icon } from "./icons";
 import { t as tl, locale } from "../i18n";
 import { invoke } from "@tauri-apps/api/core";
-import { esc, toast } from "./ui";
+import { ask, esc, toast } from "./ui";
 import { registerProvider } from "./palette";
 import { addDays, openNote, PRIORITY, startReminderCards, taskDialog, ymd, type Task } from "./taskkit";
 
@@ -90,6 +90,7 @@ export function mountTasks(root: HTMLElement) {
         <span class="tk-acts">
           ${!t.done ? `<span data-act="tomorrow" title="Перенести на завтра">→ завтра</span>` : ""}
           <span data-act="edit" title="Изменить задачу">${icon("edit", 14)}</span>
+          <span data-act="del" title="Удалить задачу из заметки">${icon("trash", 14)}</span>
         </span>
         <span class="tk-note" data-act="open" title="Открыть заметку">${esc(t.path.replace(/\.md$/, ""))}</span>
       </span>
@@ -135,6 +136,16 @@ export function mountTasks(root: HTMLElement) {
     try {
       await invoke("task_update", { path: t.path, line: t.line, raw: t.raw, change });
       if (msg) toast(msg);
+    } catch (e) { toast(String(e), "err"); }
+    load();
+  }
+
+  async function deleteTask(t: Task) {
+    const where = t.path.replace(/\.md$/, "");
+    if ((await ask("Удалить задачу", `Строка «${t.text}» будет удалена из заметки «${where}». Отменить это можно только в заметке.`, { ok: "Удалить", danger: true })) === null) return;
+    try {
+      await invoke("task_delete", { path: t.path, line: t.line, raw: t.raw });
+      toast("Задача удалена");
     } catch (e) { toast(String(e), "err"); }
     load();
   }
@@ -185,6 +196,7 @@ export function mountTasks(root: HTMLElement) {
     if (act === "open") openNote(t.path, t.line);
     if (act === "tomorrow") update(t, { due: ymd(addDays(new Date(), 1)) }, "Перенесено на завтра");
     if (act === "edit") editTask(t);
+    if (act === "del") deleteTask(t);
     if (act === "due") datePrompt(t, el.closest<HTMLElement>("[data-act]")!);
   });
   listEl.addEventListener("dblclick", (e) => {
