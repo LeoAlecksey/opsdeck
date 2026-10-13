@@ -484,6 +484,7 @@
  "Закрыть без сохранения": "Close without saving",
  "Закрыть панель (Ctrl+Shift+W)": "Close the pane (Ctrl+Shift+W)",
  "Закрыть поиск": "Close the search",
+ "Закрыть проект": "Close the project",
  "Замените на PVC, ConfigMap или emptyDir, если узел не нужен.": "Use a PVC, ConfigMap or emptyDir instead if the node is not needed.",
  "Заметка": "Note",
  "Заметка «{}» не найдена": "Note “{}” not found",

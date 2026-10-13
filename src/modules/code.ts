@@ -139,6 +139,7 @@ export function mountCode(root: HTMLElement) {
           <button class="icon" data-a="refresh" title="Обновить">${icon("refresh", 16)}</button>
           ${helpBtn("code")}
         </span></div>
+      <div class="code-projects" hidden></div>
       <select class="code-recent" title="Недавние проекты"><option value="">Недавние проекты…</option></select>
       <div class="code-find" hidden>
         <div class="row">
@@ -202,7 +203,7 @@ export function mountCode(root: HTMLElement) {
 
   const $ = <T extends HTMLElement = HTMLElement>(s: string) => root.querySelector<T>(s)!;
   const treeEl = $(".code-tree"), tabsEl = $(".code-tabs"), host = $(".code-editor"), empty = $(".code-empty"), pipeEl = $(".code-pipe");
-  const gitPanel = $(".code-git"), recentSel = $<HTMLSelectElement>(".code-recent");
+  const gitPanel = $(".code-git"), recentSel = $<HTMLSelectElement>(".code-recent"), projectsEl = $(".code-projects");
 
   let project = ls.get("opsdeck.code.root") ?? "";
   let git: Git = { root: "", branch: "", files: {} };
@@ -314,6 +315,7 @@ export function mountCode(root: HTMLElement) {
     syncPos();
     ls.set("opsdeck.code.tabs", JSON.stringify(tabs.filter((x) => x.path).map((x) => x.path)));
     ls.set("opsdeck.code.active", t?.path ?? "");
+    saveProjectState();
   }
 
   function addTab(id: string, title: string, path: string | null, text: string, mtime: number, readonly: boolean, langOverride?: Extension): Tab {
@@ -476,10 +478,69 @@ export function mountCode(root: HTMLElement) {
     ls.set("opsdeck.code.expanded", JSON.stringify([...expanded]));
   });
 
+  /** Open projects (#79): switching keeps each one's files, tree and chosen file. */
+  type ProjectState = { tabs: string[]; active: string; expanded: string[] };
+  let open: string[] = (() => { try { return JSON.parse(ls.get("opsdeck.code.projects") ?? "[]") as string[]; } catch { return []; } })();
+  const stateKey = (p: string) => `opsdeck.code.state:${p}`;
+  /** While switching, the tabs of the old project are closed and the new ones are not open yet: saving then
+   *  would wipe what we are about to restore. */
+  let switching = false;
+  const saveProjectState = () => {
+    if (!project || switching) return;
+    const st: ProjectState = { tabs: tabs.filter((x) => x.path).map((x) => x.path!), active: active?.path ?? "", expanded: [...expanded] };
+    ls.set(stateKey(project), JSON.stringify(st));
+  };
+  const readProjectState = (p: string): ProjectState => {
+    try { return JSON.parse(ls.get(stateKey(p)) ?? "") as ProjectState; } catch { return { tabs: [], active: "", expanded: [] }; }
+  };
+
+  function drawProjects() {
+    projectsEl.hidden = open.length < 2;
+    projectsEl.innerHTML = open.map((p) => `<button class="code-proj-chip ${p === project ? "active" : ""}" data-p="${esc(p)}" title="${esc(p)}">
+      <span class="label">${esc(base(p))}</span><span class="x" title="${esc(t("Закрыть проект"))}">×</span></button>`).join("");
+  }
+  projectsEl.addEventListener("click", (e) => {
+    const chip = (e.target as HTMLElement).closest<HTMLElement>("[data-p]");
+    if (!chip) return;
+    const p = chip.dataset.p!;
+    if ((e.target as HTMLElement).classList.contains("x")) {
+      open = open.filter((x) => x !== p);
+      ls.set("opsdeck.code.projects", JSON.stringify(open));
+      try { localStorage.removeItem(stateKey(p)); } catch { /* ignore */ }
+      if (p === project) {
+        const next = open[0];
+        project = ""; // the closed project must not have its state written back
+        drawProjects();
+        if (next) setProject(next);
+      }
+      else drawProjects();
+      return;
+    }
+    if (p !== project) setProject(p);
+  });
+
   async function setProject(dir: string) {
     if (!dir) return;
-    project = dir.replace(/\/+$/, "") || "/";
+    const next = dir.replace(/\/+$/, "") || "/";
+    if (next === project) return;
+    // remember where we were, then come back to the other project exactly as it was
+    saveProjectState();
+    switching = true;
+    const prev = project;
+    project = next;
+    if (prev) {
+      // close the files of the project we are leaving
+      for (const tb of [...tabs]) { tabs.splice(tabs.indexOf(tb), 1); tb.btn.remove(); }
+      active = null;
+      activate(null);
+    }
+    expanded.clear();
     ls.set("opsdeck.code.root", project);
+    if (!open.includes(project)) open.push(project);
+    ls.set("opsdeck.code.projects", JSON.stringify(open));
+    drawProjects();
+    const st = readProjectState(project);
+    st.expanded.forEach((d) => expanded.add(d));
     const recent = [project, ...((JSON.parse(ls.get("opsdeck.code.recent") ?? "[]") as string[]).filter((x) => x !== project))].slice(0, 12);
     ls.set("opsdeck.code.recent", JSON.stringify(recent));
     fillRecent();
@@ -487,6 +548,14 @@ export function mountCode(root: HTMLElement) {
     await loadTree();
     if (!gitPanel.hidden) drawGit();
     followConsole();
+    // reopen that project's files
+    for (const p of st.tabs) {
+      const r = await invoke<{ text: string; mtime: number }>("code_read", { path: p }).catch(() => null);
+      if (r) addTab(p, base(p), p, r.text, r.mtime, false);
+    }
+    switching = false;
+    const act = tabs.find((x) => x.path === st.active) ?? tabs[0] ?? null;
+    activate(act ?? null);
   }
   function fillRecent() {
     const recent = JSON.parse(ls.get("opsdeck.code.recent") ?? "[]") as string[];
@@ -1174,6 +1243,8 @@ export function mountCode(root: HTMLElement) {
   const prevTabs = JSON.parse(ls.get("opsdeck.code.tabs") ?? "[]") as string[];
   const prevActive = ls.get("opsdeck.code.active");
   fillRecent();
+  if (project && !open.includes(project)) { open.push(project); ls.set("opsdeck.code.projects", JSON.stringify(open)); }
+  drawProjects();
   activate(null);
   if (ls.get("opsdeck.code.git") === "1") toggleGit(true);
 

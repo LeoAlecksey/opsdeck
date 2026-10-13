@@ -215,3 +215,36 @@ test.describe("IDE: search across the project", () => {
     await expect(page.locator(".code-find")).toBeHidden();
   });
 });
+
+test.describe("IDE: several projects (#79)", () => {
+  test("switching keeps each project's open files", async ({ app, page }) => {
+    await app.view("code");
+    await page.evaluate(() => window.dispatchEvent(new CustomEvent("open-in-code", { detail: { path: "/home/demo/projects/infra" } })));
+    await expect(page.locator(".code-tree")).toContainText("main.tf");
+    await page.evaluate(() => window.dispatchEvent(new CustomEvent("open-in-code", { detail: { path: "/home/demo/projects/infra/main.tf" } })));
+    await expect(page.locator(".code-tab", { hasText: "main.tf" })).toBeVisible();
+
+    // a second project: its own tree and no tabs from the first one
+    await page.evaluate(() => window.dispatchEvent(new CustomEvent("open-in-code", { detail: { path: "/home/demo/projects/infra/helm" } })));
+    await expect(page.locator(".code-proj-chip")).toHaveCount(2);
+    await expect(page.locator(".code-proj-chip.active")).toContainText("helm");
+    await expect(page.locator(".code-tab")).toHaveCount(0);
+
+    // back to the first: the file is open again
+    await page.locator(".code-proj-chip", { hasText: "infra" }).first().click();
+    await expect(page.locator(".code-proj-chip.active")).toContainText("infra");
+    await expect(page.locator(".code-tab", { hasText: "main.tf" })).toBeVisible();
+  });
+
+  test("a project can be closed by its ×", async ({ app, page }) => {
+    await app.view("code");
+    for (const p of ["/home/demo/projects/infra", "/home/demo/projects/infra/helm"]) {
+      await page.evaluate((x) => window.dispatchEvent(new CustomEvent("open-in-code", { detail: { path: x } })), p);
+      await expect(page.locator(".code-tree .ct-row").first()).toBeVisible();
+    }
+    await expect(page.locator(".code-proj-chip")).toHaveCount(2);
+    await page.locator(".code-proj-chip", { hasText: "helm" }).locator(".x").click();
+    await expect(page.locator(".code-projects")).toBeHidden(); // one project left: the row hides
+    await expect(page.locator(".code-proj")).toContainText("infra");
+  });
+});
