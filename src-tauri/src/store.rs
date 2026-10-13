@@ -20,17 +20,46 @@ pub fn config_dir() -> Result<PathBuf, String> {
     Ok(dir)
 }
 
+/// Previous copy of a config file: save_json renames the old file here before putting the new one in
+/// place, so an interrupted write can never leave the app without its settings.
+fn sibling(path: &Path, suffix: &str) -> PathBuf {
+    let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("config");
+    path.with_file_name(format!("{name}.{suffix}"))
+}
+
 pub fn load_json<T: DeserializeOwned + Default>(name: &str) -> Result<T, String> {
     let path = config_dir()?.join(name);
-    if !path.exists() {
-        return Ok(T::default());
+    let bak = sibling(&path, "bak");
+    let parsed = |p: &Path| -> Option<Result<T, String>> {
+        let raw = fs::read_to_string(p).ok()?;
+        Some(serde_json::from_str(&raw).map_err(|e| format!("{}: {e}", p.display())))
+    };
+    match parsed(&path) {
+        Some(Ok(v)) => return Ok(v),
+        // the file is there but unreadable: fall back to the previous copy before anything overwrites it
+        Some(Err(e)) => {
+            if let Some(Ok(v)) = parsed(&bak) {
+                log::warn!("{e}; взята предыдущая копия {}", bak.display());
+                return Ok(v);
+            }
+            let broken = sibling(&path, "bad");
+            let _ = fs::copy(&path, &broken);
+            return Err(format!("{e} (копия сохранена: {})", broken.display()));
+        }
+        // killed between the two renames of save_json: only the previous copy is left
+        None => {
+            if let Some(Ok(v)) = parsed(&bak) {
+                log::warn!("{} не найден, взята предыдущая копия {}", path.display(), bak.display());
+                return Ok(v);
+            }
+        }
     }
-    let raw = fs::read_to_string(&path).map_err(err)?;
-    serde_json::from_str(&raw).map_err(|e| format!("{}: {e}", path.display()))
+    Ok(T::default())
 }
 
 pub fn exists(name: &str) -> bool {
-    config_dir().map(|d| d.join(name).exists()).unwrap_or(false)
+    // the backup counts: without it a lost settings.json would look like a first run and be re-detected
+    config_dir().map(|d| d.join(name).exists() || sibling(&d.join(name), "bak").exists()).unwrap_or(false)
 }
 
 pub fn clean_path_buf(p: PathBuf) -> PathBuf {
@@ -44,9 +73,26 @@ pub fn clean_path_buf(p: PathBuf) -> PathBuf {
     }
 }
 
+/// Writes atomically and keeps the previous version next to it: `fs::write` truncates first, so an
+/// app killed mid-write (an update, a reboot) used to leave an empty file — and settings were gone.
 pub fn save_json<T: Serialize>(name: &str, value: &T) -> Result<(), String> {
     let path = config_dir()?.join(name);
-    fs::write(&path, serde_json::to_string_pretty(value).map_err(err)?).map_err(err)?;
+    let data = serde_json::to_string_pretty(value).map_err(err)?;
+    let tmp = sibling(&path, "tmp");
+    {
+        use std::io::Write;
+        let mut f = fs::File::create(&tmp).map_err(err)?;
+        f.write_all(data.as_bytes()).map_err(err)?;
+        f.sync_all().map_err(err)?;
+    }
+    restrict(&tmp, 0o600)?;
+    if path.exists() {
+        let _ = fs::rename(&path, sibling(&path, "bak"));
+    }
+    fs::rename(&tmp, &path).map_err(|e| {
+        let _ = fs::remove_file(&tmp);
+        err(e)
+    })?;
     restrict(&path, 0o600)
 }
 
@@ -154,6 +200,40 @@ mod tests {
         assert_eq!(clean(r"\\?\UNC\server\share\Notes"), r"\\server\share\Notes");
         assert_eq!(clean(r"C:\Users\u\Notes"), r"C:\Users\u\Notes");
         assert_eq!(clean("/home/u/notes"), "/home/u/notes");
+    }
+
+    #[derive(serde::Serialize, serde::Deserialize, Default, PartialEq, Debug)]
+    struct Cfg {
+        path: String,
+    }
+
+    /// An interrupted write used to leave an empty settings.json, and the next load silently went to
+    /// defaults — the notes folder and the other paths were gone (report after 0.7.1).
+    #[test]
+    fn an_empty_or_broken_config_falls_back_to_the_previous_copy() {
+        let name = "store-test-cfg.json";
+        let dir = config_dir().unwrap();
+        for n in [name, &format!("{name}.bak"), &format!("{name}.bad")] {
+            let _ = fs::remove_file(dir.join(n));
+        }
+        save_json(name, &Cfg { path: "/home/u/notes".into() }).unwrap();
+        save_json(name, &Cfg { path: "/home/u/notes2".into() }).unwrap();
+        assert_eq!(load_json::<Cfg>(name).unwrap().path, "/home/u/notes2");
+        assert!(dir.join(format!("{name}.bak")).exists(), "the previous version is kept");
+
+        // killed while writing: the file is truncated
+        fs::write(dir.join(name), "").unwrap();
+        assert_eq!(load_json::<Cfg>(name).unwrap().path, "/home/u/notes");
+        // killed between the two renames: no main file at all
+        fs::remove_file(dir.join(name)).unwrap();
+        assert_eq!(load_json::<Cfg>(name).unwrap().path, "/home/u/notes");
+        assert!(exists(name), "a config that only has its backup is not a first run");
+
+        // nothing readable left: an error, and the unreadable file is kept for a look
+        fs::write(dir.join(name), "{oops").unwrap();
+        fs::write(dir.join(format!("{name}.bak")), "{oops").unwrap();
+        assert!(load_json::<Cfg>(name).unwrap_err().contains(".bad"));
+        assert!(dir.join(format!("{name}.bad")).exists());
     }
 
     #[test]
