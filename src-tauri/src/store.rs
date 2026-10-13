@@ -128,6 +128,17 @@ pub fn valid_id(id: &str) -> bool {
 mod tests {
     use super::*;
 
+    /// The Windows \\?\ form is what `canonicalize` returns there; paths are compared without it, so
+    /// a vault path and a note path match (notes and tasks broke on Windows when one side kept it).
+    #[test]
+    fn verbatim_prefix_is_stripped() {
+        let clean = |s: &str| clean_path_buf(PathBuf::from(s)).to_string_lossy().into_owned();
+        assert_eq!(clean(r"\\?\C:\Users\u\Notes\a.md"), r"C:\Users\u\Notes\a.md");
+        assert_eq!(clean(r"\\?\UNC\server\share\Notes"), r"\\server\share\Notes");
+        assert_eq!(clean(r"C:\Users\u\Notes"), r"C:\Users\u\Notes");
+        assert_eq!(clean("/home/u/notes"), "/home/u/notes");
+    }
+
     #[test]
     fn ids() {
         assert!(valid_id("3f2b9c1e-7a4d-4f6b-9a1e-0c2d3e4f5a6b"));
