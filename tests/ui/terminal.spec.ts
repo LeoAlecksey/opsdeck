@@ -113,6 +113,27 @@ test.describe("terminal", () => {
     await expect.poll(() => listeners(page, second), "closing the tab drops its listeners").toEqual([]);
   });
 
+  // reconnect replaces the terminal, so the recording of the old one has to be saved here too
+  test("reconnecting a recording pane saves its file and turns the indicator off", async ({ app, page }) => {
+    await app.called("pty_spawn");
+    await page.evaluate(() => window.dispatchEvent(new CustomEvent("open-terminal", { detail: { program: "ssh", args: ["demo"], keepOpen: true } })));
+    const id = async () => ((await app.calls("pty_spawn")).at(-1)!.args as any).req.id as string;
+    await expect.poll(async () => ((await app.calls("pty_spawn")).at(-1)!.args as any).req.program).toBe("ssh");
+    const first = await id();
+    await app.override("pty_record_start", "/home/demo/sessions/r.log");
+    await app.override("pty_record_stop", "/home/demo/sessions/r.log");
+    await page.locator("[data-act=rec]").click();
+    await app.called("pty_record_start");
+    await expect(page.locator("[data-act=rec]")).toHaveClass(/\bon\b/);
+
+    await app.emit(`pty-exit-${first}`, null);
+    await page.locator(".reconnect-bar:visible [data-rc=go]").click();
+    expect(((await app.called("pty_record_stop")).args as any).id).toBe(first);
+    await expect(page.locator(".toast").last()).toContainText("Запись сохранена: /home/demo/sessions/r.log");
+    await expect(page.locator("[data-act=rec]")).not.toHaveClass(/\bon\b/);
+    await expect.poll(async () => await id()).not.toBe(first);
+  });
+
   test("a tab closed before its shell started starts no shell", async ({ app, page }) => {
     await app.called("pty_spawn");
     // open and close in one go: the close lands while the terminal is still subscribing to its events

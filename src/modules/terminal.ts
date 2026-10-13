@@ -280,7 +280,8 @@ export function mountTerminal(root: HTMLElement) {
   function reconnect(pane: Pane) {
     pane.el.querySelector<HTMLElement>(".reconnect-bar")!.hidden = true;
     pane.el.querySelector<HTMLElement>(".fail-chip")!.hidden = true;
-    pane.pty.dispose();
+    disposePane(pane);
+    syncRec();
     mountPty(pane);
     requestAnimationFrame(() => { pane.pty.resize(); pane.pty.term.focus(); });
   }
@@ -297,6 +298,7 @@ export function mountTerminal(root: HTMLElement) {
   /** A recording pane saves its file here: once disposed, its terminal no longer hears «pty-record» from the backend. */
   function disposePane(p: Pane) {
     if (p.recording) {
+      p.recording = undefined;
       invoke<string | null>("pty_record_stop", { id: p.pty.id })
         .then((path) => { if (path) toast(`Запись сохранена: ${path}`); })
         .catch((e) => toast(String(e), "err"));
