@@ -38,6 +38,8 @@ strip-ansi-escapes = "0.2"
 tauri-plugin-log = "2"
 log = "0.4"
 dirs = "6"
+# already in the tree (jsonpath-rust); used directly for the project-wide search in the IDE
+regex = "1"
 keepass = "0.15"
 # Passbolt: OpenPGP (rPGP, pure Rust, no system GnuPG) and the RNG version it takes
 pgp = "0.21"

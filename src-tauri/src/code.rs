@@ -161,7 +161,95 @@ pub async fn code_delete(root: String, path: String) -> Result<(), String> {
     .map_err(err)?
 }
 
-// ---------- terraform fmt ----------
+// ---------- search across the project ----------
+
+#[derive(Serialize)]
+pub struct Hit {
+    /// path relative to the project root, with "/" on every OS
+    path: String,
+    line: usize,
+    text: String,
+}
+
+/// Folders that are build output or someone else's code: searching them finds thousands of matches nobody wants.
+const SKIP_DIRS: &[&str] = &[
+    ".git", "node_modules", "target", "dist", "build", ".terraform", "__pycache__", ".venv", "venv",
+    ".idea", ".vscode", ".next", ".cache", "vendor", "coverage",
+];
+const SEARCH_MAX_FILE: u64 = 2 * 1024 * 1024;
+const SEARCH_MAX_HITS: usize = 500;
+
+fn searchable(name: &str) -> bool {
+    !name.starts_with('.')
+        && ![".png", ".jpg", ".jpeg", ".gif", ".ico", ".pdf", ".zip", ".gz", ".xz", ".tar", ".7z", ".exe", ".dll", ".so", ".dylib",
+             ".woff", ".woff2", ".ttf", ".mp4", ".mp3", ".bin", ".jar", ".class", ".pyc", ".o", ".a", ".lock"]
+            .iter()
+            .any(|e| name.to_lowercase().ends_with(e))
+}
+
+/// Text search over the project's files. `query` is plain text (case-insensitive) unless `regex` is set.
+/// Binary files, build output and anything over 2 MB are skipped; at most 500 hits come back.
+#[tauri::command]
+pub async fn code_search(root: String, query: String, regex: bool, case_sensitive: bool) -> Result<Vec<Hit>, String> {
+    let root = expand(&root);
+    if !root.is_dir() {
+        return Err(format!("{}: не папка", root.display()));
+    }
+    if query.trim().is_empty() {
+        return Ok(Vec::new());
+    }
+    tauri::async_runtime::spawn_blocking(move || {
+        let re = if regex {
+            Some(regex::RegexBuilder::new(&query).case_insensitive(!case_sensitive).build().map_err(|e| format!("регулярное выражение: {e}"))?)
+        } else {
+            None
+        };
+        let needle = if case_sensitive { query.clone() } else { query.to_lowercase() };
+        let mut hits = Vec::new();
+        let mut stack = vec![root.clone()];
+        while let Some(dir) = stack.pop() {
+            let Ok(rd) = fs::read_dir(&dir) else { continue };
+            for e in rd.flatten() {
+                if hits.len() >= SEARCH_MAX_HITS {
+                    return Ok(hits);
+                }
+                let path = e.path();
+                let name = e.file_name().to_string_lossy().into_owned();
+                let is_dir = e.file_type().map(|t| t.is_dir()).unwrap_or(false);
+                if is_dir {
+                    if !SKIP_DIRS.contains(&name.as_str()) && !name.starts_with('.') {
+                        stack.push(path);
+                    }
+                    continue;
+                }
+                if !searchable(&name) || fs::metadata(&path).map(|m| m.len() > SEARCH_MAX_FILE).unwrap_or(true) {
+                    continue;
+                }
+                let Ok(text) = fs::read_to_string(&path) else { continue }; // not UTF-8: a binary we skip
+                let rel = path.strip_prefix(&root).unwrap_or(&path).to_string_lossy().replace('\\', "/");
+                for (i, line) in text.lines().enumerate() {
+                    let found = match &re {
+                        Some(re) => re.is_match(line),
+                        None => {
+                            if case_sensitive { line.contains(&needle) } else { line.to_lowercase().contains(&needle) }
+                        }
+                    };
+                    if found {
+                        hits.push(Hit { path: rel.clone(), line: i + 1, text: line.trim_end().chars().take(300).collect() });
+                        if hits.len() >= SEARCH_MAX_HITS {
+                            return Ok(hits);
+                        }
+                    }
+                }
+            }
+        }
+        Ok(hits)
+    })
+    .await
+    .map_err(err)?
+}
+
+// ---------- terraform fmt ----------// ---------- terraform fmt ----------
 
 #[derive(Serialize)]
 pub struct Diag {

@@ -16,10 +16,10 @@ import { fileIcon, folderIcon } from "./fileicons";
 import { basicSetup } from "codemirror";
 import { EditorView, keymap } from "@codemirror/view";
 import { Compartment, EditorState, Prec, type Extension } from "@codemirror/state";
-import { openSearchPanel } from "@codemirror/search";
+import { openSearchPanel, selectNextOccurrence } from "@codemirror/search";
 import { StreamLanguage, indentUnit } from "@codemirror/language";
 import { linter, lintGutter, type Diagnostic } from "@codemirror/lint";
-import { indentWithTab } from "@codemirror/commands";
+import { indentWithTab, redo, selectAll, toggleComment, undo } from "@codemirror/commands";
 import { oneDark } from "@codemirror/theme-one-dark";
 import { javascript } from "@codemirror/lang-javascript";
 import { json, jsonParseLinter } from "@codemirror/lang-json";
@@ -232,15 +232,24 @@ export function mountCode(root: HTMLElement) {
       oneDark,
       indentUnit.of("  "),
       keymap.of([indentWithTab]),
-      // by physical key (event.code): CodeMirror's own bindings go by the typed letter, so Ctrl+S / Ctrl+F
-      // did nothing on the Russian layout
+      // By physical key (event.code): CodeMirror binds by the typed letter, so on the Russian layout
+      // Ctrl+Z, Ctrl+F, Ctrl+S and the rest did nothing at all.
       Prec.highest(EditorView.domEventHandlers({
         keydown(e, v) {
           if (!(e.ctrlKey || e.metaKey) || e.altKey) return false;
-          if (e.code === "KeyS" && !e.shiftKey) save();
-          else if (e.code === "KeyF" && e.shiftKey) fmt();
-          else if (e.code === "KeyF") openSearchPanel(v);
-          else return false;
+          const shift = e.shiftKey;
+          const run = (cmd: (v: EditorView) => boolean) => { cmd(v); return true; };
+          const done = e.code === "KeyS" && !shift ? (save(), true)
+            : e.code === "KeyF" && shift ? (fmt(), true)
+            : e.code === "KeyF" ? run(openSearchPanel)
+            : e.code === "KeyZ" && shift ? run(redo)
+            : e.code === "KeyZ" ? run(undo)
+            : e.code === "KeyY" ? run(redo)
+            : e.code === "KeyA" ? run(selectAll)
+            : e.code === "KeyD" ? run(selectNextOccurrence)
+            : e.code === "Slash" ? run(toggleComment)
+            : false;
+          if (!done) return false;
           e.preventDefault();
           return true;
         },
@@ -1023,6 +1032,14 @@ export function mountCode(root: HTMLElement) {
   root.querySelectorAll<HTMLElement>("[data-a=console]").forEach((b) => (b.onclick = () => toggleConsole()));
   $("[data-a=cc-restart]").onclick = () => { con?.dispose(); con = null; startConsole(); con!.term.focus(); };
   $("[data-a=cc-tab]").onclick = () => window.dispatchEvent(new CustomEvent("open-terminal", { detail: { cwd: project || undefined } }));
+  // Ctrl+W closes the open file, not the application window (#79)
+  window.addEventListener("keydown", (e) => {
+    if (root.hidden || !e.ctrlKey || e.shiftKey || e.altKey || e.code !== "KeyW") return;
+    e.preventDefault();
+    if (!pipeEl.hidden) closePipeline();
+    else if (active) closeTab(active);
+  }, true);
+
   // Ctrl+F with the focus outside the editor (the tree, an empty tab bar): search in the open file
   window.addEventListener("keydown", (e) => {
     if (root.hidden || !active || !(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey || e.code !== "KeyF") return;

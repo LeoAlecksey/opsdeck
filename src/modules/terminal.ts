@@ -822,6 +822,14 @@ export function mountTerminal(root: HTMLElement) {
     }
   });
 
+  // Ctrl+W: a terminal closes its tab, the webview would close the whole window (#79)
+  window.addEventListener("keydown", (e) => {
+    if (root.hidden || !e.ctrlKey || e.shiftKey || e.altKey || e.code !== "KeyW") return;
+    e.preventDefault();
+    const p = activePane();
+    if (p) closePane(p);
+  }, true);
+
   window.addEventListener("keydown", (e) => {
     if (root.hidden || !e.ctrlKey || !e.shiftKey) return;
     // letters by key position, so the shortcuts also work on the Russian layout

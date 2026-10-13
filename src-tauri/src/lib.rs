@@ -182,6 +182,7 @@ pub fn run() {
             code::code_read,
             code::code_write,
             code::code_create,
+            code::code_search,
             code::code_rename,
             code::code_copy,
             code::code_delete,

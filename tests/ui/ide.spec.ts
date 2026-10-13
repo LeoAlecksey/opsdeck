@@ -128,3 +128,58 @@ test.describe("IDE → AI", () => {
     expect(sent).toContain("main.tf");
   });
 });
+
+test.describe("IDE: standard shortcuts on any layout", () => {
+  const press = (page: import("@playwright/test").Page, key: string, code: string, shift = false) =>
+    page.evaluate(([k, c, sh]) => {
+      document.querySelector(".cm-content")!.dispatchEvent(
+        new KeyboardEvent("keydown", { key: k as string, code: c as string, ctrlKey: true, shiftKey: !!sh, bubbles: true, cancelable: true }));
+    }, [key, code, shift] as const);
+
+  test("Ctrl+Z and Ctrl+Shift+Z work with a Russian layout (#79)", async ({ app, page }) => {
+    await app.view("code");
+    await page.evaluate((p) => window.dispatchEvent(new CustomEvent("open-in-code", { detail: { path: p } })), "/home/demo/projects/infra/main.tf");
+    await expect(page.locator(".cm-content")).toContainText('module "cluster"');
+    await page.locator(".cm-content").click();
+    await page.keyboard.type("# добавил строку");
+    await expect(page.locator(".cm-content")).toContainText("# добавил строку");
+    // "я" is what Ctrl+Z types on the Russian layout
+    await press(page, "я", "KeyZ");
+    await expect(page.locator(".cm-content")).not.toContainText("# добавил строку");
+    await press(page, "Я", "KeyZ", true);
+    await expect(page.locator(".cm-content")).toContainText("# добавил строку");
+    // Ctrl+Y redoes too, also by the physical key
+    await press(page, "я", "KeyZ");
+    await press(page, "н", "KeyY");
+    await expect(page.locator(".cm-content")).toContainText("# добавил строку");
+  });
+
+  test("Ctrl+A selects the whole file on any layout", async ({ app, page }) => {
+    await app.view("code");
+    await page.evaluate((p) => window.dispatchEvent(new CustomEvent("open-in-code", { detail: { path: p } })), "/home/demo/projects/infra/main.tf");
+    await expect(page.locator(".cm-content")).toContainText("terraform");
+    await page.locator(".cm-content").click();
+    await press(page, "ф", "KeyA");
+    expect(await page.evaluate(() => (window.getSelection()?.toString() ?? "").length)).toBeGreaterThan(100);
+  });
+});
+
+test.describe("Ctrl+W closes a tab, not the window (#79)", () => {
+  test("IDE: the open file closes", async ({ app, page }) => {
+    await app.view("code");
+    for (const f of ["main.tf", "variables.tf"]) {
+      await page.evaluate((p) => window.dispatchEvent(new CustomEvent("open-in-code", { detail: { path: p } })), `/home/demo/projects/infra/${f}`);
+    }
+    await expect(page.locator(".code-tab")).toHaveCount(2);
+    await page.keyboard.press("Control+KeyW");
+    await expect(page.locator(".code-tab")).toHaveCount(1);
+  });
+
+  test("terminal: the pane closes", async ({ app, page }) => {
+    await app.view("terminal");
+    await page.keyboard.press("Control+Shift+KeyD");
+    await expect(page.locator(".term-host:not([hidden]) .pane")).toHaveCount(2);
+    await page.keyboard.press("Control+KeyW");
+    await expect(page.locator(".term-host:not([hidden]) .pane")).toHaveCount(1);
+  });
+});
