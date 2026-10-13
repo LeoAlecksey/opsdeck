@@ -299,6 +299,8 @@ pub struct Effective {
 /// Cache of `ssh -G` keyed by ~/.ssh/config mtime — otherwise every ssh_list spawns ssh.exe per alias.
 type EffectiveCache = (Option<SystemTime>, HashMap<String, Option<Effective>>);
 static EFFECTIVE_CACHE: Mutex<Option<EffectiveCache>> = Mutex::new(None);
+/// Parallel `ssh -G` runs: ssh.exe takes tens of ms to start on Windows, 100 aliases one by one is seconds.
+const SSH_G_THREADS: usize = 8;
 
 fn config_mtime() -> Option<SystemTime> {
     std::fs::metadata(ssh_dir().join("config"))
@@ -312,11 +314,22 @@ fn effective(alias: &str) -> Option<Effective> {
     cmd.args(["-G", alias])
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::null());
+        .stderr(std::process::Stdio::piped());
     // without this, Windows flashes an OpenSSH console for every alias
     process::no_console(&mut cmd);
-    let out = cmd.output().ok()?;
+    let out = match cmd.output() {
+        Ok(out) => out,
+        Err(e) => {
+            log::warn!("ssh -G {alias}: {e}");
+            return None;
+        }
+    };
     if !out.status.success() {
+        log::warn!(
+            "ssh -G {alias}: {}: {}",
+            out.status,
+            String::from_utf8_lossy(&out.stderr).trim()
+        );
         return None;
     }
     let mut e = Effective::default();
@@ -344,14 +357,79 @@ fn effective_map(aliases: &[String]) -> HashMap<String, Option<Effective>> {
             }
         }
     }
+    let resolved = resolve_parallel(aliases, effective);
+    // a worker that panicked left its aliases unresolved: not cached, the next ssh_list retries them
+    let complete = resolved.iter().all(Option::is_some);
     let map: HashMap<String, Option<Effective>> = aliases
         .iter()
-        .map(|a| (a.clone(), effective(a)))
+        .cloned()
+        .zip(resolved.into_iter().map(Option::flatten))
         .collect();
-    if let Ok(mut cache) = EFFECTIVE_CACHE.lock() {
-        *cache = Some((mtime, map.clone()));
+    if complete {
+        if let Ok(mut cache) = EFFECTIVE_CACHE.lock() {
+            *cache = Some((mtime, map.clone()));
+        }
     }
     map
+}
+
+/// `resolve` for every alias on up to [`SSH_G_THREADS`] threads, results in the order of `aliases`.
+/// `None` in the outer Option: the worker panicked, the alias was not resolved.
+fn resolve_parallel<F>(aliases: &[String], resolve: F) -> Vec<Option<Option<Effective>>>
+where
+    F: Fn(&str) -> Option<Effective> + Sync,
+{
+    let next = std::sync::atomic::AtomicUsize::new(0);
+    let work = || {
+        let mut done = Vec::new();
+        loop {
+            let i = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            let Some(alias) = aliases.get(i) else {
+                return done;
+            };
+            done.push((i, resolve(alias)));
+        }
+    };
+    let mut results: Vec<Option<Option<Effective>>> = vec![None; aliases.len()];
+    std::thread::scope(|s| {
+        let mut workers = Vec::new();
+        // this thread works too, so a failed spawn only means fewer threads
+        for _ in 1..SSH_G_THREADS.min(aliases.len()) {
+            match std::thread::Builder::new()
+                .name("ssh-G".into())
+                .spawn_scoped(s, work)
+            {
+                Ok(w) => workers.push(w),
+                Err(e) => {
+                    log::warn!(
+                        "ssh -G: no extra thread ({e}), continuing with {}",
+                        workers.len() + 1
+                    );
+                    break;
+                }
+            }
+        }
+        let mut done = work();
+        for w in workers {
+            match w.join() {
+                Ok(d) => done.extend(d),
+                Err(panic) => {
+                    let why = panic
+                        .downcast_ref::<&str>()
+                        .map(|s| s.to_string())
+                        .or_else(|| panic.downcast_ref::<String>().cloned())
+                        .unwrap_or_default();
+                    log::error!(
+                        "ssh -G: a worker thread panicked ({why}), its aliases stay unresolved"
+                    );
+                }
+            }
+        }
+        for (i, e) in done {
+            results[i] = Some(e);
+        }
+    });
+    results
 }
 
 #[tauri::command]
@@ -647,6 +725,42 @@ host lower
         assert_eq!(app.group, "", "the group comment is used once");
         assert_eq!(hosts[3].hostname, "lower.example.com", "keywords are case-insensitive");
         assert_eq!(hosts[3].user, "", "Match blocks do not leak into the next Host");
+    }
+
+    fn fake(alias: &str) -> Option<Effective> {
+        (!alias.ends_with('7')).then(|| Effective {
+            user: format!("u-{alias}"),
+            port: alias.len().to_string(),
+            ..Default::default()
+        })
+    }
+
+    #[test]
+    fn parallel_matches_sequential() {
+        let aliases: Vec<String> = (0..100).map(|i| format!("host-{i}")).collect();
+        let threads = Mutex::new(HashSet::new());
+        let got = resolve_parallel(&aliases, |a| {
+            threads.lock().unwrap().insert(std::thread::current().id());
+            std::thread::sleep(std::time::Duration::from_millis(2));
+            fake(a)
+        });
+        let want: Vec<_> = aliases.iter().map(|a| Some(fake(a))).collect();
+        let key = |v: &[Option<Option<Effective>>]| -> Vec<Option<Option<(String, String)>>> {
+            v.iter()
+                .map(|o| {
+                    o.as_ref()
+                        .map(|e| e.as_ref().map(|e| (e.user.clone(), e.port.clone())))
+                })
+                .collect()
+        };
+        assert_eq!(
+            key(&got),
+            key(&want),
+            "same values in the same order, failures stay None"
+        );
+        let used = threads.lock().unwrap().len();
+        assert!((2..=SSH_G_THREADS).contains(&used), "{used} threads");
+        assert!(resolve_parallel(&[], fake).is_empty());
     }
 
     #[test]
