@@ -137,7 +137,7 @@ pub async fn sys_remote(state: State<'_, SysState>, args: Vec<String>) -> Result
     }
     let args = sanitize_ssh_args(&args)?;
     probe(&state, args, false).await.map_err(|e| match e {
-        ProbeError::Auth => "нет общего соединения — метрики появятся для сессий, открытых в OpsDeck".into(),
+        ProbeError::Auth => auth_hint(false),
         ProbeError::Other(e) => e,
     })
 }
@@ -149,7 +149,7 @@ pub async fn sys_remote(state: State<'_, SysState>, args: Vec<String>) -> Result
 pub async fn mon_probe(state: State<'_, SysState>, target: String) -> Result<Stats, String> {
     let args = sanitize_ssh_args(&crate::ssh::probe_args(&target)?)?;
     probe(&state, args, true).await.map_err(|e| match e {
-        ProbeError::Auth => "нет входа по ключу — добавьте ключ (ssh-copy-id) или откройте сессию в OpsDeck".into(),
+        ProbeError::Auth => auth_hint(true),
         ProbeError::Other(e) => e,
     })
 }
@@ -157,6 +157,24 @@ pub async fn mon_probe(state: State<'_, SysState>, target: String) -> Result<Sta
 enum ProbeError {
     Auth,
     Other(String),
+}
+
+/// Why the probe could not log in — in the words that fit this OS. OpenSSH for Windows has no connection
+/// multiplexing (ControlMaster), so an open tab in OpsDeck cannot help there, and saying otherwise sent
+/// people looking for a problem that is not theirs (#77).
+fn auth_hint(board: bool) -> String {
+    if cfg!(windows) {
+        let how = "нужен вход без пароля: ключ у хоста (ssh-copy-id) или ключ, добавленный в ssh-agent";
+        return format!(
+            "{how}. На Windows OpenSSH не умеет общее соединение (ControlMaster), поэтому открытая вкладка {} не помогает.",
+            if board { "с этим хостом" } else { "терминала" }
+        );
+    }
+    if board {
+        "нет входа по ключу — добавьте ключ (ssh-copy-id) или откройте сессию с этим хостом в OpsDeck".into()
+    } else {
+        "нет общего соединения — метрики появятся для сессий, открытых в OpsDeck".into()
+    }
 }
 
 async fn probe(state: &SysState, args: Vec<String>, keep: bool) -> Result<Stats, ProbeError> {
