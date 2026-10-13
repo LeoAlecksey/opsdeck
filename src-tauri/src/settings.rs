@@ -89,13 +89,21 @@ pub fn ai_key_clear() {
 }
 
 fn filled() -> Settings {
-    let mut s = load();
+    let mut s = from_file();
     // a key saved in plain text by an earlier build: move it to the keyring
     if !s.ai_api_key.trim().is_empty() && store::secret_set(AI_KEY, s.ai_api_key.trim()).is_ok() {
         s.ai_api_key.clear();
         let _ = store::save_json(FILE, &s);
     }
     s.ai_key_saved = store::secret_get(AI_KEY).is_some();
+    s
+}
+
+/// settings.json, pre-filled on first run. Never touches the OS keyring: the backend reads settings
+/// on timers and on every typing pause (notes, tasks, command hints), and on Linux each keyring call
+/// is a D-Bus session that may pop up the unlock dialog.
+fn from_file() -> Settings {
+    let mut s = load();
     // first run: pre-fill from what's on disk so things work without visiting settings
     let first_run = !store::exists(FILE);
     if first_run && (s.keepass_path.is_empty() || s.obsidian_vault.is_empty() || s.winbox_path.is_empty()) {
@@ -115,9 +123,16 @@ fn filled() -> Settings {
     s
 }
 
-/// Settings with auto-detected defaults filled in (may scan $HOME on first use).
+/// Settings with auto-detected defaults filled in (may scan $HOME on first use), without the AI key:
+/// `ai::provider_for` reads it from the keyring when the AI is actually called.
 pub async fn current() -> Settings {
-    settings_get().await
+    match tauri::async_runtime::spawn_blocking(from_file).await {
+        Ok(s) => s,
+        Err(e) => {
+            log::warn!("settings: reading in the background failed ({e}), using settings.json without first-run detection");
+            load()
+        }
+    }
 }
 
 #[tauri::command]
@@ -235,6 +250,31 @@ mod tests {
         let back: Settings = serde_json::from_str(r#"{"ai_api_key":"typed","ai_key_saved":true}"#).unwrap();
         assert_eq!(back.ai_api_key, "typed");
         assert!(!back.ai_key_saved);
+    }
+
+    #[test]
+    fn notes_folder_without_keyring() {
+        // the notes path is read on timers and typing pauses: no keyring for it
+        let dir =
+            std::env::temp_dir().join(format!("opsdeck-vault-no-keyring-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        store::save_json(
+            FILE,
+            &Settings {
+                obsidian_vault: dir.to_string_lossy().into_owned(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let before = store::KEYRING_CALLS.load(std::sync::atomic::Ordering::SeqCst);
+        let got = tauri::async_runtime::block_on(crate::notes::vault()).unwrap();
+        assert_eq!(
+            store::KEYRING_CALLS.load(std::sync::atomic::Ordering::SeqCst),
+            before,
+            "the keyring was touched"
+        );
+        assert_eq!(got, store::clean_path_buf(dir.canonicalize().unwrap()));
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]
