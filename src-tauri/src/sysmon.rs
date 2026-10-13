@@ -7,7 +7,7 @@ use crate::store::err;
 use serde::Serialize;
 use std::{collections::HashMap, path::PathBuf, sync::Mutex, time::Duration};
 use sysinfo::{Disks, System};
-use tauri::State;
+use tauri::{AppHandle, Manager, State};
 
 #[derive(Default)]
 pub struct SysState {
@@ -61,9 +61,13 @@ pub fn ssh_master_opts() -> Vec<String> {
     }
 }
 
+// a sync command runs on the UI thread, and sysinfo blocks there: on Windows the first CPU refresh
+// sets up PDH counters, ~200 ms
 #[tauri::command]
-pub fn sys_local(state: State<SysState>) -> Stats {
-    local(&state)
+pub async fn sys_local(app: AppHandle) -> Result<Stats, String> {
+    tauri::async_runtime::spawn_blocking(move || local(&app.state::<SysState>()))
+        .await
+        .map_err(err)
 }
 
 fn local(state: &SysState) -> Stats {
@@ -137,7 +141,7 @@ pub async fn sys_remote(state: State<'_, SysState>, args: Vec<String>) -> Result
     }
     let args = sanitize_ssh_args(&args)?;
     probe(&state, args, false).await.map_err(|e| match e {
-        ProbeError::Auth => "нет общего соединения — метрики появятся для сессий, открытых в OpsDeck".into(),
+        ProbeError::Auth => auth_hint(false),
         ProbeError::Other(e) => e,
     })
 }
@@ -149,7 +153,7 @@ pub async fn sys_remote(state: State<'_, SysState>, args: Vec<String>) -> Result
 pub async fn mon_probe(state: State<'_, SysState>, target: String) -> Result<Stats, String> {
     let args = sanitize_ssh_args(&crate::ssh::probe_args(&target)?)?;
     probe(&state, args, true).await.map_err(|e| match e {
-        ProbeError::Auth => "нет входа по ключу — добавьте ключ (ssh-copy-id) или откройте сессию в OpsDeck".into(),
+        ProbeError::Auth => auth_hint(true),
         ProbeError::Other(e) => e,
     })
 }
@@ -157,6 +161,29 @@ pub async fn mon_probe(state: State<'_, SysState>, target: String) -> Result<Sta
 enum ProbeError {
     Auth,
     Other(String),
+}
+
+/// Why the probe could not log in — in the words that fit this OS. OpenSSH for Windows has no connection
+/// multiplexing (ControlMaster), so an open tab in OpsDeck cannot help there, and saying otherwise sent
+/// people looking for a problem that is not theirs (#77).
+fn auth_hint(board: bool) -> String {
+    auth_hint_for(board, cfg!(windows))
+}
+
+/// Split out from [`auth_hint`] so both texts are checked by tests on any OS, not only where they show.
+fn auth_hint_for(board: bool, windows: bool) -> String {
+    if windows {
+        let how = "нужен вход без пароля: ключ у хоста (ssh-copy-id) или ключ, добавленный в ssh-agent";
+        return format!(
+            "{how}. На Windows OpenSSH не умеет общее соединение (ControlMaster), поэтому открытая вкладка {} не помогает.",
+            if board { "с этим хостом" } else { "терминала" }
+        );
+    }
+    if board {
+        "нет входа по ключу — добавьте ключ (ssh-copy-id) или откройте сессию с этим хостом в OpsDeck".into()
+    } else {
+        "нет общего соединения — метрики появятся для сессий, открытых в OpsDeck".into()
+    }
 }
 
 async fn probe(state: &SysState, args: Vec<String>, keep: bool) -> Result<Stats, ProbeError> {
@@ -247,6 +274,21 @@ fn parse_probe(text: &str, key: &str, prev: &mut HashMap<String, (u64, u64)>) ->
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// On Windows OpenSSH there is no ControlMaster, so the advice "open a session in OpsDeck" is wrong
+    /// there and sent people hunting a problem that was not theirs (#77).
+    #[test]
+    fn auth_hint_matches_the_os() {
+        for board in [true, false] {
+            let win = auth_hint_for(board, true);
+            assert!(!win.contains("откройте сессию"), "{win}");
+            assert!(win.contains("ssh-copy-id") && win.contains("ssh-agent"), "{win}");
+            assert!(win.contains("ControlMaster"), "the reason is named: {win}");
+            let unix = auth_hint_for(board, false);
+            assert!(unix.contains("OpsDeck"), "{unix}");
+            assert!(!unix.contains("Windows"), "{unix}");
+        }
+    }
 
     fn v(a: &[&str]) -> Vec<String> {
         a.iter().map(|s| s.to_string()).collect()

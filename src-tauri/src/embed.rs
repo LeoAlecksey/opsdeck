@@ -118,6 +118,14 @@ pub fn install(app: &AppHandle) {
     let _ = app;
 }
 
+/// y for `setFrame` in the parent's coordinates. AppKit counts y from the bottom unless the parent view is
+/// flipped, so a panel placed with the web rect as is ends up over the tab bar (#68). Pure maths, so the
+/// sign is checked by tests on every OS, not only on a Mac.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn mac_y(parent_height: f64, y: f64, h: f64, flipped: bool) -> f64 {
+    if flipped { y } else { parent_height - y - h }
+}
+
 fn place(wv: &tauri::Webview, r: Rect) -> Result<(), String> {
     #[cfg(target_os = "linux")]
     return wv.with_webview(move |pw| gtk_layer::place(&pw.inner(), r)).map_err(|e| e.to_string());
@@ -131,8 +139,8 @@ fn place(wv: &tauri::Webview, r: Rect) -> Result<(), String> {
             // SAFETY: wry hands out the panel's WKWebView (an NSView) and runs this closure on the main thread
             let view = unsafe { &*(pw.inner() as *const NSView) };
             let y = match unsafe { view.superview() } {
-                Some(sup) if !sup.isFlipped() => sup.frame().size.height - r.y - r.h,
-                _ => r.y,
+                Some(sup) => mac_y(sup.frame().size.height, r.y, r.h, sup.isFlipped()),
+                None => r.y,
             };
             view.setFrame(NSRect { origin: NSPoint { x: r.x, y }, size: NSSize { width: r.w, height: r.h } });
             view.setHidden(false);
@@ -238,4 +246,19 @@ pub fn open_external(url: String) -> Result<(), String> {
         return Err("только http(s)".into());
     }
     crate::store::open_with_system(u.as_str())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::mac_y;
+
+    #[test]
+    fn macos_frame_y() {
+        // a 900-high window, a panel 40 from the top, 300 tall: its bottom edge is 560 from the window bottom
+        assert_eq!(mac_y(900.0, 40.0, 300.0, false), 560.0);
+        // a flipped parent already counts from the top
+        assert_eq!(mac_y(900.0, 40.0, 300.0, true), 40.0);
+        // the tab bar on top stays free: a panel right under it does not reach the top of the window
+        assert!(mac_y(900.0, 34.0, 866.0, false) == 0.0, "a panel under a 34 pt tab bar ends at the window bottom");
+    }
 }

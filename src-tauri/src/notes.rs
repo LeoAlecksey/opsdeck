@@ -39,7 +39,10 @@ pub(crate) fn resolve(vault: &Path, rel: &str) -> Result<PathBuf, String> {
     while !probe.exists() {
         probe = probe.parent().ok_or("недопустимый путь")?.to_path_buf();
     }
-    if !probe.canonicalize().map_err(err)?.starts_with(vault) {
+    // clean_path_buf: on Windows canonicalize returns the \\?\ form, while the vault is kept without it —
+    // comparing them directly made every note «вне vault» (#76 and the Telegram chat)
+    let real = crate::store::clean_path_buf(probe.canonicalize().map_err(err)?);
+    if !real.starts_with(vault) {
         return Err("путь вне vault".into());
     }
     Ok(full)
@@ -556,6 +559,24 @@ mod tests {
         let t = tags_of("---\ntags: [infra, \"k8s\"]\n---\n# Заголовок\nтекст #идея и #infra/dns, `#notatag`, #123\n```\n#nope\n```\n");
         assert_eq!(t, vec!["infra", "k8s", "идея", "infra/dns"]);
         assert_eq!(tags_of("---\ntags:\n  - a\n  - b\n---\n"), vec!["a", "b"]);
+    }
+
+    /// A note inside the vault opens; a path out of it does not. The vault is kept the way `vault()`
+    /// returns it (canonical, without the Windows \\?\ prefix) — that is what `resolve` compares against.
+    #[test]
+    fn resolve_stays_in_the_vault() {
+        let dir = std::env::temp_dir().join(format!("opsdeck-resolve-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("sub")).unwrap();
+        std::fs::write(dir.join("sub/a.md"), "x").unwrap();
+        let vault = crate::store::clean_path_buf(dir.canonicalize().unwrap());
+
+        assert_eq!(super::resolve(&vault, "sub/a.md").unwrap(), vault.join("sub").join("a.md"));
+        assert!(super::resolve(&vault, "new.md").is_ok(), "a note that does not exist yet");
+        for bad in ["", "../outside.md", "sub/../../x.md"] {
+            assert!(super::resolve(&vault, bad).is_err(), "{bad}");
+        }
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[tokio::test]

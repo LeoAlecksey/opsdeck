@@ -13,7 +13,6 @@ use std::{
     collections::{HashMap, HashSet},
     path::{Path, PathBuf},
     sync::Mutex,
-    time::SystemTime,
 };
 use tauri::{AppHandle, State};
 
@@ -155,24 +154,39 @@ fn resolve_includes(pattern: &str, base_dir: Option<&Path>) -> Vec<PathBuf> {
 
 /// Concrete `Host` entries of ~/.ssh/config (patterns with * ? ! are skipped; follows Include).
 fn parse_config() -> Vec<ConfigHost> {
+    read_config().0
+}
+
+/// [`parse_config`] plus the text of every file it read, included ones too: the `ssh -G` cache key.
+fn read_config() -> (Vec<ConfigHost>, String) {
     let config_path = ssh_dir().join("config");
-    let Ok(raw) = std::fs::read_to_string(&config_path) else { return Vec::new() };
+    let Ok(raw) = std::fs::read_to_string(&config_path) else {
+        return (Vec::new(), String::new());
+    };
     let mut out = Vec::new();
+    let mut text = String::new();
     let mut visited = HashSet::new();
     if let Ok(canon) = config_path.canonicalize() {
         visited.insert(canon);
     } else {
         visited.insert(config_path);
     }
-    parse_config_text_internal(&raw, Some(&ssh_dir()), &mut out, &mut visited, 0);
-    out
+    parse_config_text_internal(&raw, Some(&ssh_dir()), &mut out, &mut visited, &mut text, 0);
+    (out, text)
 }
 
 #[cfg_attr(not(test), allow(dead_code))]
 fn parse_config_text(raw: &str) -> Vec<ConfigHost> {
     let mut out = Vec::new();
     let mut visited = HashSet::new();
-    parse_config_text_internal(raw, Some(&ssh_dir()), &mut out, &mut visited, 0);
+    parse_config_text_internal(
+        raw,
+        Some(&ssh_dir()),
+        &mut out,
+        &mut visited,
+        &mut String::new(),
+        0,
+    );
     out
 }
 
@@ -181,8 +195,11 @@ fn parse_config_text_internal(
     base_dir: Option<&Path>,
     out: &mut Vec<ConfigHost>,
     visited: &mut HashSet<PathBuf>,
+    text: &mut String,
     depth: usize,
 ) {
+    // length-prefixed, so a line moved from one file to the next still changes the text
+    text.push_str(&format!("{}\n{raw}", raw.len()));
     let mut current: Vec<usize> = Vec::new();
     let mut comment_group = String::new();
     for line in raw.lines() {
@@ -256,6 +273,7 @@ fn parse_config_text_internal(
                                         inc_path.parent(),
                                         out,
                                         visited,
+                                        text,
                                         depth + 1,
                                     );
                                 }
@@ -296,15 +314,12 @@ pub struct Effective {
     proxy_command: String,
 }
 
-/// Cache of `ssh -G` keyed by ~/.ssh/config mtime — otherwise every ssh_list spawns ssh.exe per alias.
-type EffectiveCache = (Option<SystemTime>, HashMap<String, Option<Effective>>);
+/// Cache of `ssh -G` keyed by the config text from [`read_config`] — otherwise every ssh_list spawns
+/// ssh.exe per alias. The mtime of ~/.ssh/config alone missed edits in files it includes.
+type EffectiveCache = (String, HashMap<String, Option<Effective>>);
 static EFFECTIVE_CACHE: Mutex<Option<EffectiveCache>> = Mutex::new(None);
-
-fn config_mtime() -> Option<SystemTime> {
-    std::fs::metadata(ssh_dir().join("config"))
-        .and_then(|m| m.modified())
-        .ok()
-}
+/// Parallel `ssh -G` runs: ssh.exe takes tens of ms to start on Windows, 100 aliases one by one is seconds.
+const SSH_G_THREADS: usize = 8;
 
 /// What ssh will really use for an alias. No network access: `-G` only evaluates the config.
 fn effective(alias: &str) -> Option<Effective> {
@@ -312,11 +327,22 @@ fn effective(alias: &str) -> Option<Effective> {
     cmd.args(["-G", alias])
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::null());
+        .stderr(std::process::Stdio::piped());
     // without this, Windows flashes an OpenSSH console for every alias
     process::no_console(&mut cmd);
-    let out = cmd.output().ok()?;
+    let out = match cmd.output() {
+        Ok(out) => out,
+        Err(e) => {
+            log::warn!("ssh -G {alias}: {e}");
+            return None;
+        }
+    };
     if !out.status.success() {
+        log::warn!(
+            "ssh -G {alias}: {}: {}",
+            out.status,
+            String::from_utf8_lossy(&out.stderr).trim()
+        );
         return None;
     }
     let mut e = Effective::default();
@@ -335,23 +361,89 @@ fn effective(alias: &str) -> Option<Effective> {
     Some(e)
 }
 
-fn effective_map(aliases: &[String]) -> HashMap<String, Option<Effective>> {
-    let mtime = config_mtime();
+fn effective_map(aliases: &[String], config_text: String) -> HashMap<String, Option<Effective>> {
     if let Ok(cache) = EFFECTIVE_CACHE.lock() {
-        if let Some((cached_mtime, map)) = cache.as_ref() {
-            if *cached_mtime == mtime && aliases.iter().all(|a| map.contains_key(a)) {
+        if let Some((cached_text, map)) = cache.as_ref() {
+            if *cached_text == config_text && aliases.iter().all(|a| map.contains_key(a)) {
                 return map.clone();
             }
         }
     }
+    let resolved = resolve_parallel(aliases, effective);
+    // a worker that panicked left its aliases unresolved: not cached, the next ssh_list retries them
+    let complete = resolved.iter().all(Option::is_some);
     let map: HashMap<String, Option<Effective>> = aliases
         .iter()
-        .map(|a| (a.clone(), effective(a)))
+        .cloned()
+        .zip(resolved.into_iter().map(Option::flatten))
         .collect();
-    if let Ok(mut cache) = EFFECTIVE_CACHE.lock() {
-        *cache = Some((mtime, map.clone()));
+    // #84 + #85: the key is the text of every config file (Include too), and a run with a panicked
+    // worker is not cached — the next ssh_list asks for those aliases again
+    if complete {
+        if let Ok(mut cache) = EFFECTIVE_CACHE.lock() {
+            *cache = Some((config_text, map.clone()));
+        }
     }
     map
+}
+
+/// `resolve` for every alias on up to [`SSH_G_THREADS`] threads, results in the order of `aliases`.
+/// `None` in the outer Option: the worker panicked, the alias was not resolved.
+fn resolve_parallel<F>(aliases: &[String], resolve: F) -> Vec<Option<Option<Effective>>>
+where
+    F: Fn(&str) -> Option<Effective> + Sync,
+{
+    let next = std::sync::atomic::AtomicUsize::new(0);
+    let work = || {
+        let mut done = Vec::new();
+        loop {
+            let i = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            let Some(alias) = aliases.get(i) else {
+                return done;
+            };
+            done.push((i, resolve(alias)));
+        }
+    };
+    let mut results: Vec<Option<Option<Effective>>> = vec![None; aliases.len()];
+    std::thread::scope(|s| {
+        let mut workers = Vec::new();
+        // this thread works too, so a failed spawn only means fewer threads
+        for _ in 1..SSH_G_THREADS.min(aliases.len()) {
+            match std::thread::Builder::new()
+                .name("ssh-G".into())
+                .spawn_scoped(s, work)
+            {
+                Ok(w) => workers.push(w),
+                Err(e) => {
+                    log::warn!(
+                        "ssh -G: no extra thread ({e}), continuing with {}",
+                        workers.len() + 1
+                    );
+                    break;
+                }
+            }
+        }
+        let mut done = work();
+        for w in workers {
+            match w.join() {
+                Ok(d) => done.extend(d),
+                Err(panic) => {
+                    let why = panic
+                        .downcast_ref::<&str>()
+                        .map(|s| s.to_string())
+                        .or_else(|| panic.downcast_ref::<String>().cloned())
+                        .unwrap_or_default();
+                    log::error!(
+                        "ssh -G: a worker thread panicked ({why}), its aliases stay unresolved"
+                    );
+                }
+            }
+        }
+        for (i, e) in done {
+            results[i] = Some(e);
+        }
+    });
+    results
 }
 
 #[tauri::command]
@@ -359,9 +451,9 @@ pub async fn ssh_list() -> Result<SshList, String> {
     let hosts = load()?;
     let groups: HashMap<String, String> = store::load_json(GROUPS_FILE)?;
     let config = tauri::async_runtime::spawn_blocking(move || {
-        let mut list = parse_config();
+        let (mut list, config_text) = read_config();
         let aliases: Vec<String> = list.iter().map(|h| h.alias.clone()).collect();
-        let effectives = effective_map(&aliases);
+        let effectives = effective_map(&aliases, config_text);
         for h in &mut list {
             h.effective = effectives.get(&h.alias).cloned().flatten();
             if let Some(g) = groups.get(&h.alias) {
@@ -584,12 +676,56 @@ mod tests {
         let mut out = Vec::new();
         let mut seen = HashSet::new();
         seen.insert(dir.join("main").canonicalize().unwrap());
-        parse_config_text_internal(main, Some(&dir), &mut out, &mut seen, 0);
+        parse_config_text_internal(main, Some(&dir), &mut out, &mut seen, &mut String::new(), 0);
         let names: Vec<&str> = out.iter().map(|h| h.alias.as_str()).collect();
         assert_eq!(names, ["db-1", "stage-1", "stage-2", "web-1"], "only *.conf, in order; the loop back to main is cut");
         let db = &out[0];
         assert_eq!((db.group.as_str(), db.hostname.as_str(), db.proxy_command.as_str()), ("prod", "10.0.0.5", "ssh -W %h:%p bastion"), "a trailing comment is not part of the value");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn cache_key_covers_included_files() {
+        let dir = std::env::temp_dir().join(format!("opsdeck-ssh-key-{}", std::process::id()));
+        if dir.exists() {
+            std::fs::remove_dir_all(&dir).unwrap();
+        }
+        std::fs::create_dir_all(dir.join("conf.d")).unwrap();
+        let key = |main: &str| {
+            let mut text = String::new();
+            parse_config_text_internal(
+                main,
+                Some(&dir),
+                &mut Vec::new(),
+                &mut HashSet::new(),
+                &mut text,
+                0,
+            );
+            text
+        };
+        let main = "Include conf.d/*.conf\nHost web-1\n";
+        std::fs::write(
+            dir.join("conf.d/10-prod.conf"),
+            "Host db-1\n  HostName 10.0.0.5\n",
+        )
+        .unwrap();
+        let before = key(main);
+        assert_eq!(key(main), before, "nothing changed");
+        std::fs::write(
+            dir.join("conf.d/10-prod.conf"),
+            "Host db-1\n  HostName 10.0.0.6\n",
+        )
+        .unwrap();
+        let edited = key(main);
+        assert_ne!(edited, before, "an included file edited");
+        std::fs::write(dir.join("conf.d/20-stage.conf"), "Host stage-1\n").unwrap();
+        assert_ne!(key(main), edited, "a file matching Include added");
+
+        std::fs::write(dir.join("x"), "User u\n").unwrap();
+        let split = key("Include x\nHost a\n");
+        std::fs::write(dir.join("x"), "").unwrap();
+        assert_ne!(key("Include x\nHost a\nUser u\n"), split, "a line moved between files");
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]
@@ -647,6 +783,42 @@ host lower
         assert_eq!(app.group, "", "the group comment is used once");
         assert_eq!(hosts[3].hostname, "lower.example.com", "keywords are case-insensitive");
         assert_eq!(hosts[3].user, "", "Match blocks do not leak into the next Host");
+    }
+
+    fn fake(alias: &str) -> Option<Effective> {
+        (!alias.ends_with('7')).then(|| Effective {
+            user: format!("u-{alias}"),
+            port: alias.len().to_string(),
+            ..Default::default()
+        })
+    }
+
+    #[test]
+    fn parallel_matches_sequential() {
+        let aliases: Vec<String> = (0..100).map(|i| format!("host-{i}")).collect();
+        let threads = Mutex::new(HashSet::new());
+        let got = resolve_parallel(&aliases, |a| {
+            threads.lock().unwrap().insert(std::thread::current().id());
+            std::thread::sleep(std::time::Duration::from_millis(2));
+            fake(a)
+        });
+        let want: Vec<_> = aliases.iter().map(|a| Some(fake(a))).collect();
+        let key = |v: &[Option<Option<Effective>>]| -> Vec<Option<Option<(String, String)>>> {
+            v.iter()
+                .map(|o| {
+                    o.as_ref()
+                        .map(|e| e.as_ref().map(|e| (e.user.clone(), e.port.clone())))
+                })
+                .collect()
+        };
+        assert_eq!(
+            key(&got),
+            key(&want),
+            "same values in the same order, failures stay None"
+        );
+        let used = threads.lock().unwrap().len();
+        assert!((2..=SSH_G_THREADS).contains(&used), "{used} threads");
+        assert!(resolve_parallel(&[], fake).is_empty());
     }
 
     #[test]

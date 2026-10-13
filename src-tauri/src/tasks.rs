@@ -218,6 +218,22 @@ pub async fn task_update(path: String, line: usize, raw: String, change: TaskCha
     Ok(out)
 }
 
+/// Removes a task's line from its note. `raw` must still be what is on that line, so a note edited
+/// elsewhere never loses the wrong line.
+#[tauri::command]
+pub async fn task_delete(path: String, line: usize, raw: String) -> Result<(), String> {
+    let root = vault().await?;
+    let full = resolve(&root, &path)?;
+    let text = fs::read_to_string(&full).map_err(err)?;
+    let mut lines: Vec<&str> = text.split('\n').collect();
+    let cur = lines.get(line.wrapping_sub(1)).map(|l| l.trim_end_matches('\r').trim_end()).ok_or("строки уже нет")?;
+    if cur != raw.trim_end() {
+        return Err("заметка изменилась — список задач обновлён, попробуйте ещё раз".into());
+    }
+    lines.remove(line - 1);
+    fs::write(&full, lines.join("\n")).map_err(err)
+}
+
 /// The text of a new task line (also used by the "＋ Задача" dialog in a note).
 #[tauri::command]
 pub fn task_format(text: String, due: Option<String>, time: Option<String>, priority: Option<i8>, tags: Vec<String>) -> Result<String, String> {
@@ -337,6 +353,30 @@ pub fn spawn_reminders(app: AppHandle) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Deleting removes exactly that line, and only while the line is still the task it was.
+    #[tokio::test]
+    async fn delete_takes_the_right_line() {
+        let dir = std::env::temp_dir().join(format!("opsdeck-task-del-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        crate::store::save_json(
+            "settings.json",
+            &crate::settings::Settings { obsidian_vault: dir.to_string_lossy().into_owned(), ..Default::default() },
+        )
+        .unwrap();
+        let note = dir.join("Задачи.md");
+        std::fs::write(&note, "# Задачи\n\n- [ ] первая\n- [ ] вторая\n- [ ] третья\n").unwrap();
+
+        assert!(task_delete("Задачи.md".into(), 4, "- [ ] вторая".into()).await.is_ok());
+        assert_eq!(std::fs::read_to_string(&note).unwrap(), "# Задачи\n\n- [ ] первая\n- [ ] третья\n");
+        // the line is no longer what the UI saw: nothing is removed
+        let e = task_delete("Задачи.md".into(), 4, "- [ ] вторая".into()).await.unwrap_err();
+        assert!(e.contains("заметка изменилась"), "{e}");
+        assert!(task_delete("../outside.md".into(), 1, "- [ ] x".into()).await.is_err());
+        assert_eq!(std::fs::read_to_string(&note).unwrap(), "# Задачи\n\n- [ ] первая\n- [ ] третья\n");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn parse_and_render() {

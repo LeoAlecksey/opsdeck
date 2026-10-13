@@ -6,6 +6,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { helpBtn } from "./help";
 import { icon } from "./icons";
+import { isWindows } from "./themes";
 import { ask, esc } from "./ui";
 import { natCmp } from "./natsort";
 
@@ -62,7 +63,7 @@ export function mountMonitor(root: HTMLElement) {
           <h3>Хосты на доске</h3>
           <input class="mon-filter" placeholder="фильтр…" spellcheck="false" />
           <div class="mon-pick-list"></div>
-          <p class="muted hint">Профили из раздела SSH и хосты из ~/.ssh/config. Метрики снимаются по ssh: нужен вход по ключу (ssh-agent) или открытая в OpsDeck сессия — пароль доска не спрашивает. Только Linux.</p>
+          <p class="muted hint">Профили из раздела SSH и хосты из ~/.ssh/config. Метрики снимаются по ssh с удалённых машин под Linux; пароль доска не спрашивает, нужен вход по ключу (ssh-copy-id или ssh-agent). ${isWindows() ? "На Windows общее соединение с открытой вкладкой не работает, поэтому ключ обязателен." : "Либо держите сессию с этим хостом открытой в OpsDeck."}</p>
           <div class="actions"><button value="cancel" formnovalidate>Отмена</button><button value="ok" class="primary">Готово</button></div>
         </form>
       </dialog>

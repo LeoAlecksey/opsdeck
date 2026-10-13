@@ -19,10 +19,7 @@ const SHELLS = ["bash", "zsh", "fish", "sh", "powershell", "pwsh", "cmd"];
 export function shellName(l: Launched | null): string | null {
   if (!l) return null;
   const s = stem(l.program);
-  if (s === "wsl") {
-    const i = l.args.findIndex((a) => a === "-d" || a === "--distribution");
-    return `wsl:${i >= 0 ? l.args[i + 1] ?? "" : ""}`;
-  }
+  if (s === "wsl") return `wsl:${wslDistro(l)}`;
   return SHELLS.includes(s) ? s : null;
 }
 
@@ -36,4 +33,11 @@ export function cdCommand(l: Launched | null, dir: string): string | null {
   if (s === "powershell" || s === "pwsh") return `Set-Location -LiteralPath '${dir.replace(/'/g, "''")}'`;
   if (s === "cmd") return `cd /d "${dir.replace(/"/g, "")}"`;
   return `cd -- ${/^[\w@%+=:,./~-]+$/.test(dir) ? dir : `'${dir.replace(/'/g, `'\\''`)}'`}`;
+}
+
+/** The distribution of a WSL pane (-d / --distribution): "" when not given (the default one), null when not WSL. */
+export function wslDistro(l: Launched | null): string | null {
+  if (!l || !isWsl(l)) return null;
+  const i = l.args.findIndex((a) => a === "-d" || a === "--distribution");
+  return i >= 0 ? l.args[i + 1] ?? "" : "";
 }

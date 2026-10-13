@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cdCommand, isProgramPath, isWsl, shellName } from "../../src/modules/shellkind";
+import { cdCommand, isProgramPath, isWsl, shellName, wslDistro } from "../../src/modules/shellkind";
 
 const WSL = "C:\\Windows\\System32\\wsl.exe";
 
@@ -16,6 +16,10 @@ describe("pane shell", () => {
     expect(shellName({ program: WSL, args: [] })).toBe("wsl:");
     expect(isWsl({ program: WSL, args: [] })).toBe(true);
     expect(isWsl({ program: "C:\\Program Files\\Git\\bin\\bash.exe", args: [] })).toBe(false);
+    expect(wslDistro({ program: WSL, args: ["-d", "Ubuntu-24.04", "--cd", "~"] })).toBe("Ubuntu-24.04");
+    expect(wslDistro({ program: WSL, args: [] })).toBe("");
+    expect(wslDistro({ program: "C:\\Windows\\System32\\cmd.exe", args: ["-d", "x"] })).toBeNull();
+    expect(wslDistro(null)).toBeNull();
   });
 
   it("unknown for ssh, other programs and before the start", () => {
@@ -34,6 +38,17 @@ describe("pane shell", () => {
     expect(isProgramPath("C:\\Windows\\System32\\cmd.exe", WSL)).toBe(false);
     expect(isProgramPath("C:\\WINDOWS\\System32\\wsl.exe", undefined)).toBe(false);
     expect(isProgramPath("wsl", WSL)).toBe(false);
+  });
+
+  it("a plain tab: checked against the program the backend started", () => {
+    const ps = "C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe";
+    expect(isProgramPath(ps, "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe")).toBe(true);
+    expect(isProgramPath(ps, "powershell.exe")).toBe(true);
+    expect(isProgramPath("C:\\Program Files\\PowerShell\\7\\pwsh.exe", "C:\\Program Files\\PowerShell\\7\\pwsh.exe")).toBe(true);
+    // what the shell or a program in it sets stays a name
+    expect(isProgramPath("Administrator: Windows PowerShell", ps)).toBe(false);
+    expect(isProgramPath("C:\\Users\\me\\src", ps)).toBe(false);
+    expect(isProgramPath("vim", ps)).toBe(false);
   });
 });
 

@@ -118,6 +118,8 @@ export class PtyTerminal {
   onExit?: () => void;
   /** What the backend actually started (a plain tab gets the shell chosen in Settings). */
   launched: Launched | null = null;
+  /** Settles once pty_spawn has answered: with `launched`, or null when it failed. */
+  readonly started: Promise<Launched | null>;
 
   constructor(readonly host: HTMLElement, readonly spawn: SpawnOpts = {}) {
     const opts = spawn;
@@ -173,7 +175,7 @@ export class PtyTerminal {
     });
     this.ro = new ResizeObserver(() => this.resize());
     this.ro.observe(host);
-    this.start(opts);
+    this.started = this.start(opts).then(() => this.launched);
   }
 
   private async start(opts: SpawnOpts) {
