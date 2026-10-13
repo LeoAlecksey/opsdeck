@@ -273,6 +273,8 @@ pub fn run() {
             alerts::alerts_sources,
             ssh::ssh_list,
             ssh::ssh_keys,
+            ssh::ssh_key_perms,
+            ssh::ssh_key_fix_perms,
             ssh::ssh_save,
             ssh::ssh_delete,
             ssh::ssh_connect,

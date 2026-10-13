@@ -261,6 +261,8 @@ table.res tbody tr:hover { background: var(--panel); }
 table.res tbody tr.sel { background: var(--panel-2); }
 td.ok { color: #98d982; }
 td.warn { color: #e6c07b; }
+/* предупреждение в форме: права на ключ, которые ssh не примет */
+.warn-line { color: #e6c07b; font-size: 12px; margin: -4px 0 0; display: flex; align-items: center; gap: 8px; }
 td.bad { color: var(--danger); }
 td.muted { color: var(--muted); }
 

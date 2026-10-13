@@ -23,6 +23,7 @@
   window.__demoEmit = emit;
   window.__demoListeners = handlers;
   window.__calls = [];
+  const fixedKeys = new Set(); // ключи, которым починили права через ssh_key_fix_perms
 
   // ---- Kubernetes ----
   const ctx = { file: "/home/demo/.config/opsdeck/kube/prod-eu.yaml", source: "opsdeck", label: "prod-eu", context: "prod-eu", cluster: "prod-eu", user: "admin", namespace: "shop", current: true, server: "https://k8s.example.com:6443" };
@@ -277,6 +278,14 @@ lint:
     app_version: "0.5.0", set_lang: null, log_ui: null, settings_get: settings, settings_detect: { keepass: [], obsidian: [], winbox: [] }, logs_path: "/home/demo/.local/share/opsdeck/logs",
     k8s_contexts: [ctx, ctx2], k8s_system_contexts: [], k8s_prefs_get: { hidden: [], readonly: [`${ctx.file}|prod-eu`] }, k8s_crds: [], k8s_metrics: usage, k8s_helm_releases: [], k8s_object_events: [],
     ssh_list: { hosts: sshHosts, config: sshConfig }, ssh_keys: ["~/.ssh/id_ed25519"], ssh_local_user: "demo",
+    // права на ключ: «плохой» путь — как у ключа вне профиля на Windows (#86), после починки он хороший
+    ssh_key_perms: (a) => (a.path || "").includes("my") && !fixedKeys.has(a.path)
+      ? { ok: false, detail: "доступ есть ещё у: BUILTIN\\Users", fix: "убрать из списка доступа" }
+      : { ok: true, detail: "права 600", fix: "" },
+    ssh_key_fix_perms: (a) => {
+      fixedKeys.add(a.path);
+      return { ok: true, detail: "доступ только у demo, администраторов и SYSTEM", fix: "" };
+    },
     ssh_connect: { program: "ssh", args: ["-J", "bastion", "deploy@198.51.100.11"], password_copied: false },
     kp_status: { unlocked: true, path: "/home/demo/Passwords.kdbx", keyfile: "", entries: kpEntries.length, lock_minutes: 0, keep_open: true }, kp_entries: kpEntries,
     alerts_get: { current: alerts, history: [...alerts, ...resolved], firing: alerts.length }, alerts_sources: ["Grafana", "Alertmanager", "log-analyzer"],
@@ -374,7 +383,7 @@ lint:
       }
       if (cmd === "code_tf_fmt") return { text: null, errors: [], tool: "terraform" };
       if (cmd === "code_git_diff" || cmd === "code_git_show") return "";
-      if (cmd in R) return R[cmd];
+      if (cmd in R) return typeof R[cmd] === "function" ? R[cmd](args) : R[cmd];
       return null;
     },
   };

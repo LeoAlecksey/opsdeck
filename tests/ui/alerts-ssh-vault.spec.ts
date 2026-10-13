@@ -123,6 +123,23 @@ test.describe("ssh", () => {
     await expect.poll(async () => (await app.calls("ssh_save")).at(-1)?.args).toMatchObject({ host: { id: "h5", group: "db" } });
   });
 
+  // ssh молча отвергает ключ, доступный не только владельцу — на Windows это обычное дело (#86)
+  test("the dialog warns about key permissions ssh will not accept and fixes them", async ({ app, page }) => {
+    await page.locator("section.view:not([hidden]) [data-a=add]").click();
+    const dlg = page.locator("dialog.ssh-dialog");
+    const line = dlg.locator(".key-perms");
+    await expect(line).toBeHidden();
+    await dlg.locator("input[name=identity_file]").fill("C:\\my\\id_rsa");
+    await dlg.locator("input[name=identity_file]").blur();
+    await expect(line).toBeVisible();
+    await expect(line).toContainText("ssh откажется от этого ключа: доступ есть ещё у: BUILTIN\\Users");
+
+    await line.locator("[data-a=key-fix]").click();
+    expect((await app.called("ssh_key_fix_perms")).args).toEqual({ path: "C:\\my\\id_rsa" });
+    await expect(page.locator(".toast").last()).toContainText("Права на ключ исправлены");
+    await expect(line).toBeHidden();
+  });
+
   test("new host dialog saves a profile", async ({ app, page }) => {
     await page.locator("section.view:not([hidden]) [data-a=add]").click();
     const dlg = page.locator("dialog.ssh-dialog");

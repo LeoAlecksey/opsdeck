@@ -493,6 +493,128 @@ pub fn ssh_keys() -> Vec<String> {
     keys
 }
 
+/// Права на приватный ключ: ssh отказывается читать ключ, доступный не только владельцу (#86).
+#[derive(Serialize)]
+pub struct KeyPerms {
+    /// ssh примет такой ключ
+    pub ok: bool,
+    /// кто лишний / какие права сейчас
+    pub detail: String,
+    /// что сделает «Исправить» (пустая строка — исправлять нечего или нечем)
+    pub fix: String,
+}
+
+/// Unix: ssh требует, чтобы в ключ не могли смотреть группа и остальные.
+#[cfg_attr(windows, allow(dead_code))]
+fn unix_perm_problem(mode: u32) -> Option<String> {
+    let extra = mode & 0o077;
+    (extra != 0).then(|| format!("права {:03o}, доступ есть не только у владельца", mode & 0o777))
+}
+
+/// Windows: разбор `icacls` — кого в списке доступа ssh считает лишним.
+/// Своя учётка, SYSTEM и администраторы разрешены, всё остальное (Users, Authenticated Users,
+/// Everyone, другие пользователи) и даёт «UNPROTECTED PRIVATE KEY FILE».
+#[cfg_attr(not(windows), allow(dead_code))]
+fn icacls_extra(out: &str, me: &str) -> Vec<String> {
+    let allowed = |t: &str| {
+        let short = t.rsplit('\\').next().unwrap_or(t).trim();
+        short.eq_ignore_ascii_case(me)
+            || short.eq_ignore_ascii_case("SYSTEM")
+            || short.eq_ignore_ascii_case("Administrators")
+            || short.eq_ignore_ascii_case("Администраторы")
+    };
+    let mut extra = Vec::new();
+    for line in out.lines() {
+        // «путь TRUSTEE:(F)» в первой строке, дальше «        TRUSTEE:(RX)»; права могут идти списком
+        let Some(cut) = line.rfind(":(") else { continue };
+        let head = line[..cut].trim_end();
+        // имя доверенного лица — последнее «слово» перед правами; путь с пробелами остаётся слева
+        let trustee = match head.rfind('\\') {
+            Some(i) => head[..i].rsplit(' ').next().map(|d| format!("{d}\\{}", &head[i + 1..])).unwrap_or_else(|| head.to_string()),
+            None => head.rsplit(' ').next().unwrap_or(head).to_string(),
+        };
+        if trustee.is_empty() || allowed(&trustee) || extra.contains(&trustee) {
+            continue;
+        }
+        extra.push(trustee);
+    }
+    extra
+}
+
+fn key_path(path: &str) -> Result<PathBuf, String> {
+    let p = crate::editor::expand(path);
+    if !p.is_file() {
+        return Err(format!("нет файла {}", p.display()));
+    }
+    Ok(p)
+}
+
+/// Проверка прав на ключ перед подключением.
+#[tauri::command]
+pub fn ssh_key_perms(path: String) -> Result<KeyPerms, String> {
+    let p = key_path(&path)?;
+    #[cfg(windows)]
+    {
+        let me = ssh_local_user();
+        let mut cmd = std::process::Command::new("icacls");
+        cmd.arg(&p);
+        process::no_console(&mut cmd);
+        let out = cmd.output().map_err(|e| format!("icacls: {e}"))?;
+        let text = String::from_utf8_lossy(&out.stdout).into_owned();
+        let extra = icacls_extra(&text, &me);
+        return Ok(if extra.is_empty() {
+            KeyPerms { ok: true, detail: format!("доступ только у {me}, администраторов и SYSTEM"), fix: String::new() }
+        } else {
+            KeyPerms {
+                ok: false,
+                detail: format!("доступ есть ещё у: {}", extra.join(", ")),
+                fix: format!("убрать из списка доступа {} и оставить только {me}", extra.join(", ")),
+            }
+        });
+    }
+    #[cfg(not(windows))]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = std::fs::metadata(&p).map_err(|e| e.to_string())?.permissions().mode();
+        Ok(match unix_perm_problem(mode) {
+            None => KeyPerms { ok: true, detail: format!("права {:03o}", mode & 0o777), fix: String::new() },
+            Some(d) => KeyPerms { ok: false, detail: d, fix: "поставить права 600 (чтение и запись только владельцу)".into() },
+        })
+    }
+}
+
+/// Сузить права на ключ до тех, что принимает ssh.
+#[tauri::command]
+pub fn ssh_key_fix_perms(path: String) -> Result<KeyPerms, String> {
+    let p = key_path(&path)?;
+    #[cfg(windows)]
+    {
+        let me = ssh_local_user();
+        let mut probe = std::process::Command::new("icacls");
+        probe.arg(&p);
+        process::no_console(&mut probe);
+        let text = probe.output().map(|o| String::from_utf8_lossy(&o.stdout).into_owned()).unwrap_or_default();
+        let mut cmd = std::process::Command::new("icacls");
+        // /inheritance:r убирает наследуемые записи, /grant:r оставляет полный доступ только себе,
+        // /remove снимает явные записи остальных — после этого ssh берёт ключ
+        cmd.arg(&p).arg("/inheritance:r").arg(format!("/grant:r{me}:F"));
+        for t in icacls_extra(&text, &me) {
+            cmd.arg(format!("/remove:g{t}")).arg(format!("/remove:d{t}"));
+        }
+        process::no_console(&mut cmd);
+        let out = cmd.output().map_err(|e| format!("icacls: {e}"))?;
+        if !out.status.success() {
+            return Err(format!("icacls: {}", String::from_utf8_lossy(&out.stderr).trim()));
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o600)).map_err(|e| e.to_string())?;
+    }
+    ssh_key_perms(path)
+}
+
 fn valid_user(u: &str) -> bool {
     // '@' is allowed: AD-style logins like user@domain (ssh splits the destination on the last '@')
     u.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-' | '@')) && !u.starts_with('-')
@@ -662,6 +784,26 @@ fn profile_args(h: &SshHost, user: &str) -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
+    /// Права на ключ: ssh отвергает ключ, доступный не только владельцу (#86). Разбор `icacls`
+    /// проверяется на любой ОС — на Windows его видно только на самой Windows.
+    #[test]
+    fn a_key_others_can_read_is_reported() {
+        assert_eq!(unix_perm_problem(0o600), None);
+        assert_eq!(unix_perm_problem(0o400), None);
+        assert!(unix_perm_problem(0o644).unwrap().contains("644"));
+        assert!(unix_perm_problem(0o660).is_some());
+
+        let out = "c:\\my\\id_rsa NT AUTHORITY\\SYSTEM:(F)\n                BUILTIN\\Administrators:(F)\n                DESKTOP-7\\alex:(F)\n                BUILTIN\\Users:(RX)\n                DESKTOP-7\\guest:(R)\n\nSuccessfully processed 1 files.\n";
+        assert_eq!(icacls_extra(out, "alex"), vec!["BUILTIN\\Users", "DESKTOP-7\\guest"]);
+        assert!(icacls_extra(out, "ALEX").iter().all(|t| t != "DESKTOP-7\\alex"), "своя учётка не лишняя");
+        // только владелец, администраторы и SYSTEM — такой ключ ssh принимает
+        let ok = "c:\\my\\id_rsa DESKTOP-7\\alex:(F)\n                NT AUTHORITY\\SYSTEM:(F)\n";
+        assert!(icacls_extra(ok, "alex").is_empty());
+        // путь с пробелами: имя доверенного лица не склеивается с путём
+        let spaced = "C:\\my keys\\id_rsa BUILTIN\\Users:(RX)\n";
+        assert_eq!(icacls_extra(spaced, "alex"), vec!["BUILTIN\\Users"]);
+    }
+
 
     #[test]
     fn include_comments_and_proxycommand() {
