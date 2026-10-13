@@ -1,6 +1,6 @@
 import { relTo } from "./paths";
 import { eolOf, toLf, withEol, type Eol } from "./eol";
-import { locale } from "../i18n";
+import { locale, t } from "../i18n";
 import { helpBtn } from "./help";
 import { icon } from "./icons";
 import { invoke } from "@tauri-apps/api/core";
@@ -134,11 +134,24 @@ export function mountCode(root: HTMLElement) {
         <span class="row">
           <button class="icon" data-a="open" title="Выбрать папку проекта (весь проект откроется деревом слева)">${icon("folderOpen", 16)}</button>
           <button class="icon" data-a="from-term" title="Открыть папку, в которой сейчас терминал">⌁</button>
+          <button class="icon" data-a="find" title="Поиск по всем файлам проекта (Ctrl+Shift+F)">${icon("command", 16)}</button>
           <button class="icon" data-a="new-file" title="Новый файл в проекте">${icon("plus", 16)}</button>
           <button class="icon" data-a="refresh" title="Обновить">${icon("refresh", 16)}</button>
           ${helpBtn("code")}
         </span></div>
       <select class="code-recent" title="Недавние проекты"><option value="">Недавние проекты…</option></select>
+      <div class="code-find" hidden>
+        <div class="row">
+          <input class="cf-q" placeholder="искать в проекте…" spellcheck="false" />
+          <button class="icon" data-a="find-close" title="Закрыть поиск">${icon("close", 14)}</button>
+        </div>
+        <div class="row muted cf-opts">
+          <label class="check" title="Регулярное выражение, как в grep -E"><input type="checkbox" class="cf-re" /> .*</label>
+          <label class="check" title="Учитывать регистр"><input type="checkbox" class="cf-case" /> Aa</label>
+          <span class="spacer"></span><span class="cf-state"></span>
+        </div>
+        <div class="cf-hits"></div>
+      </div>
       <div class="code-tree"></div>
     </aside>
     <div class="code-split" data-split="side" title="Потяните, чтобы изменить ширину"></div>
@@ -608,6 +621,61 @@ export function mountCode(root: HTMLElement) {
     popupMenu({ left: e.clientX, top: e.clientY, bottom: e.clientY }, items);
   });
   $("[data-a=fmt]").onclick = () => fmt();
+
+  // ----- search across the project: results grouped by file, a click opens the line -----
+  type Hit = { path: string; line: number; text: string };
+  const findBox = $(".code-find"), findIn = $<HTMLInputElement>(".cf-q"), findHits = $(".cf-hits"), findState = $(".cf-state");
+  const findRe = $<HTMLInputElement>(".cf-re"), findCase = $<HTMLInputElement>(".cf-case");
+  let findSeq = 0;
+
+  function toggleFind(show = findBox.hidden) {
+    findBox.hidden = !show;
+    if (show) { findIn.focus(); findIn.select(); } else { findHits.innerHTML = ""; }
+  }
+
+  async function runFind() {
+    const query = findIn.value;
+    const seq = ++findSeq;
+    if (!project) return;
+    if (query.trim().length < 2) { findHits.innerHTML = ""; findState.textContent = ""; return; }
+    findState.textContent = t("ищу…");
+    let hits: Hit[];
+    try {
+      hits = await invoke<Hit[]>("code_search", { root: project, query, regex: findRe.checked, caseSensitive: findCase.checked });
+    } catch (e) {
+      if (seq !== findSeq) return;
+      findState.textContent = "";
+      findHits.innerHTML = `<p class="err pad">${esc(String(e))}</p>`;
+      return;
+    }
+    if (seq !== findSeq) return; // a newer search already runs
+    const byFile = new Map<string, Hit[]>();
+    for (const h of hits) byFile.set(h.path, [...(byFile.get(h.path) ?? []), h]);
+    findState.textContent = hits.length
+      ? `${hits.length}${hits.length >= 500 ? "+" : ""} ${t("в")} ${byFile.size} ${t("файлах")}`
+      : t("ничего не найдено");
+    findHits.innerHTML = [...byFile].map(([file, list]) => `
+      <div class="cf-file"><div class="cf-fname" title="${esc(file)}">${fileIcon(file)} ${esc(file)} <span class="muted">${list.length}</span></div>
+      ${list.map((h) => `<div class="cf-hit" data-f="${esc(file)}" data-l="${h.line}"><span class="muted">${h.line}</span> ${esc(h.text)}</div>`).join("")}</div>`).join("");
+  }
+
+  let findTimer = 0;
+  findIn.addEventListener("input", () => { clearTimeout(findTimer); findTimer = window.setTimeout(runFind, 250); });
+  for (const c of [findRe, findCase]) c.addEventListener("change", runFind);
+  findIn.addEventListener("keydown", (e) => { if (e.key === "Escape") toggleFind(false); });
+  findHits.addEventListener("click", (e) => {
+    const hit = (e.target as HTMLElement).closest<HTMLElement>(".cf-hit");
+    if (hit) openFile(join(project, hit.dataset.f!), Number(hit.dataset.l));
+  });
+  $("[data-a=find]").onclick = () => { toggleFind(); if (!findBox.hidden) runFind(); };
+  $("[data-a=find-close]").onclick = () => toggleFind(false);
+  // Ctrl+Shift+F is terraform fmt in the editor, so project search is on the button and Ctrl+Shift+F outside it
+  window.addEventListener("keydown", (e) => {
+    if (root.hidden || !e.ctrlKey || !e.shiftKey || e.altKey || e.code !== "KeyF") return;
+    if (view.dom.contains(e.target as Node)) return; // inside the editor it formats Terraform
+    e.preventDefault();
+    toggleFind(true);
+  });
 
   // ----- the pipeline graph (GitLab CI / GitHub Actions) -----
   let pipe: Awaited<ReturnType<typeof import("./pipeview")["mountPipeline"]>> | null = null;

@@ -183,3 +183,35 @@ test.describe("Ctrl+W closes a tab, not the window (#79)", () => {
     await expect(page.locator(".term-host:not([hidden]) .pane")).toHaveCount(1);
   });
 });
+
+test.describe("IDE: search across the project", () => {
+  const openProj = async (app: any, page: any) => {
+    await app.view("code");
+    await page.evaluate(() => window.dispatchEvent(new CustomEvent("open-in-code", { detail: { path: "/home/demo/projects/infra" } })));
+    await expect(page.locator(".code-tree")).toContainText("main.tf");
+  };
+
+  test("hits are grouped by file and a click opens the line", async ({ app, page }) => {
+    await openProj(app, page);
+    await page.locator("[data-a=find]").click();
+    await page.locator(".cf-q").fill("module");
+    await expect(page.locator(".cf-file")).toHaveCount(1);
+    await expect(page.locator(".cf-state")).toContainText("в 1 файлах");
+    const call = await app.called("code_search");
+    expect(call.args).toMatchObject({ root: "/home/demo/projects/infra", regex: false, caseSensitive: false });
+    await page.locator(".cf-hit").first().click();
+    await expect(page.locator(".code-tab", { hasText: "main.tf" })).toBeVisible();
+  });
+
+  test("the regex and case switches reach the backend; Escape closes", async ({ app, page }) => {
+    await openProj(app, page);
+    await page.locator("[data-a=find]").click();
+    await page.locator(".cf-q").fill("modu.e");
+    await expect(page.locator(".cf-state")).toContainText("ничего не найдено");
+    await page.locator(".cf-re").check();
+    await expect(page.locator(".cf-file")).toHaveCount(1);
+    await expect.poll(async () => (await app.calls("code_search")).at(-1)?.args.regex).toBe(true);
+    await page.locator(".cf-q").press("Escape");
+    await expect(page.locator(".code-find")).toBeHidden();
+  });
+});

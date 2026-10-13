@@ -352,6 +352,19 @@ lint:
       if (cmd === "db_tree") return dbTree(args.path);
       if (cmd === "note_read") return noteText[args.path] ?? `# ${args.path.split("/").pop().replace(/\.md$/, "")}\n\n${L("Заметка.", "A note.")}\n`;
       if (cmd === "fs_list") { const l = files[args.path]; if (!l) throw "not a dir"; return l.map(([n, d]) => ({ name: n, dir: !!d, link: false, size: d ? 0 : 1200 })); }
+      if (cmd === "code_search") {
+        const q = String(args.query).toLowerCase();
+        const corpus = { "main.tf": mainTf, ".gitlab-ci.yml": gitlabCi, "README.md": "# infra\n\nterraform и helm для shop\n" };
+        const hits = [];
+        for (const [file, text] of Object.entries(corpus)) {
+          text.split("\n").forEach((line, i) => {
+            const hit = args.regex ? new RegExp(args.query, args.caseSensitive ? "" : "i").test(line)
+              : args.caseSensitive ? line.includes(args.query) : line.toLowerCase().includes(q);
+            if (hit) hits.push({ path: file, line: i + 1, text: line.trim() });
+          });
+        }
+        return hits;
+      }
       if (cmd === "code_read") {
         const p = args.path;
         const text = p.endsWith("main.tf") ? mainTf : p.endsWith(".gitlab-ci.yml") ? gitlabCi : p.endsWith(".gitlab/tests.yml") ? gitlabTests : "# demo\n";
