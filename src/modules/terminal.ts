@@ -15,7 +15,7 @@ import { t } from "../i18n";
 import { isWindows } from "./themes";
 import { AI_PROVIDERS, aiAgent, setAiAgent } from "./ai-agents";
 import { LocalChat } from "./aichat";
-import { isProgramPath, isWsl, shellName } from "./shellkind";
+import { isProgramPath, isWsl, shellName, wslDistro } from "./shellkind";
 
 /** Other modules open a tab via: window.dispatchEvent(new CustomEvent("open-terminal", { detail })) */
 export type OpenTerminalDetail = SpawnOpts & { title?: string; keepOpen?: boolean };
@@ -248,10 +248,17 @@ export function mountTerminal(root: HTMLElement) {
     pane.pty = pty;
     pane.exited = false;
     attachPathLinks(pty);
-    pty.term.onTitleChange((t) => {
-      if (t && !isProgramPath(t, pane.spawn.program)) { pane.termTitle = t; paneTitle(pane); }
-      if (pane.tab.active === pane && t && !isProgramPath(t, pane.spawn.program)) pane.tab.label.textContent = t;
-    });
+    // a plain tab learns its program (the shell from Settings) only when pty_spawn answers, and ConPTY's
+    // first title, the program's path, may come before that: such a title waits until it can be checked
+    const setTitle = (t: string) => {
+      if (!t || isProgramPath(t, pane.spawn.program ?? pty.launched?.program)) return;
+      pane.termTitle = t;
+      paneTitle(pane);
+      if (pane.tab.active === pane) pane.tab.label.textContent = t;
+    };
+    let early: string | undefined;
+    pty.term.onTitleChange((t) => { if (pane.spawn.program || pty.launched) setTitle(t); else early = t; });
+    pty.started.then(() => { if (early !== undefined) setTitle(early); });
     pty.term.textarea?.addEventListener("focus", () => focusPane(pane));
     // a connection tab stays open when it ends: the reason is on screen, and it can be reconnected
     pty.onExit = () => {
@@ -475,8 +482,11 @@ export function mountTerminal(root: HTMLElement) {
 
   function newTab(opts: OpenTerminalDetail = {}) {
     const tab = createTab();
+    const name = tab.label.textContent;
     // a plain new tab starts where the current one is
-    addPane(tab, opts.program ? opts : { cwd: cwd(), ...opts });
+    const pane = addPane(tab, opts.program ? opts : { cwd: cwd(), ...opts });
+    // WSL chosen in Settings: named like a tab from the WSL menu until the shell sets its own title
+    if (!opts.program && !opts.title) pane.pty.started.then((l) => { const d = wslDistro(l); if (d && tab.label.textContent === name) tab.label.textContent = d; });
     activate(tab);
   }
 

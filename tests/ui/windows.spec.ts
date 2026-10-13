@@ -135,6 +135,70 @@ test.describe("Windows block", () => {
   });
 });
 
+test.describe("Windows: a plain tab is not named by the program's path", () => {
+  test.use({ userAgent: WIN_UA, demo: { overrides: { win_shells: SHELLS } } });
+  const WSL_EXE = "C:\\WINDOWS\\System32\\wsl.exe";
+  const PS_EXE = "C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe";
+  const label = (page: import("@playwright/test").Page) => page.locator(".tabs .tab .label").last();
+  const osc = (title: string) => Buffer.from(`\x1b]0;${title}\x07`).toString("base64");
+
+  /** The shell from Settings: pty_spawn without a program starts it. ConPTY's first title, the program's path,
+   *  comes while pty_spawn has not answered yet. */
+  async function backendPicks(page: import("@playwright/test").Page, program: string, args: string[]) {
+    await page.evaluate(([program, args]) => {
+      const w = window as any;
+      w.__answered = 0;
+      w.__DEMO_OVERRIDES.pty_spawn = (a: any) => {
+        if (a.req.program) return { program: a.req.program, args: a.req.args ?? [] };
+        w.__demoEmit(`pty-data-${a.req.id}`, btoa(`\x1b]0;${program}\x07`));
+        return new Promise((r) => setTimeout(() => { w.__answered++; r({ program, args }); }, 300));
+      };
+    }, [program, args] as const);
+  }
+  const answered = (page: import("@playwright/test").Page, n: number) => page.waitForFunction((n) => (window as any).__answered === n, n);
+  const lastId = async (app: import("./fixtures").App) => ((await app.calls("pty_spawn")).at(-1)!.args as any).req.id as string;
+
+  test("WSL in Settings: Ctrl+Shift+T and ＋ are named like a tab from the WSL menu", async ({ app, page }) => {
+    await app.view("terminal");
+    await backendPicks(page, WSL_EXE, ["-d", "Ubuntu-24.04", "--cd", "~"]);
+    await page.keyboard.press("Control+Shift+KeyT");
+    await answered(page, 1);
+    await expect(label(page)).toHaveText("Ubuntu-24.04");
+    // the shell's own title and later ones still rename the tab; the path again does not
+    const id = await lastId(app);
+    await app.emit(`pty-data-${id}`, osc("user@host: ~"));
+    await expect(label(page)).toHaveText("user@host: ~");
+    await app.emit(`pty-data-${id}`, osc(WSL_EXE));
+    await app.emit(`pty-data-${id}`, osc("vim"));
+    await expect(label(page)).toHaveText("vim");
+    await app.emit(`pty-data-${id}`, osc(WSL_EXE));
+    await page.waitForTimeout(200);
+    await expect(label(page)).toHaveText("vim");
+
+    await page.locator("[data-act=new]").click();
+    await answered(page, 2);
+    await expect(label(page)).toHaveText("Ubuntu-24.04");
+    // splitting it opens the same distribution (from what the backend started)
+    await page.click("[data-act=split-r]");
+    await expect(page.locator(".term-host:not([hidden]) .pane")).toHaveCount(2);
+    // the pane's header does not show the path either
+    await expect(page.locator(".term-host:not([hidden]) .pane-title").first()).toHaveText("shell");
+    const split =(await app.calls("pty_spawn")).at(-1)!.args as any;
+    expect([split.req.program, split.req.args]).toEqual([WSL_EXE, ["-d", "Ubuntu-24.04", "--cd", "~"]]);
+  });
+
+  test("PowerShell by default: ＋ keeps «shell N»", async ({ app, page }) => {
+    await app.view("terminal");
+    await backendPicks(page, PS_EXE, []);
+    await page.locator("[data-act=new]").click();
+    await answered(page, 1);
+    await page.waitForTimeout(200);
+    await expect(label(page)).toHaveText(/^shell \d+$/);
+    await app.emit(`pty-data-${await lastId(app)}`, osc("ssh web1"));
+    await expect(label(page)).toHaveText("ssh web1");
+  });
+});
+
 test.describe("Windows without WSL", () => {
   test.use({ userAgent: WIN_UA, demo: { overrides: { win_shells: SHELLS.slice(0, 2) } } });
   test("no WSL button", async ({ app, page }) => {
