@@ -33,3 +33,20 @@ export function relTo(root: string, abs: string): string | null {
   if (aa === rr) return "";
   return aa.startsWith(rr + "/") ? a.slice(r.length + 1) : null;
 }
+
+/** Размер файла в удобных единицах (панель «Файлы на хостах»). */
+export function fmtSize(n: number) {
+  const u = ["B", "KB", "MB", "GB", "TB"];
+  let i = 0;
+  while (n >= 1024 && i < u.length - 1) { n /= 1024; i++; }
+  return `${i === 0 ? n : n.toFixed(n < 10 ? 1 : 0)} ${u[i]}`;
+}
+
+/** Путь после перехода в подпапку или наверх; как в sftp, разделитель всегда «/». */
+export function joinPath(dir: string, name: string) {
+  if (name === "..") {
+    const up = dir.replace(/\/+$/, "").replace(/\/[^/]*$/, "");
+    return up || "/";
+  }
+  return `${dir.replace(/\/+$/, "")}/${name}`;
+}

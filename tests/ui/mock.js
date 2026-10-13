@@ -178,6 +178,9 @@
     [proj + "/modules"]: [["k8s-cluster", 1], ["network", 1]],
     [proj + "/envs"]: [["prod", 1], ["stage", 1]],
     [proj + "/.gitlab"]: [["tests.yml", 0]],
+    // домашняя папка для панели «Файлы на хостах»
+    "~": [["projects", 1], ["Downloads", 1], ["notes.md", 0]],
+    "/home/demo/Downloads": [["dump.sql", 0]],
   };
   const gitlabCi = `include:
   - local: .gitlab/tests.yml
@@ -303,6 +306,22 @@ lint:
     ide_status: { clients: 1 }, editors_detect: [], shell_commands: ["kubectl", "helm", "terraform", "git", "ssh", "docker", "ls", "cd", "cat", "grep"], cmd_suggest: [],
     // строки, которых ещё нет в удалённой ветке (git diff с @{upstream})
     code_unpushed: (a) => (a.file === "main.tf" ? [[2, 3], [6, 6]] : []),
+    // ---- Файлы на хостах (#78): листинг зависит от пути, передачи просто считают объекты ----
+    sftp_list: (a) => {
+      const dirs = {
+        "/srv": [["releases", 1, "Oct 13 17:00", "drwxr-xr-x"], ["current", 0, "Oct 13 18:00", "lrwxrwxrwx", "releases/7"], ["dump 1.sql", 0, "Apr 4 2024", "-rw-r--r--"]],
+        "/srv/releases": [["7", 1, "Oct 13 17:00", "drwxr-xr-x"], ["6", 1, "Oct 12 17:00", "drwxr-xr-x"]],
+        "/var/log": [["syslog", 0, "Oct 13 18:10", "-rw-r-----"]],
+      };
+      const path = a.path && a.path.trim() ? a.path : "/srv";
+      const l = dirs[path];
+      if (!l) throw `Couldn't stat remote file: No such file or directory`;
+      return { path, entries: l.map(([name, dir, modified, perms, target]) => ({ name, dir: !!dir, link: !!target, size: dir ? 0 : 1048576, modified, perms, target: target || "" })) };
+    },
+    sftp_get: (a) => a.remote.length,
+    sftp_put: (a) => a.local.length,
+    sftp_between: (a) => a.paths.length,
+    sftp_mkdir: null, sftp_rename: null, sftp_delete: null,
     code_git_log: commits, code_git_branches: branches, fs_git_status: { root: proj, branch: "feature/monitoring", files: { "main.tf": "M", "helm/values-prod.yaml": "M", "outputs.tf": "A" } },
     update_check: { available: false, version: "0.5.0", notes: "", date: "" }, releases_list: [],
     ai_status: { engine: true, model: true, running: true, installing: false, size: 5.9e9, download_size: 0, dir: "/home/demo/.local/share/opsdeck/ai", supported: true, model_title: "Мощная — Qwen3.5 9B" },

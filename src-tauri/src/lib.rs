@@ -8,6 +8,7 @@ mod code;
 mod connectors;
 mod db;
 mod dbtunnel;
+mod sftp;
 mod diag;
 mod editor;
 mod embed;
@@ -275,6 +276,13 @@ pub fn run() {
             ssh::ssh_keys,
             dbtunnel::web_share_tunnel,
             dbtunnel::web_share_close,
+            sftp::sftp_list,
+            sftp::sftp_get,
+            sftp::sftp_put,
+            sftp::sftp_mkdir,
+            sftp::sftp_rename,
+            sftp::sftp_delete,
+            sftp::sftp_between,
             code::code_unpushed,
             ssh::ssh_key_perms,
             ssh::ssh_key_fix_perms,

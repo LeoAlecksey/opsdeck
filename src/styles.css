@@ -261,6 +261,23 @@ table.res tbody tr:hover { background: var(--panel); }
 table.res tbody tr.sel { background: var(--panel-2); }
 td.ok { color: #98d982; }
 td.warn { color: #e6c07b; }
+/* Файлы на хостах: две панели и стрелки между ними */
+.fx2 { display: flex; gap: 8px; align-items: stretch; padding: 0 12px 12px; min-height: 0; flex: 1; }
+.fx2-pane { flex: 1; display: flex; flex-direction: column; min-width: 0; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.fx2-top, .fx2-foot { padding: 6px; gap: 6px; border-bottom: 1px solid var(--line); align-items: center; }
+.fx2-foot { border-bottom: 0; border-top: 1px solid var(--line); }
+.fx2-path { flex: 1; min-width: 0; }
+.fx2-body { flex: 1; overflow: auto; }
+.fx2-list { width: 100%; border-collapse: collapse; font-size: 13px; }
+.fx2-list td { padding: 3px 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fx2-list .fx2-n { max-width: 0; width: 60%; }
+.fx2-list .fx2-s { text-align: right; }
+.fx2-list tr.dir .fx2-n svg { vertical-align: -2px; margin-right: 4px; opacity: .8; }
+.fx2-list tr:hover { background: var(--hover); }
+.fx2-list tr.sel { background: var(--sel, #3a4c66); }
+.fx2-list tr.up td { color: var(--muted); }
+.fx2-mid { display: flex; flex-direction: column; justify-content: center; gap: 8px; }
+.fx2-mid button { padding: 6px 10px; }
 /* IDE: строки, которых ещё нет в удалённой ветке */
 .cm-unpushed { box-shadow: inset 2px 0 0 #e6c07b; }
 /* предупреждение в форме: права на ключ, которые ssh не примет */

@@ -139,6 +139,19 @@ export const HELP_EN: Record<string, { title: string; html: string }> = {
       <li>For DNS you can set the record type and the server (e.g. 8.8.8.8), for ping/mtr — the packet count.</li>
       <li><b>Stop</b> interrupts a long command.</li></ul>`,
   },
+  sftp: {
+    title: "Files on hosts",
+    html: `
+      <h4>What it is</h4>
+      <p>Two panes for exchanging files (#78): each one is either this machine or a host over SSH. Select files and press <b>→</b> or <b>←</b>. It works through the system <code>sftp</code> and <code>scp</code> — the same OpenSSH the terminal uses, so <code>~/.ssh/config</code>, ProxyJump and keys all apply.</p>
+      <h4>How to use it</h4>
+      <ul><li>The module is enabled with a tick in the ⊞ menu at the bottom of the left column.</li>
+      <li>At the top of a pane — <b>where to look</b> (this machine, an SSH profile, a host from ~/.ssh/config); the path can be typed in, ↑ goes up, a double click on a folder enters it.</li>
+      <li>A click selects, ${kbd("Ctrl")}+click adds to the selection. At the bottom — create a folder, rename, delete (a folder goes with its contents).</li>
+      <li><b>Host → host</b> goes through <code>scp -3</code>: OpsDeck runs both connections, so the hosts don't need to see each other and the keys stay with you. If a host has a non-standard port, its own key or a jump host, scp cannot split the options between the ends — download the files to yourself first, then upload them.</li></ul>
+      <h4>Login</h4>
+      <p>By key only (<code>BatchMode</code>): <code>sftp</code> reads a password from the terminal, and in batch mode there is nowhere to get it. If a host asks for a password — add a key (<code>ssh-copy-id</code>) or set one in the SSH profile. The host key must already be accepted: connect to it once from the terminal.</p>`,
+  },
   monitor: {
     title: "Host monitoring",
     html: `

@@ -13,6 +13,7 @@ import { mountTasks } from "./modules/tasks";
 import { mountMikrotik } from "./modules/mikrotik";
 import { mountMonitor } from "./modules/monitor";
 import { mountSettings } from "./modules/settings";
+import { mountSftp } from "./modules/sftp";
 import { mountSsh } from "./modules/ssh";
 import { mountAlerts } from "./modules/alerts";
 import { checkUpdates } from "./modules/updates";
@@ -38,6 +39,7 @@ const views: View[] = [
   { id: "net", svg: icon("net", 20), title: "Сеть и DNS", mount: mountNetwork },
   { id: "ssh", svg: icon("server", 20), title: "SSH", mount: mountSsh },
   { id: "monitor", svg: icon("activity", 20), title: "Мониторинг хостов", mount: mountMonitor },
+  { id: "sftp", svg: icon("folderOpen", 20), title: "Файлы на хостах", mount: mountSftp },
   { id: "code", svg: icon("code", 20), title: "IDE: код и git", mount: mountCode },
   { id: "db", svg: icon("db", 20), title: "Базы данных", mount: mountDb },
   { id: "notes", svg: icon("notes", 20), title: "Заметки", mount: mountNotes },
