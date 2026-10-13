@@ -273,6 +273,8 @@ pub fn run() {
             alerts::alerts_sources,
             ssh::ssh_list,
             ssh::ssh_keys,
+            dbtunnel::web_share_tunnel,
+            dbtunnel::web_share_close,
             ssh::ssh_key_perms,
             ssh::ssh_key_fix_perms,
             ssh::ssh_save,

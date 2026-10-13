@@ -153,7 +153,8 @@ test.describe("monitoring board: layout wishes", () => {
   test("cards are reordered by dragging and the order sticks", async ({ page }) => {
     await pickHosts(page, ["bastion", "db-primary", "app-1"]);
     const names = () => page.locator(".mon-card .mon-title b").allTextContents();
-    expect(await names()).toEqual(["app-1", "bastion", "db-primary"]);
+    // карточки появляются после ответа mon_probe — ждём, иначе тест мигает
+    await expect.poll(names).toEqual(["app-1", "bastion", "db-primary"]);
     const [first, third] = [page.locator(".mon-card").nth(0), page.locator(".mon-card").nth(2)];
     const a = (await first.boundingBox())!, c = (await third.boundingBox())!;
     await page.mouse.move(a.x + 60, a.y + 10);
@@ -161,7 +162,7 @@ test.describe("monitoring board: layout wishes", () => {
     await page.mouse.move(a.x + 80, a.y + 40, { steps: 4 });
     await page.mouse.move(c.x + 60, c.y + 20, { steps: 6 });
     await page.mouse.up();
-    expect(await names()).toEqual(["bastion", "app-1", "db-primary"]);
+    await expect.poll(names).toEqual(["bastion", "app-1", "db-primary"]);
     expect(await page.evaluate(() => localStorage.getItem("opsdeck.mon.hosts"))).toContain("id:h1");
   });
 });

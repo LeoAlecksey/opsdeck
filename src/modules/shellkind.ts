@@ -41,3 +41,10 @@ export function wslDistro(l: Launched | null): string | null {
   const i = l.args.findIndex((a) => a === "-d" || a === "--distribution");
   return i >= 0 ? l.args[i + 1] ?? "" : "";
 }
+
+/** `python3 -m http.server` слушает только 127.0.0.1 хоста: наружу папка не светится, браузер
+ *  приходит через ssh -L. Папка — та, в которой стоит шелл сессии, поэтому --directory не нужен.
+ *  В локальном шелле на Windows интерпретатор называется `python` (python3 там — заглушка из Store). */
+export function webShareCommand(port: number, windows = false) {
+  return `${windows ? "python" : "python3"} -m http.server ${port} --bind 127.0.0.1`;
+}

@@ -15,14 +15,16 @@ import { t } from "../i18n";
 import { isWindows } from "./themes";
 import { AI_PROVIDERS, aiAgent, setAiAgent } from "./ai-agents";
 import { LocalChat } from "./aichat";
-import { isProgramPath, isWsl, shellName, wslDistro } from "./shellkind";
+import { isProgramPath, isWsl, shellName, webShareCommand, wslDistro } from "./shellkind";
 
 /** Other modules open a tab via: window.dispatchEvent(new CustomEvent("open-terminal", { detail })) */
 export type OpenTerminalDetail = SpawnOpts & { title?: string; keepOpen?: boolean };
 
 /** `spawn`: what runs in the pane (started again on reconnect); `exited`: a kept-open pane whose
  *  process ended; `lastConn`: the last failed connection command typed in a shell (ssh, kubectl exec…) */
-type Pane = { pty: PtyTerminal; el: HTMLElement; tab: Tab; keepOpen: boolean; recording?: string; spawn: SpawnOpts; exited?: boolean; lastConn?: string; title?: string; termTitle?: string };
+type Pane = { pty: PtyTerminal; el: HTMLElement; tab: Tab; keepOpen: boolean; recording?: string; spawn: SpawnOpts; exited?: boolean; lastConn?: string; title?: string; termTitle?: string;
+  /** «Открыть папку в web»: адрес сессии, к которому поднят ssh -L — закрывается вместе с панелью */
+  shared?: string[] };
 
 /** Commands that connect somewhere: when one fails, «⟳ Повторить» / Ctrl+Shift+R run it again. */
 export const CONNECT_CMD = /^\s*(sudo\s+)?(ssh|mosh|telnet|sftp|autossh|kubectl\s+(exec|attach|port-forward|logs\s+-f)|docker\s+(exec|attach)|podman\s+exec|wsl)\b/;
@@ -60,6 +62,7 @@ export function mountTerminal(root: HTMLElement) {
     <div class="term-main">
       <div class="tabbar">
         <button class="icon" data-act="files" title="Файлы: дерево текущей папки, открыть в IDE (Ctrl+Shift+B)">${icon("folder", 16)}</button>
+        <button class="icon" data-act="web-share" title="Открыть папку в web: раздать текущую папку сессии по http (python3 -m http.server) и открыть в браузере">${icon("web", 16)}</button>
         <div class="tabs"></div>
         <button class="icon" data-act="new" title="Новая вкладка (Ctrl+Shift+T)">${icon("plus", 16)}</button>
         <button class="icon wsl-btn" data-act="wsl" title="Новая вкладка WSL: выбрать дистрибутив" hidden>WSL</button>
@@ -297,6 +300,7 @@ export function mountTerminal(root: HTMLElement) {
 
   /** A recording pane saves its file here: once disposed, its terminal no longer hears «pty-record» from the backend. */
   function disposePane(p: Pane) {
+    if (p.shared) invoke("web_share_close", { dest: p.shared }).catch(() => {});
     if (p.recording) {
       p.recording = undefined;
       invoke<string | null>("pty_record_stop", { id: p.pty.id })
@@ -577,6 +581,29 @@ export function mountTerminal(root: HTMLElement) {
     };
   }
 
+  // ----- «открыть папку в web» -----
+
+  async function webShare() {
+    const p = activePane();
+    if (!p) return;
+    if (p.exited) return toast(t("Сессия закрыта — переподключитесь"), "err");
+    const port = 8000 + Math.floor(Math.random() * 1000);
+    const remote = p.spawn.program === "ssh" ? parseSshTarget(p.spawn.args ?? []) : null;
+    if (p.spawn.program === "ssh" && !remote) return toast(t("Не удалось понять адрес ssh-сессии"), "err");
+    p.pty.send(webShareCommand(port, !remote && isWindows()) + "\r");
+    p.pty.term.focus();
+    try {
+      // ssh -L к порту на самом хосте; для локального шелла порт уже локальный
+      const local = remote ? await invoke<number>("web_share_tunnel", { dest: remote, port }) : port;
+      if (remote) p.shared = remote;
+      const url = `http://127.0.0.1:${local}/`;
+      await invoke("open_external", { url });
+      toast(`Папка раздаётся: ${url} — Ctrl+C в терминале останавливает`);
+    } catch (e) {
+      toast(String(e), "err");
+    }
+  }
+
   // ----- files panel -----
 
   const files = mountFiles(filesPanel, {
@@ -768,6 +795,7 @@ export function mountTerminal(root: HTMLElement) {
   // ----- wiring -----
 
   providerSel.onchange = () => { setAiAgent(providerSel.value); toggleAi(true); openAgent(providerSel.value); };
+  $("[data-act=web-share]").onclick = () => webShare();
   $("[data-act=new]").onclick = () => newTab();
 
   // Windows: WSL distributions in one click (the button shows only when WSL has any)

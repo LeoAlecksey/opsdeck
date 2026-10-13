@@ -150,6 +150,30 @@ test.describe("terminal", () => {
     expect(await listeners(page, closed), "no listeners of the closed tab").toEqual([]);
   });
 
+  // «открыть папку в web»: папка раздаётся на 127.0.0.1 хоста, браузер приходит через ssh -L
+  test("sharing the session folder over http runs the server, opens a tunnel and a link", async ({ app, page }) => {
+    await app.called("pty_spawn");
+    await app.override("web_share_tunnel", 41234);
+    await page.evaluate(() => window.dispatchEvent(new CustomEvent("open-terminal", { detail: { program: "ssh", args: ["-p", "2222", "ops@198.51.100.7"], keepOpen: true } })));
+    await expect.poll(async () => ((await app.calls("pty_spawn")).at(-1)!.args as any).req.program).toBe("ssh");
+
+    await page.locator("[data-act=web-share]").click();
+    const typedText = async () => (await app.calls("pty_write")).map((c) => (c.args as any).data).join("");
+    await expect.poll(typedText).toContain("http.server");
+    const text = await typedText();
+    const port = Number(text.match(/http\.server (\d+)/)![1]);
+    expect(port).toBeGreaterThanOrEqual(8000);
+    expect(text).toContain("--bind 127.0.0.1"); // наружу папка не светится
+    // туннель — к адресу этой же сессии, с её портом и пользователем
+    expect((await app.called("web_share_tunnel")).args).toEqual({ dest: ["-p", "2222", "ops@198.51.100.7"], port });
+    expect((await app.called("open_external")).args).toEqual({ url: "http://127.0.0.1:41234/" });
+    await expect(page.locator(".toast").last()).toContainText("http://127.0.0.1:41234/");
+
+    // вкладку закрыли — туннель не остаётся
+    await page.locator(".tabs .tab").last().locator(".x").click();
+    expect((await app.called("web_share_close")).args).toEqual({ dest: ["-p", "2222", "ops@198.51.100.7"] });
+  });
+
   test("session recording and the AI panel", async ({ app, page }) => {
     await app.override("pty_record_start", "/home/demo/Documents/OpsDeck/sessions/x.log");
     await page.locator("[data-act=rec]").click();
