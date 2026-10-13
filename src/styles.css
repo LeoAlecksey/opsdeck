@@ -123,6 +123,17 @@ button .ui-icon { margin: 0; }
 .font-size { min-width: 18px; text-align: center; font: 11px/1 system-ui; color: var(--muted); cursor: pointer; }
 .term-hosts { flex: 1; position: relative; min-height: 0; }
 .term-host, .ai-host { position: absolute; inset: 0; padding: 6px 0 0 8px; background: var(--bg); }
+/* several agents at once: each keeps its own conversation (#79) */
+.ai-host { display: flex; flex-direction: column; gap: 0; padding: 0; }
+.ai-slot { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.ai-slot + .ai-slot { border-top: 1px solid var(--border); }
+.ai-slot-head { display: none; align-items: center; gap: 2px; height: 22px; flex: none; padding: 0 4px 0 10px;
+  background: var(--panel); border-bottom: 1px solid var(--border); font-size: 11.5px; color: var(--muted); }
+.ai-slot.multi .ai-slot-head { display: flex; }
+.ai-slot.multi.current .ai-slot-head { color: var(--text); box-shadow: inset 2px 0 0 var(--accent); }
+.ai-slot-head .icon { padding: 2px 4px; opacity: .55; }
+.ai-slot-head .icon:hover { opacity: 1; }
+.ai-slot-body { flex: 1; min-height: 0; position: relative; padding: 6px 0 0 8px; }
 .splitter { width: 4px; flex: none; cursor: col-resize; background: var(--border); }
 .splitter:hover { background: var(--accent); }
 .ai-panel { flex: none; min-width: 280px; display: flex; flex-direction: column; }
