@@ -923,6 +923,7 @@
  "Показать только": "Show only",
  "Показать/скрыть AI-панель (Ctrl+Shift+I)": "Show/hide the AI panel (Ctrl+Shift+I)",
  "Показать/скрыть панель git": "Show/hide the git panel",
+ "Показывать RAM и диск в процентах вместо гигабайт": "Show RAM and disk as percentages instead of gigabytes",
  "Показывать и контексты из общего ~/.kube/config": "Also show contexts from the shared ~/.kube/config",
  "Показывать скрытые файлы": "Show hidden files",
  "Получить изменения со всех remote (fetch --all --prune)": "Fetch changes from all remotes (fetch --all --prune)",

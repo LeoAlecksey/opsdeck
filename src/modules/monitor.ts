@@ -21,7 +21,7 @@ type Stats = {
 export type Target = { key: string; name: string; group: string; addr: string };
 type State = { stats?: Stats; error?: string; at?: number; busy?: boolean };
 
-const KEY_HOSTS = "opsdeck.mon.hosts", KEY_EVERY = "opsdeck.mon.every", KEY_FOLDED = "opsdeck.mon.folded";
+const KEY_HOSTS = "opsdeck.mon.hosts", KEY_EVERY = "opsdeck.mon.every", KEY_FOLDED = "opsdeck.mon.folded", KEY_PCT = "opsdeck.mon.pct", KEY_MANUAL = "opsdeck.mon.manual";
 const PARALLEL = 6;
 const get = (k: string) => { try { return localStorage.getItem(k); } catch { return null; } };
 const set = (k: string, v: string) => { try { localStorage.setItem(k, v); } catch { /* ignore */ } };
@@ -53,6 +53,7 @@ export function mountMonitor(root: HTMLElement) {
           <label class="inline">Обновлять <select class="mon-every">
             <option value="15">каждые 15 с</option><option value="30">каждые 30 с</option><option value="60">каждую минуту</option><option value="300">каждые 5 мин</option><option value="0">вручную</option>
           </select></label>
+          <label class="check muted" title="Показывать RAM и диск в процентах вместо гигабайт"><input type="checkbox" class="mon-pct" /> %</label>
           <button class="ghost" data-a="refresh" title="Обновить сейчас">${icon("refresh", 16)}</button>
           <button class="primary" data-a="pick">${icon("plus", 16)} Хосты</button>
         </div>
@@ -92,21 +93,33 @@ export function mountMonitor(root: HTMLElement) {
   const folded = new Set<string>((() => { try { return JSON.parse(get(KEY_FOLDED) ?? "[]") as string[]; } catch { return []; } })());
   const polled = () => shown().filter((t) => !folded.has(t.group));
   const saveChosen = () => set(KEY_HOSTS, JSON.stringify(chosen));
+  const pctCb = root.querySelector<HTMLInputElement>(".mon-pct")!;
+  pctCb.checked = get(KEY_PCT) === "1";
+  let asPct = pctCb.checked;
+  /** Hosts inside a group go by name until the board is rearranged by hand; then the chosen order wins. */
+  let manualOrder = get(KEY_MANUAL) === "1";
+  pctCb.onchange = () => { asPct = pctCb.checked; set(KEY_PCT, asPct ? "1" : "0"); draw(); };
 
   function card(t: Target) {
     const st = state.get(t.key) ?? {};
     const s = st.stats;
-    const head = `<div class="mon-head"><span class="mon-dot ${st.error ? "bad" : s ? worst(s) : "idle"}"></span><b>${esc(t.name)}</b><span class="muted mon-addr">${esc(s?.host && s.host !== t.name ? s.host : t.addr)}</span>${st.busy ? `<span class="muted mon-busy">…</span>` : ""}<button class="icon mon-x" data-rm="${esc(t.key)}" title="Убрать с доски (профиль SSH остаётся)">${icon("close", 12)}</button></div>`;
+    // name and address on their own lines: a long name used to squeeze both out of sight
+    const addr = s?.host && s.host !== t.name ? s.host : t.addr;
+    const head = `<div class="mon-head"><span class="mon-dot ${st.error ? "bad" : s ? worst(s) : "idle"}"></span>
+      <span class="mon-title"><b title="${esc(t.name)}">${esc(t.name)}</b><span class="muted mon-addr" title="${esc(addr)}">${esc(addr)}</span></span>
+      ${st.busy ? `<span class="muted mon-busy">…</span>` : ""}<button class="icon mon-x" data-rm="${esc(t.key)}" title="Убрать с доски (профиль SSH остаётся)">${icon("close", 12)}</button></div>`;
     if (st.error) return `<div class="mon-card bad" data-k="${esc(t.key)}">${head}<p class="mon-err">${esc(st.error)}</p></div>`;
     if (!s) return `<div class="mon-card" data-k="${esc(t.key)}">${head}<p class="muted">опрашиваю…</p></div>`;
     const bar = (label: string, p: number, text: string) =>
       `<div class="mon-row ${level(p)}"><span>${label}</span><i class="mon-bar"><i style="width:${Math.min(100, p).toFixed(0)}%"></i></i><span class="mon-val">${text}</span></div>`;
     const mem = pct(s.mem_used, s.mem_total), disk = pct(s.disk_used, s.disk_total);
+    // "в процентах" in the bar: for a quick look the share matters more than the gigabytes
+    const sizes = (used: number, total: number, p: number) => (asPct ? `${p.toFixed(0)}%` : `${gb(used)} / ${gb(total)}`);
     return `<div class="mon-card ${worst(s)}" data-k="${esc(t.key)}">${head}
       ${s.cpu !== null ? bar("CPU", s.cpu, `${s.cpu.toFixed(0)}%`) : `<div class="mon-row"><span>CPU</span><span class="muted">…</span></div>`}
       ${s.load ? `<div class="mon-row ${level(s.cores ? (100 * s.load[0]) / s.cores : 0)}" title="load average 1/5/15 мин"><span>load</span><span class="mon-val">${s.load.map((x) => x.toFixed(2)).join(" ")} <span class="muted">/${s.cores}</span></span></div>` : ""}
-      ${bar("RAM", mem, `${gb(s.mem_used)} / ${gb(s.mem_total)}`)}
-      ${s.disk_total ? bar(esc(s.disk_mount || "/"), disk, `${gb(s.disk_used)} / ${gb(s.disk_total)}`) : ""}
+      ${bar("RAM", mem, sizes(s.mem_used, s.mem_total, mem))}
+      ${s.disk_total ? bar(esc(s.disk_mount || "/"), disk, sizes(s.disk_used, s.disk_total, disk)) : ""}
       <div class="mon-foot muted"><span>up ${uptime(s.uptime)}</span>${st.at ? `<span>${new Date(st.at).toLocaleTimeString()}</span>` : ""}</div>
     </div>`;
   }
@@ -120,7 +133,7 @@ export function mountMonitor(root: HTMLElement) {
     const groups = new Map<string, Target[]>();
     for (const t of list) groups.set(t.group, [...(groups.get(t.group) ?? []), t]);
     board.innerHTML = [...groups.entries()].sort(([a], [b]) => natCmp(a, b)).map(([g, tsRaw]) => {
-      const ts = [...tsRaw].sort((a, b) => natCmp(a.name, b.name));
+      const ts = manualOrder ? tsRaw : [...tsRaw].sort((a, b) => natCmp(a.name, b.name));
       const fold = folded.has(g);
       // a folded group still says how it was last time: count of hosts by colour
       const tally = { bad: 0, warn: 0, ok: 0 };
@@ -192,7 +205,51 @@ export function mountMonitor(root: HTMLElement) {
   });
   root.querySelector<HTMLElement>("[data-a=refresh]")!.onclick = () => refresh();
 
+  // Cards are dragged to reorder the board; the order is what `chosen` holds, so it survives a restart.
+  let dragKey: string | null = null;
+  board.addEventListener("pointerdown", (e) => {
+    const card = (e.target as HTMLElement).closest<HTMLElement>(".mon-card");
+    if (!card || (e.target as HTMLElement).closest("button") || e.button !== 0) return;
+    const key = card.dataset.k!;
+    const sx = e.clientX, sy = e.clientY;
+    let moved = false;
+    const move = (ev: PointerEvent) => {
+      if (!moved) {
+        if (Math.hypot(ev.clientX - sx, ev.clientY - sy) < 8) return;
+        moved = true;
+        dragKey = key;
+        card.classList.add("dragging");
+        document.body.style.userSelect = "none";
+      }
+      const over = (document.elementFromPoint(ev.clientX, ev.clientY) as HTMLElement | null)?.closest<HTMLElement>(".mon-card");
+      board.querySelectorAll(".mon-card.drop").forEach((x) => x.classList.remove("drop"));
+      if (over && over.dataset.k !== key) over.classList.add("drop");
+    };
+    const up = (ev: PointerEvent) => {
+      document.removeEventListener("pointermove", move);
+      document.removeEventListener("pointerup", up);
+      document.body.style.userSelect = "";
+      card.classList.remove("dragging");
+      board.querySelectorAll(".mon-card.drop").forEach((x) => x.classList.remove("drop"));
+      if (!moved) return;
+      const target = (document.elementFromPoint(ev.clientX, ev.clientY) as HTMLElement | null)?.closest<HTMLElement>(".mon-card");
+      dragKey = null;
+      if (!target || target.dataset.k === key) return;
+      const to = target.dataset.k!;
+      chosen = chosen.filter((k) => k !== key);
+      const at = chosen.indexOf(to);
+      chosen.splice(at < 0 ? chosen.length : at, 0, key);
+      manualOrder = true;
+      set(KEY_MANUAL, "1");
+      saveChosen();
+      draw();
+    };
+    document.addEventListener("pointermove", move);
+    document.addEventListener("pointerup", up);
+  });
+
   board.addEventListener("click", async (e) => {
+    if (dragKey) return; // the click that ends a drag is not a click on the card
     const el = e.target as HTMLElement;
     const sec = el.closest<HTMLElement>(".mon-group");
     const g = sec?.dataset.g ?? "";
