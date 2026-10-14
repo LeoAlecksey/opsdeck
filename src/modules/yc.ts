@@ -14,9 +14,10 @@ type Instance = {
 type Subnet = { id: string; name: string; network_id: string; zone: string; cidrs: string[]; route_table_id: string };
 type Rule = { direction: string; protocol: string; ports: string; source: string; description: string };
 type SecGroup = { id: string; name: string; network_id: string; rules: Rule[] };
-type Address = { id: string; address: string; reserved: boolean; used: boolean; zone: string; name: string };
+type Address = { id: string; address: string; external: boolean; reserved: boolean; used: boolean; zone: string; name: string };
 type Binding = { role: string; kind: string; subject: string };
 type BillingAccount = { id: string; name: string; balance: string; currency: string; active: boolean };
+type Billing = { supported: boolean; accounts: BillingAccount[] };
 
 const TABS = [
   ["vm", "Машины"],
@@ -178,9 +179,10 @@ export function mountYc(root: HTMLElement) {
     const list = await invoke<Address[]>("yc_addresses", { folderId: folder });
     if (!list.length) return void (body.innerHTML = empty("В каталоге нет публичных адресов"));
     body.innerHTML = table(
-      ["Адрес", "Имя", "Зона", "Зарезервирован", "Занят"],
-      list.map((a) => `<tr><td class="mono">${esc(a.address)}</td><td>${esc(a.name)}</td><td class="muted">${esc(a.zone)}</td>
-        <td>${a.reserved ? "да" : "нет"}</td><td class="${a.used ? "" : "warn"}">${a.used ? "да" : "нет (платный простой)"}</td></tr>`).join(""),
+      ["Адрес", "Тип", "Имя", "Зона или подсеть", "Зарезервирован", "Занят"],
+      list.map((a) => `<tr><td class="mono">${esc(a.address)}</td><td class="muted">${a.external ? "внешний" : "внутренний"}</td>
+        <td>${esc(a.name)}</td><td class="muted">${esc(a.zone)}</td>
+        <td>${a.reserved ? "да" : "нет"}</td><td class="${a.used || !a.external ? "" : "warn"}">${a.used ? "да" : a.external ? "нет (платный простой)" : "нет"}</td></tr>`).join(""),
     );
   }
 
@@ -194,7 +196,16 @@ export function mountYc(root: HTMLElement) {
   }
 
   async function drawBilling() {
-    const list = await invoke<BillingAccount[]>("yc_billing");
+    const b = await invoke<Billing>("yc_billing");
+    // в CLI 1.41 команды «yc billing account list» нет совсем — говорим это словами, а не ошибкой CLI
+    if (!b.supported) {
+      body.innerHTML = `<p class="muted">Установленная версия yc не умеет показывать платёжные аккаунты — в ней нет команды <code>yc billing account list</code>. Баланс и расходы смотрите в консоли облака.</p>
+        <p><button class="ghost" data-a="billing-web">Открыть биллинг в браузере</button></p>`;
+      body.querySelector<HTMLElement>("[data-a=billing-web]")!.onclick = () =>
+        invoke("open_external", { url: "https://console.yandex.cloud/billing" }).catch((e) => toast(String(e), "err"));
+      return;
+    }
+    const list = b.accounts;
     if (!list.length) return void (body.innerHTML = empty("Платёжные аккаунты не видны этому профилю"));
     body.innerHTML = table(
       ["Платёжный аккаунт", "Баланс", "Состояние"],

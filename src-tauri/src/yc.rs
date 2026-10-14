@@ -429,25 +429,36 @@ fn parse_sec_groups(v: &Value) -> Vec<SecGroup> {
 pub struct Address {
     pub id: String,
     pub address: String,
+    /// внешний (виден из интернета) или внутренний адрес в подсети
+    pub external: bool,
     /// зарезервирован (не пропадёт при удалении машины)
     pub reserved: bool,
     /// занят чем-нибудь прямо сейчас
     pub used: bool,
+    /// зона у внешнего, подсеть у внутреннего
     pub zone: String,
     pub name: String,
 }
 
+/// В каталоге бывают и внутренние адреса: у них поле называется `internal_ipv4_address`, и зоны
+/// нет — есть подсеть. Раньше читали только внешние, и такие строки выходили с пустым адресом.
 fn parse_addresses(v: &Value) -> Vec<Address> {
     v.as_array()
         .map(|a| {
             a.iter()
-                .map(|x| Address {
-                    id: str_of(x, "id"),
-                    address: x.get("external_ipv4_address").map(|e| str_of(e, "address")).unwrap_or_default(),
-                    reserved: x.get("reserved").and_then(Value::as_bool).unwrap_or(false),
-                    used: x.get("used").and_then(Value::as_bool).unwrap_or(false),
-                    zone: x.get("external_ipv4_address").map(|e| str_of(e, "zone_id")).unwrap_or_default(),
-                    name: str_of(x, "name"),
+                .map(|x| {
+                    let ext = x.get("external_ipv4_address");
+                    let int = x.get("internal_ipv4_address");
+                    let src = ext.or(int);
+                    Address {
+                        id: str_of(x, "id"),
+                        address: src.map(|e| str_of(e, "address")).unwrap_or_default(),
+                        external: ext.is_some(),
+                        reserved: x.get("reserved").and_then(Value::as_bool).unwrap_or(false),
+                        used: x.get("used").and_then(Value::as_bool).unwrap_or(false),
+                        zone: ext.map(|e| str_of(e, "zone_id")).unwrap_or_else(|| int.map(|e| str_of(e, "subnet_id")).unwrap_or_default()),
+                        name: str_of(x, "name"),
+                    }
                 })
                 .collect()
         })
@@ -515,6 +526,19 @@ fn parse_bindings(v: &Value) -> Vec<Binding> {
     out
 }
 
+/// Ответ CLI «такой команды нет»: в 1.41 платёжных аккаунтов в `yc billing` уже (или ещё) нет.
+fn unknown_command(text: &str) -> bool {
+    let t = text.to_lowercase();
+    t.contains("unknown command") || t.contains("unknown group") || t.contains("неизвестная команда")
+}
+
+#[derive(Serialize, Default)]
+pub struct Billing {
+    /// умеет ли установленная CLI показывать платёжные аккаунты
+    pub supported: bool,
+    pub accounts: Vec<BillingAccount>,
+}
+
 #[derive(Serialize, PartialEq, Debug)]
 pub struct BillingAccount {
     pub id: String,
@@ -559,10 +583,22 @@ pub async fn yc_bindings(folder_id: String) -> Result<Vec<Binding>, String> {
 }
 
 #[tauri::command]
-pub async fn yc_billing() -> Result<Vec<BillingAccount>, String> {
-    tauri::async_runtime::spawn_blocking(|| yc_json(&["billing", "account", "list"]).map(|v| parse_billing(&v)))
-        .await
-        .map_err(crate::store::err)?
+pub async fn yc_billing() -> Result<Billing, String> {
+    tauri::async_runtime::spawn_blocking(|| {
+        // в разных версиях CLI команда называлась по-разному, а в 1.41 её нет совсем
+        let mut last = String::new();
+        for args in [["billing", "account", "list"], ["billing", "accounts", "list"]] {
+            match yc_json(&args) {
+                Ok(v) => return Ok(Billing { supported: true, accounts: parse_billing(&v) }),
+                Err(e) if unknown_command(&e) => last = e,
+                Err(e) => return Err(e),
+            }
+        }
+        let _ = last;
+        Ok(Billing::default())
+    })
+    .await
+    .map_err(crate::store::err)?
 }
 
 #[cfg(test)]
@@ -579,14 +615,18 @@ mod tests {
             parse_subnets(&v),
             [Subnet { id: "e9b1".into(), name: "app-a".into(), network_id: "enp1".into(), zone: "ru-central1-a".into(), cidrs: vec!["10.128.0.0/24".into()], route_table_id: "rt1".into() }]
         );
+        // как отдаёт настоящая CLI: внешний адрес с зоной и внутренний с подсетью, без флага reserved
         let a: Value = serde_json::from_str(
             r#"[{"id":"e9a1","name":"nat","reserved":true,"used":true,"external_ipv4_address":{"address":"203.0.113.9","zone_id":"ru-central1-a"}},
-                {"id":"e9a2","external_ipv4_address":{"address":"203.0.113.10","zone_id":"ru-central1-b"}}]"#,
+                {"id":"e9a2","external_ipv4_address":{"address":"203.0.113.10","zone_id":"ru-central1-b"}},
+                {"id":"e9a3","type":"INTERNAL","used":true,"internal_ipv4_address":{"address":"10.128.0.21","subnet_id":"e9b1"}}]"#,
         )
         .unwrap();
         let got = parse_addresses(&a);
-        assert_eq!(got[0], Address { id: "e9a1".into(), address: "203.0.113.9".into(), reserved: true, used: true, zone: "ru-central1-a".into(), name: "nat".into() });
+        assert_eq!(got[0], Address { id: "e9a1".into(), address: "203.0.113.9".into(), external: true, reserved: true, used: true, zone: "ru-central1-a".into(), name: "nat".into() });
         assert!(!got[1].reserved && !got[1].used, "отсутствующие флаги — это «нет»");
+        // внутренний адрес виден так же, а не пустой строкой
+        assert_eq!((got[2].address.as_str(), got[2].external, got[2].zone.as_str()), ("10.128.0.21", false, "e9b1"));
     }
 
     /// Правила групп безопасности читаются глазами: порт, протокол и откуда.
@@ -699,6 +739,16 @@ mod tests {
     fn clouds_and_folders_are_read() {
         let v: Value = serde_json::from_str(r#"[{"id":"b1","name":"prod","cloud_id":"c1","description":"боевой"}]"#).unwrap();
         assert_eq!(parse_named(&v, "cloud_id"), [Named { id: "b1".into(), name: "prod".into(), parent: "c1".into(), description: "боевой".into() }]);
+    }
+
+    /// В CLI 1.41 нет «yc billing account list»: раздел должен сказать об этом словами, а не
+    /// показывать сырое «ERROR: execute command: Unknown command 'account list'» (из отчёта).
+    #[test]
+    fn an_unknown_cli_command_is_recognised() {
+        assert!(unknown_command("ERROR: execute command: Unknown command 'account list'"));
+        assert!(unknown_command("Unknown group \"accounts\""));
+        assert!(!unknown_command("ERROR: rpc error: code = PermissionDenied"));
+        assert!(!unknown_command(""));
     }
 
     #[test]

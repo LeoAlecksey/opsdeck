@@ -45,8 +45,13 @@ test.describe("Yandex Cloud", () => {
     await expect(rules.nth(2)).toContainText("исходящее");
 
     await page.locator('.yc-tabs [data-t="ip"]').click();
-    // незанятый адрес всё равно стоит денег — об этом сказано прямо
+    // незанятый внешний адрес всё равно стоит денег — об этом сказано прямо
     await expect(page.locator(".yc-body tbody tr").nth(1)).toContainText("нет (платный простой)");
+    // внутренние адреса тоже видны (у них своё поле в ответе CLI), и простой им не приписывается
+    const internal = page.locator(".yc-body tbody tr").nth(2);
+    await expect(internal).toContainText("10.128.0.21");
+    await expect(internal).toContainText("внутренний");
+    await expect(internal).not.toContainText("платный простой");
 
     await page.locator('.yc-tabs [data-t="iam"]').click();
     await expect(page.locator(".yc-body")).toContainText("ci-deploy");
@@ -54,6 +59,16 @@ test.describe("Yandex Cloud", () => {
 
     await page.locator('.yc-tabs [data-t="bill"]').click();
     await expect(page.locator(".yc-body tbody tr")).toContainText("12 430.55 RUB");
+  });
+
+  // в CLI 1.41 команды для платёжных аккаунтов нет: раздел объясняет это, а не показывает ошибку CLI
+  test("a CLI without billing commands is explained, with a link to the console", async ({ app, page }) => {
+    await app.override("yc_billing", { supported: false, accounts: [] });
+    await page.locator('.yc-tabs [data-t="bill"]').click();
+    await expect(page.locator(".yc-body")).toContainText("не умеет показывать платёжные аккаунты");
+    await expect(page.locator(".yc-body")).not.toContainText("Unknown command");
+    await page.locator("[data-a=billing-web]").click();
+    expect((await app.called("open_external")).args).toEqual({ url: "https://console.yandex.cloud/billing" });
   });
 
   test("another folder is read on its own; the profile switch goes to the CLI", async ({ app, page }) => {
