@@ -174,6 +174,33 @@ test.describe("terminal", () => {
     expect((await app.called("web_share_close")).args).toEqual({ dest: ["-p", "2222", "ops@198.51.100.7"] });
   });
 
+  // туннель открылся, но раздача не отвечает (в сессии зашли дальше на другой хост) — честно говорим
+  // и предлагаем раздать по адресу хоста, предупредив, что это видно в сети
+  test("when the tunnel does not answer, it offers to serve on the host address", async ({ app, page }) => {
+    await app.called("pty_spawn");
+    await app.override("web_share_tunnel", 41234);
+    await app.override("web_share_ready", false);
+    await page.evaluate(() => window.dispatchEvent(new CustomEvent("open-terminal", { detail: { program: "ssh", args: ["root@198.51.100.7"], keepOpen: true } })));
+    await expect.poll(async () => ((await app.calls("pty_spawn")).at(-1)!.args as any).req.program).toBe("ssh");
+
+    await page.locator("[data-act=web-share]").click();
+    const dlg = page.locator("dialog.ask");
+    await expect(dlg).toContainText("зашли дальше на другой хост");
+    await expect(dlg).toContainText("увидит любой, кто дотянется");
+    // браузер пока не открывали: по 127.0.0.1 там пусто
+    expect(await app.calls("open_external")).toHaveLength(0);
+
+    await dlg.locator("button[value=ok]").click();
+    const typed = async () => (await app.calls("pty_write")).map((c) => (c.args as any).data).join("");
+    await expect.poll(typed).toContain("\u0003"); // Ctrl+C гасит приватную раздачу
+    await expect.poll(typed).toMatch(/http\.server \d+\r/);
+    const text = await typed();
+    const port = Number(text.match(/http\.server (\d+)\r/)![1]);
+    // второй запуск — уже без --bind, то есть на всех адресах хоста
+    expect(text.slice(text.lastIndexOf("\u0003"))).toBe(`\u0003python3 -m http.server ${port}\r`);
+    expect((await app.called("open_external")).args).toEqual({ url: `http://198.51.100.7:${port}/` });
+  });
+
   test("session recording and the AI panel", async ({ app, page }) => {
     await app.override("pty_record_start", "/home/demo/Documents/OpsDeck/sessions/x.log");
     await page.locator("[data-act=rec]").click();

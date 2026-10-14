@@ -340,6 +340,7 @@ lint:
     yc_service_accounts: [{ id: "aje1", name: "ci-deploy", parent: "b1gf1", description: "раскатка из GitLab" }],
     yc_bindings: [{ role: "editor", kind: "serviceAccount", subject: "aje1" }, { role: "viewer", kind: "userAccount", subject: "ajeu2" }],
     yc_billing: [{ id: "dn2", name: "основной", balance: "12 430.55", currency: "RUB", active: true }],
+    web_share_ready: true,
     sftp_get: (a) => a.remote.length,
     sftp_put: (a) => a.local.length,
     sftp_between: (a) => a.paths.length,

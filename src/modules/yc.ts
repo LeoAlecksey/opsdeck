@@ -42,19 +42,20 @@ export function vmSpec(i: { platform: string; cores: number; memory: number; cor
 
 export function mountYc(root: HTMLElement) {
   root.innerHTML = `
-    <div class="view-head">
-      <h2>Yandex Cloud</h2>
+    <div class="page yc">
+      <div class="page-head">
+        <h2>Yandex Cloud ${helpBtn("yc")}</h2>
       <div class="row">
         <select class="yc-profile" title="Профиль yc"></select>
         <select class="yc-cloud" title="Облако"></select>
         <select class="yc-folder" title="Каталог"></select>
         <button class="icon" data-a="refresh" title="Обновить">${icon("refresh", 16)}</button>
-        ${helpBtn("yc")}
+        </div>
       </div>
-    </div>
-    <p class="yc-err err pad" hidden></p>
-    <div class="tabbar yc-tabs">${TABS.map(([id, t], n) => `<button data-t="${id}" class="${n === 0 ? "active" : ""}">${t}</button>`).join("")}</div>
-    <div class="yc-body"></div>`;
+      <p class="yc-err err" hidden></p>
+      <div class="tabbar yc-tabs">${TABS.map(([id, t], n) => `<button data-t="${id}" class="${n === 0 ? "active" : ""}">${t}</button>`).join("")}</div>
+      <div class="yc-body"></div>
+    </div>`;
 
   const $ = <T extends HTMLElement = HTMLElement>(s: string) => root.querySelector<T>(s)!;
   const body = $(".yc-body"), errEl = $(".yc-err");
@@ -96,7 +97,7 @@ export function mountYc(root: HTMLElement) {
   }
 
   const table = (head: string[], rows: string) =>
-    `<table class="mt"><thead><tr>${head.map((h) => `<th>${h}</th>`).join("")}</tr></thead><tbody>${rows}</tbody></table>`;
+    `<div class="table-wrap"><table class="res"><thead><tr>${head.map((h) => `<th>${h}</th>`).join("")}</tr></thead><tbody>${rows}</tbody></table></div>`;
   const empty = (what: string) => `<p class="muted pad">${what}</p>`;
 
   async function draw() {

@@ -278,6 +278,7 @@ pub fn run() {
             ssh::ssh_keys,
             dbtunnel::web_share_tunnel,
             dbtunnel::web_share_close,
+            dbtunnel::web_share_ready,
             kb::kb_info,
             kb::kb_open,
             yc::yc_status,

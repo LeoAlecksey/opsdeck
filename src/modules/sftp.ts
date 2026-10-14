@@ -1,3 +1,4 @@
+import { t } from "../i18n";
 import { icon } from "./icons";
 import { invoke } from "@tauri-apps/api/core";
 import { ask, esc, toast } from "./ui";
@@ -34,18 +35,19 @@ export function mountSftp(root: HTMLElement) {
     </div>`;
 
   root.innerHTML = `
-    <div class="view-head">
-      <h2>Файлы на хостах</h2>
-      <div class="row">${helpBtn("sftp")}</div>
-    </div>
-    <p class="muted pad">Две панели: слева и справа — своя машина или хост по SSH. Выделите файлы и нажмите стрелку. Вход только по ключу: пароль sftp в пакетном режиме взять негде.</p>
-    <div class="fx2">
-      ${pane("a")}
-      <div class="fx2-mid">
-        <button class="primary" data-a="to-b" title="Скопировать выделенное из левой панели в правую">→</button>
-        <button class="primary" data-a="to-a" title="Скопировать выделенное из правой панели в левую">←</button>
+    <div class="page sftp">
+      <div class="page-head">
+        <h2>Файлы на хостах ${helpBtn("sftp")}</h2>
+        <span class="muted hint">Выделите файлы и перетащите в соседнюю панель или нажмите стрелку. Вход по ключу.</span>
       </div>
-      ${pane("b")}
+      <div class="fx2">
+        ${pane("a")}
+        <div class="fx2-mid">
+          <button class="primary" data-a="to-b" title="Скопировать выделенное из левой панели в правую">→</button>
+          <button class="primary" data-a="to-a" title="Скопировать выделенное из правой панели в левую">←</button>
+        </div>
+        ${pane("b")}
+      </div>
     </div>`;
 
   type Side = {
@@ -98,14 +100,18 @@ export function mountSftp(root: HTMLElement) {
   }
 
   function draw(s: Side) {
+    // даты и права приходят только от хоста: у своей машины эти колонки пустые, их и не рисуем
+    const withDate = s.entries.some((e) => e.modified);
+    const withPerms = s.entries.some((e) => e.perms);
+    const cols = 2 + (withDate ? 1 : 0) + (withPerms ? 1 : 0);
     const rows = s.entries.map((e) => `
       <tr data-name="${esc(e.name)}" class="${s.sel.has(e.name) ? "sel" : ""}${e.dir ? " dir" : ""}">
         <td class="fx2-n">${e.dir ? icon("folder", 14) : ""}${esc(e.name)}${e.link && e.target ? `<span class="muted"> → ${esc(e.target)}</span>` : ""}</td>
         <td class="fx2-s mono">${e.dir ? "" : fmtSize(e.size)}</td>
-        <td class="muted">${esc(e.modified ?? "")}</td>
-        <td class="muted mono">${esc(e.perms ?? "")}</td>
+        ${withDate ? `<td class="fx2-d muted">${esc(e.modified ?? "")}</td>` : ""}
+        ${withPerms ? `<td class="fx2-p muted mono">${esc(e.perms ?? "")}</td>` : ""}
       </tr>`).join("");
-    s.body.querySelector("tbody")!.innerHTML = `<tr data-name=".." class="dir up"><td colspan="4">↑ ..</td></tr>${rows}`;
+    s.body.querySelector("tbody")!.innerHTML = `<tr data-name=".." class="dir up"><td colspan="${cols}">↑ ..</td></tr>${rows}`;
   }
 
   /** Только классы выделения: перерисовка таблицы на клике съедала двойной клик. */
@@ -202,8 +208,59 @@ export function mountSftp(root: HTMLElement) {
     }
   }
 
+  // ----- перетаскивание между панелями -----
+  // Указательные события, а не HTML5 drag-and-drop: в webview он ведёт себя непредсказуемо
+  // (так же сделано перетаскивание вкладок терминала и карточек мониторинга).
+  function wireDrag(from: Side, to: Side) {
+    let start: { x: number; y: number; name: string } | null = null;
+    let ghost: HTMLElement | null = null;
+
+    const overTarget = (e: PointerEvent) => !!document.elementFromPoint(e.clientX, e.clientY)?.closest(".fx2-pane") &&
+      document.elementFromPoint(e.clientX, e.clientY)!.closest(".fx2-pane") === to.el;
+
+    const stop = () => {
+      ghost?.remove();
+      ghost = null;
+      start = null;
+      to.el.classList.remove("drop");
+    };
+
+    from.body.addEventListener("pointerdown", (e) => {
+      if (e.button !== 0 || (e.target as HTMLElement).closest("button")) return;
+      const tr = (e.target as HTMLElement).closest<HTMLElement>("tr[data-name]");
+      if (!tr || tr.dataset.name === "..") return;
+      start = { x: e.clientX, y: e.clientY, name: tr.dataset.name! };
+    });
+
+    from.body.addEventListener("pointermove", (e) => {
+      if (!start) return;
+      if (!ghost) {
+        if (Math.hypot(e.clientX - start.x, e.clientY - start.y) < 6) return;
+        // тащим выделенное; если тащат невыделенную строку — выделяем только её
+        if (!from.sel.has(start.name)) { from.sel.clear(); from.sel.add(start.name); syncSel(from); }
+        ghost = document.createElement("div");
+        ghost.className = "fx2-ghost";
+        ghost.textContent = from.sel.size === 1 ? start.name : `${from.sel.size} ${t("объектов")}`;
+        document.body.appendChild(ghost);
+        from.body.setPointerCapture(e.pointerId);
+      }
+      ghost.style.transform = `translate(${e.clientX + 12}px, ${e.clientY + 12}px)`;
+      to.el.classList.toggle("drop", overTarget(e));
+    });
+
+    from.body.addEventListener("pointerup", (e) => {
+      const drop = !!ghost && overTarget(e);
+      if (ghost) from.body.releasePointerCapture(e.pointerId);
+      stop();
+      if (drop) copy(from, to);
+    });
+    from.body.addEventListener("pointercancel", stop);
+  }
+
   wire(sides.a);
   wire(sides.b);
+  wireDrag(sides.a, sides.b);
+  wireDrag(sides.b, sides.a);
   root.querySelector<HTMLElement>("[data-a=to-b]")!.onclick = () => copy(sides.a, sides.b);
   root.querySelector<HTMLElement>("[data-a=to-a]")!.onclick = () => copy(sides.b, sides.a);
 

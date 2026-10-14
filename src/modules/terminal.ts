@@ -10,7 +10,7 @@ import { registerProvider } from "./palette";
 import { hlPrefs, setHlPrefs } from "./highlight";
 import { addSnippet } from "./snippets";
 import { attachPathLinks, mountFiles } from "./files";
-import { esc, overlay, toast } from "./ui";
+import { ask, esc, overlay, toast } from "./ui";
 import { t } from "../i18n";
 import { isWindows } from "./themes";
 import { AI_PROVIDERS, aiAgent, setAiAgent } from "./ai-agents";
@@ -592,15 +592,41 @@ export function mountTerminal(root: HTMLElement) {
     if (p.spawn.program === "ssh" && !remote) return toast(t("Не удалось понять адрес ssh-сессии"), "err");
     p.pty.send(webShareCommand(port, !remote && isWindows()) + "\r");
     p.pty.term.focus();
+    toast(t("Поднимаю раздачу…"));
     try {
       // ssh -L к порту на самом хосте; для локального шелла порт уже локальный
       const local = remote ? await invoke<number>("web_share_tunnel", { dest: remote, port }) : port;
       if (remote) p.shared = remote;
+      // туннель открыт — это ещё не значит, что раздача отвечает: локальный порт слушает сам ssh,
+      // а на том конце может не быть никого (python ещё не поднялся или сессия ведёт на другой хост)
+      if (!(await invoke<boolean>("web_share_ready", { port: local }))) return void sharePlanB(p, remote, port);
       const url = `http://127.0.0.1:${local}/`;
       await invoke("open_external", { url });
       toast(`Папка раздаётся: ${url} — Ctrl+C в терминале останавливает`);
     } catch (e) {
       toast(String(e), "err");
+    }
+  }
+
+  /** Через туннель не ответили: предлагаем раздать по адресу хоста — но вслух про то, что это видно в сети. */
+  async function sharePlanB(p: Pane, remote: string[] | null, port: number) {
+    const host = (remote?.at(-1) ?? "").split("@").pop() ?? "";
+    const why = t("Через туннель раздача не ответила. Так бывает, когда внутри этой сессии вы зашли дальше на другой хост: туннель ведёт на первый.");
+    const ok = await ask(t("Раздать папку по адресу хоста?"), `${why}\n${t("Можно раздать её на всех адресах хоста — тогда папку увидит любой, кто дотянется до него по сети. Останавливает Ctrl+C.")}`,
+      { ok: t("Раздать на всех адресах"), danger: true });
+    if (ok === null) {
+      p.pty.send("\x03"); // Ctrl+C: приватная раздача не нужна
+      return;
+    }
+    p.pty.send("\x03");
+    p.pty.send(`python3 -m http.server ${port}\r`);
+    p.pty.term.focus();
+    if (host) {
+      const url = `http://${host}:${port}/`;
+      await invoke("open_external", { url }).catch(() => {});
+      toast(`Папка раздаётся: ${url} — Ctrl+C в терминале останавливает`);
+    } else {
+      toast(`${t("Папка раздаётся на порту")} ${port} — ${t("откройте её по адресу этого хоста")}`);
     }
   }
 

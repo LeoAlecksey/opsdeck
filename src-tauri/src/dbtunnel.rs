@@ -128,6 +128,26 @@ pub async fn web_share_tunnel(tunnels: tauri::State<'_, TunnelState>, dest: Vec<
     open_args(&tunnels, &format!("web:{}", dest.join(" ")), &dest, "127.0.0.1", port).await
 }
 
+/// Отвечает ли раздача через туннель. Просто подключиться к локальному порту мало: его слушает сам
+/// ssh и принимает соединение всегда, даже когда на той стороне никого нет. Поэтому делаем запрос и
+/// ждём ответа — заодно это покрывает секунду-другую, пока python поднимается.
+#[tauri::command]
+pub async fn web_share_ready(port: u16) -> bool {
+    let client = reqwest::Client::builder().timeout(Duration::from_secs(2)).build();
+    let Ok(client) = client else { return false };
+    let url = format!("http://127.0.0.1:{port}/");
+    let until = std::time::Instant::now() + Duration::from_secs(8);
+    loop {
+        if client.get(&url).send().await.is_ok() {
+            return true;
+        }
+        if std::time::Instant::now() >= until {
+            return false;
+        }
+        tokio::time::sleep(Duration::from_millis(300)).await;
+    }
+}
+
 /// Папку больше не раздают: туннель к ней не нужен.
 #[tauri::command]
 pub fn web_share_close(tunnels: tauri::State<'_, TunnelState>, dest: Vec<String>) {

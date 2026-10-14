@@ -61,6 +61,28 @@ test.describe("files on hosts (#78)", () => {
     expect((await app.called("sftp_between")).args).toEqual({ fromTarget: "alias:monitoring", paths: ["/srv/dump 1.sql"], toTarget: "id:h1", toDir: "/srv" });
   });
 
+  // перетаскивание мышью между панелями (из пожеланий)
+  test("dragging a row to the other pane copies it there", async ({ app, page }) => {
+    await pane(page, "b").locator(".fx2-host").selectOption("id:h1");
+    await expect(rows(page, "b")).toHaveCount(3);
+    const src = row(page, "a", "notes.md");
+    const a = (await src.boundingBox())!;
+    const b = (await pane(page, "b").locator(".fx2-body").boundingBox())!;
+
+    await page.mouse.move(a.x + 40, a.y + a.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(a.x + 60, a.y + a.height / 2 + 8, { steps: 3 });
+    // ghost и подсветка панели-приёмника
+    await expect(page.locator(".fx2-ghost")).toContainText("notes.md");
+    await page.mouse.move(b.x + b.width / 2, b.y + 80, { steps: 6 });
+    await expect(pane(page, "b")).toHaveClass(/drop/);
+    await page.mouse.up();
+
+    expect((await app.called("sftp_put")).args).toEqual({ target: "id:h1", local: ["~/notes.md"], remoteDir: "/srv" });
+    await expect(page.locator(".fx2-ghost")).toHaveCount(0);
+    await expect(pane(page, "b")).not.toHaveClass(/drop/);
+  });
+
   test("both panes local: nothing is sent, the hint says where to copy instead", async ({ app, page }) => {
     await row(page, "a", "notes.md").click();
     await page.locator("[data-a=to-b]").click();
