@@ -3,6 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="google-site-verification" content="cknvYyARy4cgVtKZoS14W9AitFT1oyCq935yXwtR8Fw">
   <title>OpsDeck — рабочее место DevOps-инженера в одном окне</title>
   <meta name="description" content="Бесплатное open-source приложение для DevOps: терминал с локальным ИИ, Kubernetes, SSH, базы данных, IDE с git, алерты, заметки с задачами и KeePass в одном окне. Linux, Windows, macOS.">
   <meta property="og:title" content="OpsDeck — рабочее место DevOps-инженера в одном окне">
@@ -47,8 +48,75 @@
   }
 }
   </script>
+  <meta name="theme-color" content="#0f1117">
   <link rel="icon" href="assets/icon.png">
+  <link rel="apple-touch-icon" href="assets/icon.png">
   <link rel="stylesheet" href="assets/style.css">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
+  "inLanguage": "ru",
+  "mainEntity": [
+    {
+      "@type": "Question",
+      "name": "Это бесплатно? Куда уходят мои данные?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Бесплатно, код открыт под лицензией MIT. Настройки хранятся в ~/.config/opsdeck/, пароли — в системном хранилище паролей (keyring), база KeePass открывается только на чтение. Встроенный ИИ работает на вашем компьютере. Данные уходят наружу, только если вы сами подключили внешний ИИ-сервер (OpsDeck об этом предупредит) или запустили облачный инструмент в AI-панели — например, Claude Code."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "На каких системах работает?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Linux с glibc 2.35+ (Ubuntu 22.04+, Debian 12+, Fedora 36+), Windows 10/11, macOS 10.13+ на Intel и 11+ на Apple Silicon."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Как обновляться? А если новая версия сломалась?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "OpsDeck сам проверяет GitHub Releases: на ⚙ появится ↑, кнопка «Обновить и перезапустить» скачает обновление и проверит его подпись. Если новая версия чем-то мешает, в ⚙ → Обновления → «Другие версии» можно вернуться на любую прошлую."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "macOS пишет, что приложение повреждено",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Оно не повреждено — так macOS помечает скачанные программы без платной подписи Apple. Перетащите OpsDeck в «Программы» и выполните xattr -cr /Applications/OpsDeck.app. Если появится «не удалось проверить разработчика» — «Системные настройки» → «Конфиденциальность и безопасность» → «Всё равно открыть»."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Как перенести OpsDeck на другой компьютер?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "⚙ → «Перенос на другой компьютер» → «Экспорт…»: отметьте, что взять — настройки и интерфейс, SSH, веб-панели, базы, MikroTik, сниппеты, kubeconfig, папку заметок. На новом компьютере — «Импорт…» с тем же архивом. Пароли в архив не попадают (они в системном хранилище), их нужно ввести заново."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Локальный ИИ медленный",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Крупные модели на процессоре думают несколько секунд. Включите ⚙ → Локальный ИИ → Ускорение → «Видеокарта (Vulkan)» или выберите модель поменьше. Подойдёт и встроенная графика Intel или AMD."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Как предложить идею или поучаствовать?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Пишите в issues. Pull request'ы принимаются в ветку dev — подробности в CONTRIBUTING.md."
+      }
+    }
+  ]
+}
+</script>
 </head>
 <body>
 <header class="top">
