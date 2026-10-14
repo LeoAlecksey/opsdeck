@@ -10,6 +10,52 @@ test.describe("kubernetes", () => {
     await ctxItem(page, "prod-eu").click();
   });
 
+  // несколько namespace под рукой: плашки, между которыми переключаются кликом (#79)
+  test("namespaces become chips you switch between, and a chip can be removed", async ({ app, page }) => {
+    const chips = page.locator(".ns-tabs .ns-tab");
+    await page.locator(".ns-select").selectOption("shop");
+    await expect.poll(async () => ((await app.calls("k8s_watch_start")).at(-1)!.args as any).namespace).toBe("shop");
+    await page.locator(".ns-select").selectOption("monitoring");
+    await expect(chips).toHaveCount(2);
+    await expect(chips.nth(1)).toHaveClass(/active/);
+
+    // клик по плашке возвращает прежний namespace, не открывая список
+    await chips.nth(0).click();
+    await expect.poll(async () => ((await app.calls("k8s_watch_start")).at(-1)!.args as any).namespace).toBe("shop");
+    await expect(page.locator(".ns-select")).toHaveValue("shop");
+    await expect(chips.nth(0)).toHaveClass(/active/);
+
+    // × убирает плашку, выбранный namespace остаётся
+    await chips.nth(1).locator(".x").click();
+    await expect(chips).toHaveCount(1);
+    await expect(page.locator(".ns-select")).toHaveValue("shop");
+  });
+
+  // без мыши: стрелки, Пробел и Enter по таблице, Alt+↑/↓ по разделам (#79)
+  test("the table is driven from the keyboard, Alt+arrows walk the kinds", async ({ app, page }) => {
+    await expect(rows(page)).toHaveCount(10);
+    await page.locator(".k8s-main .table-wrap").click({ position: { x: 5, y: 5 } });
+    await page.keyboard.press("ArrowDown");
+    await expect(rows(page).nth(0)).toHaveClass(/cur/);
+    await page.keyboard.press("ArrowDown");
+    await expect(rows(page).nth(1)).toHaveClass(/cur/);
+    await page.keyboard.press("ArrowUp");
+    await expect(rows(page).nth(0)).toHaveClass(/cur/);
+
+    // Enter открывает подробности той же строки
+    await page.keyboard.press("Enter");
+    await expect(page.locator(".drawer .obj-title")).toContainText("worker-5c8d7f9b6-t9qjd");
+    await expect(rows(page).nth(0)).toHaveClass(/sel/);
+
+    // Alt+↓ — следующий раздел слева
+    const active = () => page.locator(".kind-item.active").innerText();
+    expect(await active()).toBe("Pods");
+    await page.keyboard.press("Alt+ArrowDown");
+    await expect.poll(active).not.toBe("Pods");
+    await page.keyboard.press("Alt+ArrowUp");
+    await expect.poll(active).toBe("Pods");
+  });
+
   test("a context shows live pods with CPU/RAM", async ({ app, page }) => {
     const watch = await app.called("k8s_watch_start");
     expect(watch.args).toMatchObject({ kind: "pods", ctx: { context: "prod-eu" } });
@@ -36,6 +82,34 @@ test.describe("kubernetes", () => {
     await expect(rows(page), "a broken selector does not filter").toHaveCount(10);
     await lf.fill("");
     await expect(lf).not.toHaveClass(/\bbad\b/);
+  });
+
+  // из отчёта: клик по RAM расставлял узлы по гигабайтам, хотя колонка красится по доле занятого,
+  // и стрелка в шапке показывала противоположное направление
+  test("nodes sort by the share of capacity, and the arrow matches the order", async ({ page }) => {
+    const node = (name: string, mem: string) => ({ metadata: { name, uid: name, creationTimestamp: new Date().toISOString() },
+      status: { allocatable: { cpu: "4", memory: mem }, conditions: [{ type: "Ready", status: "True" }], nodeInfo: { kubeletVersion: "v1.31.2" } } });
+    await page.evaluate(([big, small]) => {
+      const o = (window as any).__DEMO_OVERRIDES;
+      o.k8s_list = (a: any) => (a.kind === "nodes" ? [big, small] : undefined);
+      // big: 24 ГБ из 64 (37%), small: 7 ГБ из 8 (87%) — по байтам и по доле порядок разный
+      o.k8s_metrics = (a: any) => (a.kind === "nodes"
+        ? [{ namespace: "", name: "big", cpu_m: 100, mem: 24 * 2 ** 30 }, { namespace: "", name: "small", cpu_m: 100, mem: 7 * 2 ** 30 }]
+        : []);
+      o.k8s_watch_start = (a: any) => { setTimeout(() => (window as any).__demoEmit(`k8s-watch-${a.id}`, { type: "reset", items: a.kind === "nodes" ? [big, small] : [] }), 30); return null; };
+    }, [node("big", "64Gi"), node("small", "8Gi")]);
+    await page.locator(".kind-list button", { hasText: "Nodes" }).click();
+    await expect(rows(page)).toHaveCount(2);
+
+    const names = () => rows(page).locator("td:first-child").allTextContents();
+    const ramTh = page.locator(".k8s-main thead th", { hasText: "RAM" });
+    await ramTh.click();
+    // первый клик — самые загруженные сверху, и стрелка это подтверждает
+    await expect.poll(names).toEqual(["small", "big"]);
+    await expect(ramTh).toHaveClass(/desc/);
+    await ramTh.click();
+    await expect.poll(names).toEqual(["big", "small"]);
+    await expect(ramTh).toHaveClass(/asc/);
   });
 
   test("nodes: live CPU/RAM with a bar and a sparkline (from feedback)", async ({ app, page }) => {

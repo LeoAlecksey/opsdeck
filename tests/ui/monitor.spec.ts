@@ -131,3 +131,38 @@ test.describe("monitoring board: many groups", () => {
     expect(b!.x).toBeGreaterThan(a!.x);
   });
 });
+
+test.describe("monitoring board: layout wishes", () => {
+  test.beforeEach(async ({ app }) => { await app.view("monitor"); });
+
+  test("name and address are on separate lines; % switches the units", async ({ page }) => {
+    await pickHosts(page, ["bastion"]);
+    const card = page.locator(".mon-card").first();
+    await expect(card.locator(".mon-title b")).toHaveText("bastion");
+    await expect(card.locator(".mon-addr")).toHaveText("ops@bastion.example.com");
+    // a line break means the address sits under the name, not next to it
+    const [nameBox, addrBox] = await Promise.all([card.locator(".mon-title b").boundingBox(), card.locator(".mon-addr").boundingBox()]);
+    expect(addrBox!.y).toBeGreaterThan(nameBox!.y + 5);
+
+    await expect(card.locator(".mon-row", { hasText: "RAM" })).toContainText("GB");
+    await page.locator(".mon-pct").check();
+    await expect(card.locator(".mon-row", { hasText: "RAM" })).toContainText("%");
+    await expect(card.locator(".mon-row", { hasText: "RAM" })).not.toContainText("GB");
+  });
+
+  test("cards are reordered by dragging and the order sticks", async ({ page }) => {
+    await pickHosts(page, ["bastion", "db-primary", "app-1"]);
+    const names = () => page.locator(".mon-card .mon-title b").allTextContents();
+    // карточки появляются после ответа mon_probe — ждём, иначе тест мигает
+    await expect.poll(names).toEqual(["app-1", "bastion", "db-primary"]);
+    const [first, third] = [page.locator(".mon-card").nth(0), page.locator(".mon-card").nth(2)];
+    const a = (await first.boundingBox())!, c = (await third.boundingBox())!;
+    await page.mouse.move(a.x + 60, a.y + 10);
+    await page.mouse.down();
+    await page.mouse.move(a.x + 80, a.y + 40, { steps: 4 });
+    await page.mouse.move(c.x + 60, c.y + 20, { steps: 6 });
+    await page.mouse.up();
+    await expect.poll(names).toEqual(["bastion", "app-1", "db-primary"]);
+    expect(await page.evaluate(() => localStorage.getItem("opsdeck.mon.hosts"))).toContain("id:h1");
+  });
+});

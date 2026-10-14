@@ -374,6 +374,26 @@ pub fn k8s_shell_config(ctx: Ctx, namespace: Option<String>) -> Result<String, S
     Ok(path.to_string_lossy().into_owned())
 }
 
+/// Saves text (logs of a pod or a workload) to a file the user picks. Returns the path, or None if cancelled.
+#[tauri::command]
+pub async fn k8s_save_text(app: tauri::AppHandle, name: String, text: String) -> Result<Option<String>, String> {
+    use tauri_plugin_dialog::DialogExt;
+    let suggested = sanitize(&name);
+    let picked = tauri::async_runtime::spawn_blocking(move || {
+        app.dialog()
+            .file()
+            .set_title("Сохранить логи")
+            .set_file_name(&suggested)
+            .add_filter("Текст", &["log", "txt"])
+            .blocking_save_file()
+    })
+    .await
+    .map_err(err)?;
+    let Some(path) = picked.and_then(|f| f.into_path().ok()) else { return Ok(None) };
+    fs::write(&path, text).map_err(|e| format!("{}: {e}", path.display()))?;
+    Ok(Some(path.to_string_lossy().into_owned()))
+}
+
 /// Copies the chosen contexts of a shared kubeconfig into OpsDeck's store, one file per context.
 /// Returns the created file names.
 #[tauri::command]

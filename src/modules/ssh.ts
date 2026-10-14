@@ -56,6 +56,7 @@ export function mountSsh(root: HTMLElement) {
             </div>
           </div>
           <label>Ключ (-i) <input name="identity_file" list="ssh-keys" spellcheck="false" placeholder="по умолчанию: ssh-agent / ~/.ssh/id_*" /></label>
+          <p class="key-perms warn-line" hidden><span class="key-perms-text"></span> <button type="button" class="ghost" data-a="key-fix">Исправить права</button></p>
           <label>Jump-хост (-J) <input name="jump" spellcheck="false" placeholder="user@bastion:22" /></label>
           <label>Аутентификация <select name="auth">${Object.entries(AUTH).map(([k, v]) => `<option value="${k}">${v}</option>`).join("")}</select></label>
           <div data-s="keepass" class="kp-bind"><span class="kp-bound muted">запись не выбрана</span><button type="button" data-a="pick">Выбрать запись…</button></div>
@@ -121,8 +122,33 @@ export function mountSsh(root: HTMLElement) {
     form.querySelector("#ssh-groups")!.innerHTML = allGroups().map((g) => `<option value="${esc(g)}">`).join("");
     const keys = await invoke<string[]>("ssh_keys").catch(() => []);
     form.querySelector("#ssh-keys")!.innerHTML = keys.map((k) => `<option value="${esc(k)}">`).join("");
+    permsLine.hidden = true;
     dialog.showModal();
+    checkKeyPerms();
   }
+
+  /// ssh молча отказывается от ключа, который доступен не только владельцу (#86): на Windows права
+  /// на файл вне профиля почти всегда шире, и видно это только по «UNPROTECTED PRIVATE KEY FILE».
+  const permsLine = form.querySelector<HTMLElement>(".key-perms")!;
+  let permsFor = "";
+  async function checkKeyPerms() {
+    const path = f("identity_file").value.trim();
+    permsFor = path;
+    if (!path) return (permsLine.hidden = true);
+    const r = await invoke<{ ok: boolean; detail: string; fix: string }>("ssh_key_perms", { path }).catch(() => null);
+    if (permsFor !== path) return;
+    permsLine.hidden = !r || r.ok;
+    if (r && !r.ok) permsLine.querySelector(".key-perms-text")!.textContent = `ssh откажется от этого ключа: ${r.detail}.`;
+  }
+  f("identity_file").addEventListener("change", checkKeyPerms);
+  permsLine.querySelector("[data-a=key-fix]")!.addEventListener("click", async () => {
+    const path = f("identity_file").value.trim();
+    try {
+      const r = await invoke<{ ok: boolean; detail: string }>("ssh_key_fix_perms", { path });
+      toast(r.ok ? `Права на ключ исправлены: ${r.detail}` : `Права всё ещё слишком широкие: ${r.detail}`, r.ok ? undefined : "err");
+      await checkKeyPerms();
+    } catch (e) { toast(String(e), "err"); }
+  });
 
   form.addEventListener("submit", async (e) => {
     if ((e.submitter as HTMLButtonElement | null)?.value !== "save") return;
@@ -266,6 +292,18 @@ export function mountSsh(root: HTMLElement) {
       load();
     } catch (err) { toast(String(err), "err"); }
   }
+
+  // двойной клик по строке подключает — как в Termius и MobaXterm (из пожеланий)
+  list.addEventListener("dblclick", (e) => {
+    const t = e.target as HTMLElement;
+    if (dragJustEnded || t.closest("button") || t.closest("summary")) return;
+    const tr = t.closest<HTMLElement>("tr[data-id], tr[data-alias]");
+    if (!tr) return;
+    const h = data.hosts.find((x) => x.id === tr.dataset.id);
+    const c = data.config.find((x) => x.alias === tr.dataset.alias);
+    if (h) connect(`ssh ${h.name}`, { id: h.id });
+    else if (c) connect(`ssh ${c.alias}`, { alias: c.alias });
+  });
 
   let dragJustEnded = false;
   list.addEventListener("click", (e) => { if (dragJustEnded) { e.stopPropagation(); e.preventDefault(); } }, true);

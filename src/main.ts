@@ -13,6 +13,8 @@ import { mountTasks } from "./modules/tasks";
 import { mountMikrotik } from "./modules/mikrotik";
 import { mountMonitor } from "./modules/monitor";
 import { mountSettings } from "./modules/settings";
+import { mountSftp } from "./modules/sftp";
+import { mountYc } from "./modules/yc";
 import { mountSsh } from "./modules/ssh";
 import { mountAlerts } from "./modules/alerts";
 import { checkUpdates } from "./modules/updates";
@@ -38,6 +40,8 @@ const views: View[] = [
   { id: "net", svg: icon("net", 20), title: "Сеть и DNS", mount: mountNetwork },
   { id: "ssh", svg: icon("server", 20), title: "SSH", mount: mountSsh },
   { id: "monitor", svg: icon("activity", 20), title: "Мониторинг хостов", mount: mountMonitor },
+  { id: "sftp", svg: icon("folderOpen", 20), title: "Файлы на хостах", mount: mountSftp },
+  { id: "yc", svg: icon("cloud", 20), title: "Yandex Cloud", mount: mountYc },
   { id: "code", svg: icon("code", 20), title: "IDE: код и git", mount: mountCode },
   { id: "db", svg: icon("db", 20), title: "Базы данных", mount: mountDb },
   { id: "notes", svg: icon("notes", 20), title: "Заметки", mount: mountNotes },
@@ -241,6 +245,20 @@ setTimeout(() => {
     .then((s) => { if (s.update_auto_check) checkUpdates(true); })
     .catch(() => {});
 }, 8000);
+
+// Ctrl+Shift+1…9 — модуль по его месту в колонке слева (9 — последний): на ноутбуке без мыши
+// переключаться быстрее, чем тыкать иконки (#79). Alt+цифры заняты вкладками терминала.
+document.addEventListener("keydown", (e) => {
+  if (!e.ctrlKey || !e.shiftKey || e.altKey || e.metaKey) return;
+  const n = Number(e.code.startsWith("Digit") ? e.code.slice(5) : "");
+  if (!n || n < 1 || n > 9) return;
+  const on = movable().filter((b) => !b.hidden);
+  const btn = n === 9 ? on.at(-1) : on[n - 1];
+  if (!btn?.dataset.view) return;
+  e.preventDefault();
+  show(btn.dataset.view);
+  // capture: иначе в терминале сочетание до нас не доходит — xterm останавливает событие
+}, true);
 
 registerProvider(() => views.filter((v) => isOn(v.id)).map((v) => ({ group: "Перейти", title: v.title, hint: v.id, run: () => show(v.id) })));
 window.addEventListener("send-to-ai", () => show("terminal"));

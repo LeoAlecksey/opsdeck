@@ -8,6 +8,7 @@ mod code;
 mod connectors;
 mod db;
 mod dbtunnel;
+mod sftp;
 mod diag;
 mod editor;
 mod embed;
@@ -15,6 +16,7 @@ mod i18n;
 mod ide;
 mod k8s;
 mod k8s_events;
+mod kb;
 mod keepass;
 mod mikrotik;
 mod notes;
@@ -33,6 +35,7 @@ mod transfer;
 mod updater;
 mod winbox_import;
 mod winshell;
+mod yc;
 
 /// The main window, from tauri.conf.json ("create": false there).
 fn main_window(app: &tauri::App) -> tauri::Result<()> {
@@ -51,7 +54,8 @@ fn main_window(app: &tauri::App) -> tauri::Result<()> {
 }
 
 pub fn run() {
-    #[cfg(target_os = "macos")]
+    // PATH сеанса рабочего стола беднее того, что в терминале: ярлык не читает ~/.bashrc
+    #[cfg(unix)]
     process::fix_macos_path();
 
     tauri::Builder::default()
@@ -129,6 +133,7 @@ pub fn run() {
             k8s::k8s_import,
             k8s::k8s_remove_source,
             k8s::k8s_shell_config,
+            k8s::k8s_save_text,
             k8s::k8s_list,
             k8s::k8s_names,
             k8s::k8s_get_yaml,
@@ -181,6 +186,7 @@ pub fn run() {
             code::code_read,
             code::code_write,
             code::code_create,
+            code::code_search,
             code::code_rename,
             code::code_copy,
             code::code_delete,
@@ -271,6 +277,35 @@ pub fn run() {
             alerts::alerts_sources,
             ssh::ssh_list,
             ssh::ssh_keys,
+            dbtunnel::web_share_tunnel,
+            dbtunnel::web_share_close,
+            dbtunnel::web_share_ready,
+            kb::kb_info,
+            kb::kb_open,
+            yc::yc_status,
+            yc::yc_set_path,
+            yc::yc_use_profile,
+            yc::yc_clouds,
+            yc::yc_folders,
+            yc::yc_instances,
+            yc::yc_instance_op,
+            yc::yc_networks,
+            yc::yc_subnets,
+            yc::yc_sec_groups,
+            yc::yc_addresses,
+            yc::yc_service_accounts,
+            yc::yc_bindings,
+            yc::yc_billing,
+            sftp::sftp_list,
+            sftp::sftp_get,
+            sftp::sftp_put,
+            sftp::sftp_mkdir,
+            sftp::sftp_rename,
+            sftp::sftp_delete,
+            sftp::sftp_between,
+            code::code_unpushed,
+            ssh::ssh_key_perms,
+            ssh::ssh_key_fix_perms,
             ssh::ssh_save,
             ssh::ssh_delete,
             ssh::ssh_connect,

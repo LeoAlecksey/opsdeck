@@ -16,6 +16,23 @@ test.describe("alerts", () => {
     await expect(page.locator(".al-card:visible")).toHaveCount(5);
   });
 
+  // скрытый раздел не перечитывал историю на каждый опрос — на большой истории интерфейс замирал
+  test("a hidden section does not reload on every poll, and bursts collapse into one reload", async ({ app, page }) => {
+    const loads = async () => (await app.calls("alerts_get")).filter((c) => (c.args as any).historyLimit).length;
+    const before = await loads();
+    await app.view("terminal");
+    for (let i = 0; i < 3; i++) await app.emit("alerts-changed", 5);
+    await page.waitForTimeout(500);
+    expect(await loads()).toBe(before);
+
+    // возврат в раздел — одна перезагрузка, даже если событий было несколько
+    await app.view("alerts");
+    await expect.poll(loads).toBe(before + 1);
+    for (let i = 0; i < 4; i++) await app.emit("alerts-changed", 6);
+    await page.waitForTimeout(600);
+    expect(await loads()).toBe(before + 2);
+  });
+
   test("a card shows the alert; the rule's details open by a button (from feedback)", async ({ page }) => {
     const c = card(page, "PodCrashLooping");
     await expect(c.locator(".al-name")).toBeVisible();
@@ -87,6 +104,17 @@ test.describe("ssh", () => {
     await expect.poll(async () => (await app.calls("pty_spawn")).map((c) => (c.args as any).req.program)).toContain("ssh");
   });
 
+  // привычка из Termius: двойной клик по строке подключает (из пожеланий)
+  test("a double click on the row connects, for an own profile and for a ~/.ssh/config host", async ({ app, page }) => {
+    await page.locator("tr[data-id=h3] .mt-name").dblclick();
+    expect((await app.called("ssh_connect")).args).toEqual({ id: "h3", alias: null });
+    await app.view("ssh");
+    const cfg = page.locator("tr[data-alias]").first();
+    const alias = await cfg.getAttribute("data-alias");
+    await cfg.locator(".mono").dblclick();
+    await expect.poll(async () => (await app.calls("ssh_connect")).at(-1)!.args).toEqual({ id: null, alias });
+  });
+
   test("filter", async ({ page }) => {
     await page.locator(".ssh-filter").fill("app-");
     await expect(page.locator("tr[data-id]:visible, tr[data-alias]:visible")).toHaveCount(2);
@@ -121,6 +149,23 @@ test.describe("ssh", () => {
     await dlg.locator("input").fill("db");
     await dlg.locator("button[value=ok]").click();
     await expect.poll(async () => (await app.calls("ssh_save")).at(-1)?.args).toMatchObject({ host: { id: "h5", group: "db" } });
+  });
+
+  // ssh молча отвергает ключ, доступный не только владельцу — на Windows это обычное дело (#86)
+  test("the dialog warns about key permissions ssh will not accept and fixes them", async ({ app, page }) => {
+    await page.locator("section.view:not([hidden]) [data-a=add]").click();
+    const dlg = page.locator("dialog.ssh-dialog");
+    const line = dlg.locator(".key-perms");
+    await expect(line).toBeHidden();
+    await dlg.locator("input[name=identity_file]").fill("C:\\my\\id_rsa");
+    await dlg.locator("input[name=identity_file]").blur();
+    await expect(line).toBeVisible();
+    await expect(line).toContainText("ssh откажется от этого ключа: доступ есть ещё у: BUILTIN\\Users");
+
+    await line.locator("[data-a=key-fix]").click();
+    expect((await app.called("ssh_key_fix_perms")).args).toEqual({ path: "C:\\my\\id_rsa" });
+    await expect(page.locator(".toast").last()).toContainText("Права на ключ исправлены");
+    await expect(line).toBeHidden();
   });
 
   test("new host dialog saves a profile", async ({ app, page }) => {

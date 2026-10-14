@@ -254,6 +254,7 @@ mod tests {
 
     #[test]
     fn notes_folder_without_keyring() {
+        let _guard = store::SETTINGS_TEST_LOCK.lock();
         // the notes path is read on timers and typing pauses: no keyring for it
         let dir =
             std::env::temp_dir().join(format!("opsdeck-vault-no-keyring-{}", std::process::id()));

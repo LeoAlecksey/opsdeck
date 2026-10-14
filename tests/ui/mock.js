@@ -2,6 +2,7 @@
 // documentation IP ranges (192.0.2.0/24, 198.51.100.0/24, 203.0.113.0/24).
 //   window.__calls            — every invoke: { cmd, args }
 //   window.__demoEmit(e, p)   — fire a backend event
+//   window.__demoListeners    — event -> [callback id] of the listeners still subscribed
 //   window.__DEMO_OVERRIDES   — { command: value | (args) => value } replaces an answer
 //   window.__DEMO_LANG        — "ru" (default) or "en": UI language and demo texts
 (() => {
@@ -20,7 +21,10 @@
   const handlers = {}; // event -> [callback id]
   const emit = (event, payload) => (handlers[event] || []).forEach((id) => { try { window[`_${id}`]?.({ event, payload, id }); } catch (e) { console.error(e); } });
   window.__demoEmit = emit;
+  window.__demoListeners = handlers;
   window.__calls = [];
+  const uploaded = {}; // папка на хосте -> что в неё загрузили через sftp_put
+  const fixedKeys = new Set(); // ключи, которым починили права через ssh_key_fix_perms
 
   // ---- Kubernetes ----
   const ctx = { file: "/home/demo/.config/opsdeck/kube/prod-eu.yaml", source: "opsdeck", label: "prod-eu", context: "prod-eu", cluster: "prod-eu", user: "admin", namespace: "shop", current: true, server: "https://k8s.example.com:6443" };
@@ -34,10 +38,11 @@
     : { kind: "ReplicaSet", name: `${app(name)}-${hash(name)}`, controller: true });
   const pod = (name, nsx, node, status = "Running", restarts = 0, ageMs = 3 * D, ready = true, img = "registry.example.com/shop/api:1.42.0") => ({
     metadata: { name, namespace: nsx, uid: `u${++uid}`, creationTimestamp: iso(ageMs), labels: { app: app(name), "pod-template-hash": hash(name) }, ownerReferences: [owner(name)] },
-    spec: { nodeName: node, containers: [{ name: "app", image: img }] },
+    spec: { nodeName: node, containers: [{ name: "app", image: img, resources: { requests: { cpu: "100m", memory: "256Mi" }, limits: { cpu: "500m", memory: "512Mi" } } }] },
     status: {
       phase: status === "CrashLoopBackOff" ? "Running" : status, podIP: `10.244.${(uid % 3) + 1}.${20 + uid}`,
-      containerStatuses: [{ name: "app", ready, restartCount: restarts, state: status === "CrashLoopBackOff" ? { waiting: { reason: "CrashLoopBackOff" } } : { running: {} } }],
+      containerStatuses: [{ name: "app", ready, restartCount: restarts, state: status === "CrashLoopBackOff" ? { waiting: { reason: "CrashLoopBackOff" } } : { running: { startedAt: iso(ageMs) } },
+        ...(restarts ? { lastState: { terminated: { reason: "OOMKilled", exitCode: 137, finishedAt: iso(M * 7) } } } : {}) }],
     },
   });
   const pods = [
@@ -74,6 +79,20 @@
         { path: "/old", backend: { service: { name: "catalog", port: { number: 80 } } } }] } }] } },
     ],
   };
+  const nodes = ["node-1", "node-2", "node-3"].map((name, i) => ({
+    metadata: { name, uid: `n${i}`, labels: i ? { "node-role.kubernetes.io/worker": "" } : { "node-role.kubernetes.io/control-plane": "" }, creationTimestamp: iso(90 * D) },
+    status: { allocatable: { cpu: "4", memory: "16Gi" }, capacity: { cpu: "4", memory: "16Gi" },
+      conditions: [{ type: "Ready", status: "True" }], nodeInfo: { kubeletVersion: "v1.31.2", osImage: "Ubuntu 24.04.1 LTS", architecture: "amd64" },
+      addresses: [{ type: "InternalIP", address: `10.0.1.${10 + i}` }] },
+    spec: { podCIDR: `10.244.${i}.0/24` },
+  }));
+  const logLines = [
+    "2026-10-13T08:21:03.112Z INFO  starting api v1.42.0",
+    "2026-10-13T08:21:03.880Z INFO  connected to postgres://db:5432/shop",
+    "2026-10-13T08:21:09.004Z WARN  slow query 1.8s: SELECT * FROM orders WHERE status = 'new'",
+    "2026-10-13T08:21:14.551Z ERROR upstream timeout: payments (3s)",
+    "2026-10-13T08:21:15.002Z INFO  retry 1/3",
+  ];
   const usage = pods.filter((p) => p.status.phase === "Running").map((p, i) => ({ namespace: "shop", name: p.metadata.name, cpu_m: [42, 38, 51, 3, 120, 12, 9, 7, 64][i % 9], mem: [180, 176, 190, 40, 260, 95, 92, 30, 410][i % 9] * 1048576 }));
 
   // ---- SSH, KeePass, alerts ----
@@ -160,6 +179,9 @@
     [proj + "/modules"]: [["k8s-cluster", 1], ["network", 1]],
     [proj + "/envs"]: [["prod", 1], ["stage", 1]],
     [proj + "/.gitlab"]: [["tests.yml", 0]],
+    // домашняя папка для панели «Файлы на хостах»
+    "~": [["projects", 1], ["Downloads", 1], ["notes.md", 0]],
+    "/home/demo/Downloads": [["dump.sql", 0]],
   };
   const gitlabCi = `include:
   - local: .gitlab/tests.yml
@@ -260,6 +282,14 @@ lint:
     app_version: "0.5.0", set_lang: null, log_ui: null, settings_get: settings, settings_detect: { keepass: [], obsidian: [], winbox: [] }, logs_path: "/home/demo/.local/share/opsdeck/logs",
     k8s_contexts: [ctx, ctx2], k8s_system_contexts: [], k8s_prefs_get: { hidden: [], readonly: [`${ctx.file}|prod-eu`] }, k8s_crds: [], k8s_metrics: usage, k8s_helm_releases: [], k8s_object_events: [],
     ssh_list: { hosts: sshHosts, config: sshConfig }, ssh_keys: ["~/.ssh/id_ed25519"], ssh_local_user: "demo",
+    // права на ключ: «плохой» путь — как у ключа вне профиля на Windows (#86), после починки он хороший
+    ssh_key_perms: (a) => (a.path || "").includes("my") && !fixedKeys.has(a.path)
+      ? { ok: false, detail: "доступ есть ещё у: BUILTIN\\Users", fix: "убрать из списка доступа" }
+      : { ok: true, detail: "права 600", fix: "" },
+    ssh_key_fix_perms: (a) => {
+      fixedKeys.add(a.path);
+      return { ok: true, detail: "доступ только у demo, администраторов и SYSTEM", fix: "" };
+    },
     ssh_connect: { program: "ssh", args: ["-J", "bastion", "deploy@198.51.100.11"], password_copied: false },
     kp_status: { unlocked: true, path: "/home/demo/Passwords.kdbx", keyfile: "", entries: kpEntries.length, lock_minutes: 0, keep_open: true }, kp_entries: kpEntries,
     alerts_get: { current: alerts, history: [...alerts, ...resolved], firing: alerts.length }, alerts_sources: ["Grafana", "Alertmanager", "log-analyzer"],
@@ -275,6 +305,54 @@ lint:
       { id: "c3", kind: "gitlab", name: "GitLab", group: "", url: "https://gitlab.example.com", username: "ops", auth: "keepass", keepass_entry: "k4" }],
     sys_local: { host: "workstation", remote: false, cpu: 14, cores: 16, load: [1.2, 1.4, 1.1], mem_used: 11.4 * GiB, mem_total: 32 * GiB, swap_used: 0, swap_total: 8 * GiB, disk_mount: "/", disk_used: 312 * GiB, disk_total: 954 * GiB, uptime: 4 * 86400 },
     ide_status: { clients: 1 }, editors_detect: [], shell_commands: ["kubectl", "helm", "terraform", "git", "ssh", "docker", "ls", "cd", "cat", "grep"], cmd_suggest: [],
+    // строки, которых ещё нет в удалённой ветке (git diff с @{upstream})
+    code_unpushed: (a) => (a.file === "main.tf" ? [[2, 3], [6, 6]] : []),
+    // ---- Файлы на хостах (#78): листинг зависит от пути, передачи просто считают объекты ----
+    sftp_list: (a) => {
+      const dirs = {
+        "/srv": [["releases", 1, "Oct 13 17:00", "drwxr-xr-x"], ["current", 0, "Oct 13 18:00", "lrwxrwxrwx", "releases/7"], ["dump 1.sql", 0, "Apr 4 2024", "-rw-r--r--"]],
+        "/srv/releases": [["7", 1, "Oct 13 17:00", "drwxr-xr-x"], ["6", 1, "Oct 12 17:00", "drwxr-xr-x"]],
+        "/var/log": [["syslog", 0, "Oct 13 18:10", "-rw-r-----"]],
+      };
+      const path = a.path && a.path.trim() ? a.path : "/srv";
+      const l = dirs[path] && [...dirs[path], ...(uploaded[path] || []).map((n) => [n, 0, "Oct 13 18:10", "-rw-r--r--"])];
+      if (!l) throw `Couldn't stat remote file: No such file or directory`;
+      const at = { "Oct 13 17:00": 1760367600, "Oct 13 18:00": 1760371200, "Apr 4 2024": 1712178000, "Oct 12 17:00": 1760281200, "Oct 13 18:10": 1760371800 };
+      return { path, entries: l.map(([name, dir, modified, perms, target]) => ({ name, dir: !!dir, link: !!target, size: dir ? 0 : 1048576, modified, modified_at: at[modified] || 0, perms, target: target || "" })) };
+    },
+    // ---- Yandex Cloud: демо-каталог (документационные адреса) ----
+    kb_info: { tools: ["kubectl", "helm", "docker", "systemd", "terraform", "git", "clickhouse", "kafka", "redis", "vault", "promql"], lines: 257, path: "/home/demo/.config/opsdeck/knowledge.md", own: false },
+    kb_open: null,
+    yc_status: { found: true, version: "yandex-cloud/0.142.0", profile: "default", profiles: ["default", "work"], cloud_id: "b1g1", folder_id: "b1gf1", error: "", bin: "/usr/local/bin/yc" },
+    yc_set_path: null,
+    yc_clouds: [{ id: "b1g1", name: "shop", parent: "org1", description: "" }],
+    yc_folders: [{ id: "b1gf1", name: "prod", parent: "b1g1", description: "боевой" }, { id: "b1gf2", name: "stage", parent: "b1g1", description: "" }],
+    yc_instances: [
+      { id: "fhm1", name: "app-1", status: "RUNNING", zone: "ru-central1-a", platform: "standard-v3", cores: 2, memory: 4294967296, core_fraction: 20, preemptible: true, internal_ip: "10.128.0.7", public_ip: "203.0.113.7", subnet_id: "e9b1" },
+      { id: "fhm2", name: "db-1", status: "STOPPED", zone: "ru-central1-b", platform: "standard-v2", cores: 4, memory: 8589934592, core_fraction: 100, preemptible: false, internal_ip: "10.128.1.3", public_ip: "", subnet_id: "e9b2" }],
+    yc_instance_op: null, yc_use_profile: null,
+    yc_networks: [{ id: "enp1", name: "default", parent: "b1gf1", description: "" }],
+    yc_subnets: [{ id: "e9b1", name: "app-a", network_id: "enp1", zone: "ru-central1-a", cidrs: ["10.128.0.0/24"], route_table_id: "" },
+      { id: "e9b2", name: "db-b", network_id: "enp1", zone: "ru-central1-b", cidrs: ["10.128.1.0/24"], route_table_id: "rt1" }],
+    yc_sec_groups: [{ id: "enp9", name: "web", network_id: "enp1", rules: [
+      { direction: "INGRESS", protocol: "tcp", ports: "443", source: "0.0.0.0/0", description: "https" },
+      { direction: "INGRESS", protocol: "tcp", ports: "30000-32767", source: "эта же группа", description: "" },
+      { direction: "EGRESS", protocol: "любой", ports: "любые", source: "0.0.0.0/0", description: "" }] }],
+    yc_addresses: [{ id: "e9a1", address: "203.0.113.7", external: true, reserved: true, used: true, zone: "ru-central1-a", name: "app" },
+      { id: "e9a2", address: "203.0.113.10", external: true, reserved: true, used: false, zone: "ru-central1-b", name: "" },
+      { id: "e9a3", address: "10.128.0.21", external: false, reserved: false, used: true, zone: "e9b1", name: "" }],
+    yc_service_accounts: [{ id: "aje1", name: "ci-deploy", parent: "b1gf1", description: "раскатка из GitLab" }],
+    yc_bindings: [{ role: "editor", kind: "serviceAccount", subject: "aje1" }, { role: "viewer", kind: "userAccount", subject: "ajeu2" }],
+    yc_billing: { supported: true, accounts: [{ id: "dn2", name: "основной", balance: "12 430.55", currency: "RUB", active: true }] },
+    web_share_ready: true,
+    sftp_get: (a) => a.remote.length,
+    // загруженное появляется в листинге папки: интерфейс потом его выделяет
+    sftp_put: (a) => {
+      for (const p of a.local) (uploaded[a.remoteDir] ||= []).push(String(p).split("/").pop());
+      return a.local.length;
+    },
+    sftp_between: (a) => a.paths.length,
+    sftp_mkdir: null, sftp_rename: null, sftp_delete: null,
     code_git_log: commits, code_git_branches: branches, fs_git_status: { root: proj, branch: "feature/monitoring", files: { "main.tf": "M", "helm/values-prod.yaml": "M", "outputs.tf": "A" } },
     update_check: { available: false, version: "0.5.0", notes: "", date: "" }, releases_list: [],
     ai_status: { engine: true, model: true, running: true, installing: false, size: 5.9e9, download_size: 0, dir: "/home/demo/.local/share/opsdeck/ai", supported: true, model_title: "Мощная — Qwen3.5 9B" },
@@ -290,7 +368,7 @@ lint:
   window.__TAURI_INTERNALS__ = {
     metadata: { currentWindow: { label: "main" }, currentWebview: { label: "main", windowLabel: "main" } },
     transformCallback: (cb) => { const id = ++cbid; window[`_${id}`] = cb; return id; },
-    unregisterCallback: () => {},
+    unregisterCallback: (id) => { delete window[`_${id}`]; },
     convertFileSrc: (p) => p,
     invoke: async (cmd, args = {}) => {
       if (cmd === "plugin:event|listen") { (handlers[args.event] ||= []).push(args.handler); return args.handler; }
@@ -324,11 +402,38 @@ lint:
       if (cmd === "k8s_names") return [];
       if (cmd === "k8s_list" && args.kind in diag) return diag[args.kind];
       if (cmd === "k8s_list" && ["statefulsets", "daemonsets", "jobs", "cronjobs", "persistentvolumeclaims", "crd:policy/v1/poddisruptionbudgets/PodDisruptionBudget/true"].includes(args.kind)) return [];
+      if (cmd === "k8s_list" && args.kind === "nodes") return nodes;
       if (cmd === "k8s_list") return args.kind === "namespaces" ? ["default", "kube-system", "monitoring", "shop"].map((n) => ({ metadata: { name: n, uid: n } })) : pods;
-      if (cmd === "k8s_watch_start") { setTimeout(() => emit(`k8s-watch-${args.id}`, { type: "reset", items: args.kind === "pods" ? pods : [] }), 50); return null; }
+      if (cmd === "k8s_watch_start") {
+        const items = args.kind === "pods" ? pods : args.kind === "nodes" ? nodes : diag[args.kind] ?? [];
+        setTimeout(() => emit(`k8s-watch-${args.id}`, { type: "reset", items }), 50);
+        return null;
+      }
+      if (cmd === "k8s_logs_start") { setTimeout(() => emit(`k8s-log-${args.id}`, logLines), 40); return null; }
+      if (cmd === "k8s_logs_stop") return null;
+      if (cmd === "k8s_get_yaml") return `apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: ${args.name}\n  namespace: ${args.namespace ?? "shop"}\ndata:\n  replicas: "3"\n`;
+      if (cmd === "k8s_save_text") return `/home/demo/${args.name}`;
       if (cmd === "db_tree") return dbTree(args.path);
       if (cmd === "note_read") return noteText[args.path] ?? `# ${args.path.split("/").pop().replace(/\.md$/, "")}\n\n${L("Заметка.", "A note.")}\n`;
-      if (cmd === "fs_list") { const l = files[args.path]; if (!l) throw "not a dir"; return l.map(([n, d]) => ({ name: n, dir: !!d, link: false, size: d ? 0 : 1200 })); }
+      if (cmd === "fs_list") {
+        const l = files[args.path];
+        if (!l) throw "not a dir";
+        // время изменения: у своей машины оно приходит числом (секунды эпохи)
+        return l.map(([n, d], i) => ({ name: n, dir: !!d, link: false, size: d ? 0 : 1200, modified: 1760000000 - i * 86400 }));
+      }
+      if (cmd === "code_search") {
+        const q = String(args.query).toLowerCase();
+        const corpus = { "main.tf": mainTf, ".gitlab-ci.yml": gitlabCi, "README.md": "# infra\n\nterraform и helm для shop\n" };
+        const hits = [];
+        for (const [file, text] of Object.entries(corpus)) {
+          text.split("\n").forEach((line, i) => {
+            const hit = args.regex ? new RegExp(args.query, args.caseSensitive ? "" : "i").test(line)
+              : args.caseSensitive ? line.includes(args.query) : line.toLowerCase().includes(q);
+            if (hit) hits.push({ path: file, line: i + 1, text: line.trim() });
+          });
+        }
+        return hits;
+      }
       if (cmd === "code_read") {
         const p = args.path;
         const text = p.endsWith("main.tf") ? mainTf : p.endsWith(".gitlab-ci.yml") ? gitlabCi : p.endsWith(".gitlab/tests.yml") ? gitlabTests : "# demo\n";
@@ -336,9 +441,15 @@ lint:
       }
       if (cmd === "code_tf_fmt") return { text: null, errors: [], tool: "terraform" };
       if (cmd === "code_git_diff" || cmd === "code_git_show") return "";
-      if (cmd in R) return R[cmd];
+      if (cmd in R) return typeof R[cmd] === "function" ? R[cmd](args) : R[cmd];
       return null;
     },
   };
-  window.__TAURI_EVENT_PLUGIN_INTERNALS__ = { unregisterListener: () => {} };
+  // like Tauri: unlisten drops the callback, so whatever its closure holds can be collected
+  window.__TAURI_EVENT_PLUGIN_INTERNALS__ = {
+    unregisterListener: (event, id) => {
+      handlers[event] = (handlers[event] || []).filter((h) => h !== id);
+      delete window[`_${id}`];
+    },
+  };
 })();

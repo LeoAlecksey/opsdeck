@@ -161,7 +161,95 @@ pub async fn code_delete(root: String, path: String) -> Result<(), String> {
     .map_err(err)?
 }
 
-// ---------- terraform fmt ----------
+// ---------- search across the project ----------
+
+#[derive(Serialize)]
+pub struct Hit {
+    /// path relative to the project root, with "/" on every OS
+    path: String,
+    line: usize,
+    text: String,
+}
+
+/// Folders that are build output or someone else's code: searching them finds thousands of matches nobody wants.
+const SKIP_DIRS: &[&str] = &[
+    ".git", "node_modules", "target", "dist", "build", ".terraform", "__pycache__", ".venv", "venv",
+    ".idea", ".vscode", ".next", ".cache", "vendor", "coverage",
+];
+const SEARCH_MAX_FILE: u64 = 2 * 1024 * 1024;
+const SEARCH_MAX_HITS: usize = 500;
+
+fn searchable(name: &str) -> bool {
+    !name.starts_with('.')
+        && ![".png", ".jpg", ".jpeg", ".gif", ".ico", ".pdf", ".zip", ".gz", ".xz", ".tar", ".7z", ".exe", ".dll", ".so", ".dylib",
+             ".woff", ".woff2", ".ttf", ".mp4", ".mp3", ".bin", ".jar", ".class", ".pyc", ".o", ".a", ".lock"]
+            .iter()
+            .any(|e| name.to_lowercase().ends_with(e))
+}
+
+/// Text search over the project's files. `query` is plain text (case-insensitive) unless `regex` is set.
+/// Binary files, build output and anything over 2 MB are skipped; at most 500 hits come back.
+#[tauri::command]
+pub async fn code_search(root: String, query: String, regex: bool, case_sensitive: bool) -> Result<Vec<Hit>, String> {
+    let root = expand(&root);
+    if !root.is_dir() {
+        return Err(format!("{}: не папка", root.display()));
+    }
+    if query.trim().is_empty() {
+        return Ok(Vec::new());
+    }
+    tauri::async_runtime::spawn_blocking(move || {
+        let re = if regex {
+            Some(regex::RegexBuilder::new(&query).case_insensitive(!case_sensitive).build().map_err(|e| format!("регулярное выражение: {e}"))?)
+        } else {
+            None
+        };
+        let needle = if case_sensitive { query.clone() } else { query.to_lowercase() };
+        let mut hits = Vec::new();
+        let mut stack = vec![root.clone()];
+        while let Some(dir) = stack.pop() {
+            let Ok(rd) = fs::read_dir(&dir) else { continue };
+            for e in rd.flatten() {
+                if hits.len() >= SEARCH_MAX_HITS {
+                    return Ok(hits);
+                }
+                let path = e.path();
+                let name = e.file_name().to_string_lossy().into_owned();
+                let is_dir = e.file_type().map(|t| t.is_dir()).unwrap_or(false);
+                if is_dir {
+                    if !SKIP_DIRS.contains(&name.as_str()) && !name.starts_with('.') {
+                        stack.push(path);
+                    }
+                    continue;
+                }
+                if !searchable(&name) || fs::metadata(&path).map(|m| m.len() > SEARCH_MAX_FILE).unwrap_or(true) {
+                    continue;
+                }
+                let Ok(text) = fs::read_to_string(&path) else { continue }; // not UTF-8: a binary we skip
+                let rel = path.strip_prefix(&root).unwrap_or(&path).to_string_lossy().replace('\\', "/");
+                for (i, line) in text.lines().enumerate() {
+                    let found = match &re {
+                        Some(re) => re.is_match(line),
+                        None => {
+                            if case_sensitive { line.contains(&needle) } else { line.to_lowercase().contains(&needle) }
+                        }
+                    };
+                    if found {
+                        hits.push(Hit { path: rel.clone(), line: i + 1, text: line.trim_end().chars().take(300).collect() });
+                        if hits.len() >= SEARCH_MAX_HITS {
+                            return Ok(hits);
+                        }
+                    }
+                }
+            }
+        }
+        Ok(hits)
+    })
+    .await
+    .map_err(err)?
+}
+
+// ---------- terraform fmt ----------// ---------- terraform fmt ----------
 
 #[derive(Serialize)]
 pub struct Diag {
@@ -363,6 +451,39 @@ pub async fn code_git_diff(root: String, file: String) -> Result<String, String>
     .map_err(err)?
 }
 
+/// Строки файла, которых ещё нет в удалённой ветке: номера из заголовков ханков `@@`.
+/// Ханк без строк справа (`+a,0`) — только удаление, его показывать нечего.
+fn hunk_lines(diff: &str) -> Vec<(u32, u32)> {
+    diff.lines()
+        .filter_map(|l| {
+            let rest = l.strip_prefix("@@ ")?;
+            let plus = rest.split_whitespace().find(|p| p.starts_with('+'))?;
+            let mut it = plus[1..].splitn(2, ',');
+            let start: u32 = it.next()?.parse().ok()?;
+            let count: u32 = it.next().map_or(Ok(1), str::parse).ok()?;
+            (count > 0).then(|| (start, start + count - 1))
+        })
+        .collect()
+}
+
+/// Строки файла, отличающиеся от его состояния в отслеживаемой ветке (origin/…): то, что ещё не
+/// отправлено. Нет upstream (ветка только локальная) — сравниваем с origin/HEAD, нет и его — пусто.
+#[tauri::command]
+pub async fn code_unpushed(root: String, file: String) -> Result<Vec<(u32, u32)>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let dir = expand(&root);
+        for base in ["@{upstream}", "origin/HEAD"] {
+            // -- <file>: только этот файл; --unified=0 — ханки ровно по изменённым строкам
+            if let Ok(d) = git(&dir, &["diff", "--no-color", "--unified=0", base, "--", &file]) {
+                return Ok(hunk_lines(&d));
+            }
+        }
+        Ok(Vec::new())
+    })
+    .await
+    .map_err(err)?
+}
+
 /// One commit: header, stat and patch (trimmed for huge commits).
 #[tauri::command]
 pub async fn code_git_show(root: String, hash: String) -> Result<String, String> {
@@ -524,6 +645,15 @@ pub async fn code_git_op(root: String, op: String, name: Option<String>, from: O
 
 #[cfg(test)]
 mod tests {
+    /// Подсветка строк, не отправленных в удалённую ветку: номера берутся из правой части `@@`.
+    #[test]
+    fn hunk_headers_give_the_changed_lines() {
+        let diff = "diff --git a/main.tf b/main.tf\n--- a/main.tf\n+++ b/main.tf\n@@ -3,0 +4,2 @@ resource \"x\" {\n+  tags = {}\n+  name = \"y\"\n@@ -20 +22 @@\n-old\n+new\n@@ -30,2 +33,0 @@\n-gone\n-gone\n";
+        assert_eq!(hunk_lines(diff), vec![(4, 5), (22, 22)], "удаление без новых строк не подсвечивается");
+        assert!(hunk_lines("").is_empty());
+        assert!(hunk_lines("@@ broken @@").is_empty());
+    }
+
     use super::*;
 
     #[test]

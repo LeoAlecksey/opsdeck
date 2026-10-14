@@ -10,6 +10,7 @@ import { ask, esc, toast } from "./ui";
 import { age, detailsHtml, jsonPath, statusClass } from "./k8s-details";
 import { decodeSecret } from "./secretval";
 import { findProblems, isSystemNs, issueForAi, runChecks, type Finding, type Issue, type Snapshot } from "./k8s-issues";
+import { bucketTitle, buckets, parseLogLine, type Bucket, type Level } from "./loghist";
 import { registerProvider } from "./palette";
 import { matches, parseSelector, type Term } from "./labelsel";
 import type { OpenTerminalDetail } from "./terminal";
@@ -21,14 +22,16 @@ type CtxInfo = {
 type Ctx = { file: string; context: string };
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Obj = any;
-type Col = { h: string; v: (o: Obj) => string | number; sort?: (o: Obj) => string | number; cls?: (o: Obj) => string; html?: (o: Obj) => string };
+/** `first: "desc"` — по такой колонке первый клик сортирует по убыванию (нагрузка, возраст):
+ *  раньше это делали минусом в `sort`, и стрелка в шапке показывала противоположное. */
+type Col = { h: string; v: (o: Obj) => string | number; sort?: (o: Obj) => string | number; cls?: (o: Obj) => string; html?: (o: Obj) => string; first?: "desc" };
 
 // ---------- column helpers ----------
 
 const ts = (s?: string) => (s ? Date.parse(s) : 0);
 const name: Col = { h: "Имя", v: (o) => o.metadata.name };
 const ns: Col = { h: "Namespace", v: (o) => o.metadata.namespace ?? "" };
-const ageCol: Col = { h: "Возраст", v: (o) => age(o.metadata.creationTimestamp), sort: (o) => -ts(o.metadata.creationTimestamp) };
+const ageCol: Col = { h: "Возраст", v: (o) => age(o.metadata.creationTimestamp), sort: (o) => ts(o.metadata.creationTimestamp), first: "desc" };
 const keys = (o: Obj) => Object.keys(o.data ?? {}).length + Object.keys(o.binaryData ?? {}).length;
 
 function podStatus(p: Obj): string {
@@ -222,7 +225,7 @@ const KINDS: KindDef[] = [
 
 // ---------- log view: buffer + text/pod filter over an xterm ----------
 
-type LogLine = { pod?: string; text: string };
+type LogLine = { pod?: string; text: string; time?: number; level?: Level };
 const LOG_CAP = 50000;
 const stripAnsi = (s: string) => s.replace(/\x1b\[[0-9;]*m/g, "");
 
@@ -231,17 +234,21 @@ class LogView {
   private text = "";
   private pod = "";
   constructor(readonly term: Terminal) {}
+  /** Окно времени: клик по столбику гистограммы оставляет только его строки (#73). */
+  private range: [number, number] | null = null;
   private match = (l: LogLine) =>
-    (!this.pod || l.pod === this.pod) && (!this.text || stripAnsi(l.text).toLowerCase().includes(this.text));
+    (!this.pod || l.pod === this.pod) && (!this.text || stripAnsi(l.text).toLowerCase().includes(this.text))
+    && (!this.range || (l.time !== undefined && l.time >= this.range[0] && l.time <= this.range[1]));
   add(ls: LogLine[]) {
     this.lines.push(...ls);
     if (this.lines.length > LOG_CAP) this.lines.splice(0, this.lines.length - LOG_CAP);
     const shown = ls.filter(this.match);
     if (shown.length) this.term.write(shown.map((l) => l.text).join("\n") + "\n");
   }
-  setFilter(text: string, pod = this.pod) {
+  setFilter(text: string, pod = this.pod, range: [number, number] | null = this.range) {
     this.text = text.trim().toLowerCase();
     this.pod = pod;
+    this.range = range;
     this.term.reset();
     const shown = this.lines.filter(this.match);
     // write in chunks so a big buffer doesn't freeze the UI
@@ -249,13 +256,82 @@ class LogView {
   }
   clear() {
     this.lines = [];
+    this.range = null;
     this.term.reset();
+  }
+  /** Строки, попавшие в текущий фильтр — из них строится гистограмма. */
+  shown(): LogLine[] {
+    return this.lines.filter(this.match);
+  }
+  /** Все строки без фильтра по времени: гистограмма показывает весь буфер, даже когда выбрано окно. */
+  timeline(): LogLine[] {
+    const keep = this.range;
+    this.range = null;
+    const all = this.lines.filter(this.match);
+    this.range = keep;
+    return all;
+  }
+  get window(): [number, number] | null {
+    return this.range;
+  }
+  /** Every visible line, without colors — for saving to a file. */
+  all() {
+    return this.lines.filter(this.match).map((l) => stripAnsi(l.text)).join("\n");
   }
   /** Selection, or the last `n` visible lines without colors. */
   tail(n = 150) {
     const sel = this.term.getSelection().trim();
     return sel || this.lines.filter(this.match).slice(-n).map((l) => stripAnsi(l.text)).join("\n");
   }
+}
+
+/** Kinds whose pods are worth listing in a tab. */
+const POD_OWNERS = ["deployments", "statefulsets", "daemonsets", "replicasets", "jobs", "cronjobs"];
+
+/** Does `pod` belong to `owner`, directly or through a ReplicaSet / Job? */
+function ownerChain(pod: Obj, owner: Obj): boolean {
+  const refs: Obj[] = pod?.metadata?.ownerReferences ?? [];
+  const name: string = owner?.metadata?.name ?? "";
+  const kind: string = owner?.kind ?? "";
+  const uid: string | undefined = owner?.metadata?.uid;
+  if (uid && refs.some((r) => r.uid === uid)) return true;
+  // a Deployment owns pods through a ReplicaSet named <deployment>-<hash>, a CronJob through a Job
+  const hash = pod?.metadata?.labels?.["pod-template-hash"];
+  return refs.some((r) => {
+    if (r.kind === "ReplicaSet") return hash ? r.name === `${name}-${hash}` : r.name.startsWith(`${name}-`);
+    if (r.kind === "Job") return r.name === name || /-\d{8,}$/.test(r.name) && r.name.replace(/-\d{8,}$/, "") === name;
+    return r.name === name && (!kind || r.kind.toLowerCase() + "s" === kind.toLowerCase() + "s");
+  });
+}
+
+/** Sum of requests and limits over a pod's containers (init containers do not add up at runtime). */
+function podAsk(o: Obj): { cpuReq: number; cpuLim: number; memReq: number; memLim: number } {
+  const cs: Obj[] = o?.spec?.containers ?? [];
+  const add = (where: "requests" | "limits", key: "cpu" | "memory") =>
+    cs.reduce((n, c) => {
+      const v = c.resources?.[where]?.[key];
+      return n + (key === "cpu" ? cpuMilli(v) : memBytes(v));
+    }, 0);
+  return { cpuReq: add("requests", "cpu"), cpuLim: add("limits", "cpu"), memReq: add("requests", "memory"), memLim: add("limits", "memory") };
+}
+
+/** "120m / 500m" — what is used and what was requested; the limit goes into the tooltip. */
+function askedHtml(used: number | undefined, req: number, lim: number, fmt: (n: number) => string): string {
+  const u = used === undefined ? "" : fmt(used);
+  if (!req && !lim) return esc(u);
+  const share = (base: number) => (base ? ` (${Math.round(((used ?? 0) / base) * 100)}%)` : "");
+  const title = [req ? `${t("запрос")} ${fmt(req)}${used !== undefined ? share(req) : ""}` : "", lim ? `${t("лимит")} ${fmt(lim)}${used !== undefined ? share(lim) : ""}` : ""]
+    .filter(Boolean).join(", ");
+  return `<span title="${esc(title)}">${esc(u || "—")}<span class="muted"> / ${esc(req ? fmt(req) : "—")}</span></span>`;
+}
+
+/** Red when over the limit, amber from 85% of it (or of the request when there is no limit). */
+function askedCls(used: number | undefined, req: number, lim: number): string {
+  if (used === undefined) return "";
+  const base = lim || req;
+  if (!base) return "";
+  const p = used / base;
+  return p >= 1 ? "bad" : p >= 0.85 ? "warn" : "";
 }
 
 const POD_COLORS = [36, 33, 35, 32, 34, 91, 96, 93];
@@ -296,6 +372,7 @@ export function mountK8s(root: HTMLElement) {
         <button data-act="shell" title="Терминал с KUBECONFIG этого контекста (kubectl, helm, k9s)">${icon("k8s", 16)} Терминал</button>
         ${helpBtn("k8s")}
       </div>
+      <div class="ns-tabs" title="Namespace, с которыми работаете: клик — переключиться, × — убрать"></div>
       <div class="k8s-err err" hidden></div>
       <div class="hist-bar" hidden>
         <span class="hist-state"></span>
@@ -304,6 +381,11 @@ export function mountK8s(root: HTMLElement) {
         <span class="hist-top"></span>
         <span class="spacer"></span>
         <button class="ghost" data-act="hist-clear" title="Забыть записанные события этого кластера">Очистить</button>
+      </div>
+      <div class="pick-bar" hidden>
+        <span class="pick-n"></span>
+        <button class="ghost danger" data-act="pick-del">Удалить выбранные</button>
+        <button class="ghost" data-act="pick-clear">Снять выделение</button>
       </div>
       <div class="diag-bar" hidden>
         <span class="diag-sum"></span>
@@ -344,11 +426,21 @@ export function mountK8s(root: HTMLElement) {
     </dialog>`;
 
   const $ = <T extends HTMLElement = HTMLElement>(s: string) => root.querySelector<T>(s)!;
-  const ctxList = $(".ctx-list"), kindList = $(".kind-list"), nsSel = $<HTMLSelectElement>(".ns-select");
+  const ctxList = $(".ctx-list"), kindList = $(".kind-list"), nsSel = $<HTMLSelectElement>(".ns-select"), nsTabsEl = $(".ns-tabs");
   const lfilterIn = $<HTMLInputElement>(".lfilter");
   const histBar = $(".hist-bar");
   const diagBar = $(".diag-bar"), diagSys = $<HTMLInputElement>(".diag-sys");
+  const pickBar = $(".pick-bar");
+  /** Rows ticked for a bulk action (#71), by keyOf; cleared when the kind, context or namespace changes. */
+  const picked = new Set<string>();
   const filterIn = $<HTMLInputElement>(".filter"), errBox = $(".k8s-err"), thead = $("thead"), tbody = $("tbody");
+  /** Когда таблицу последний раз удалось обновить: об этом пишем, если связь прервалась. */
+  let lastOk = 0;
+  const seenAt = () => (lastOk ? ` — ${t("данные на")} ${new Date(lastOk).toLocaleTimeString(locale())}` : "");
+  function setStale(on: boolean) {
+    if (!on) lastOk = Date.now();
+    tbody.closest(".table-wrap")?.classList.toggle("stale", on);
+  }
   const drawer = $(".drawer"), drawerBody = $(".drawer-body"), countEl = $(".count"), autoCb = $<HTMLInputElement>(".auto-cb");
 
   let contexts: CtxInfo[] = [];
@@ -540,7 +632,59 @@ export function mountK8s(root: HTMLElement) {
     if (saved && !names.includes(saved) && saved !== "") nsSel.add(new Option(saved, saved));
     nsSel.add(new Option("Другой…", "__other"));
     nsSel.value = saved ?? (names.length > 1 ? "" : ctx!.namespace);
+    loadNsTabs();
+    pinNs(nsSel.value);
   }
+
+  // ----- namespace: плашки тех, с которыми работают (#79) -----
+  const MAX_NS_TABS = 8;
+  let nsTabs: string[] = [];
+  const nsTabsKey = () => `nstabs:${ctx!.file}|${ctx!.context}`;
+
+  function loadNsTabs() {
+    try { nsTabs = JSON.parse(store.get(nsTabsKey()) ?? "[]"); } catch { nsTabs = []; }
+    if (!Array.isArray(nsTabs)) nsTabs = [];
+    drawNsTabs();
+  }
+  function drawNsTabs() {
+    nsTabsEl.innerHTML = nsTabs
+      .map((n) => `<span class="ns-tab${n === nsSel.value ? " active" : ""}" data-ns="${esc(n)}">${esc(n)}<button class="x" data-ns-close="${esc(n)}" title="Убрать">×</button></span>`)
+      .join("");
+  }
+  /** Выбранный namespace становится плашкой: между ними потом переключаются одним кликом. */
+  function pinNs(n: string) {
+    if (!n || !ctx) return;
+    if (!nsTabs.includes(n)) {
+      nsTabs.push(n);
+      if (nsTabs.length > MAX_NS_TABS) nsTabs.shift();
+      store.set(nsTabsKey(), JSON.stringify(nsTabs));
+    }
+    drawNsTabs();
+  }
+
+  function applyNs() {
+    store.set(`ns:${ctx!.file}|${ctx!.context}`, nsSel.value);
+    pinNs(nsSel.value);
+    drawNsTabs();
+    closeDrawer();
+    startWatch();
+    loadMetrics();
+  }
+
+  nsTabsEl.addEventListener("click", (e) => {
+    const close = (e.target as HTMLElement).closest<HTMLElement>("[data-ns-close]")?.dataset.nsClose;
+    if (close !== undefined) {
+      nsTabs = nsTabs.filter((x) => x !== close);
+      store.set(nsTabsKey(), JSON.stringify(nsTabs));
+      drawNsTabs();
+      return;
+    }
+    const n = (e.target as HTMLElement).closest<HTMLElement>("[data-ns]")?.dataset.ns;
+    if (n === undefined || n === nsSel.value) return;
+    if (![...nsSel.options].some((o) => o.value === n)) nsSel.add(new Option(n, n), nsSel.options.length - 1);
+    nsSel.value = n;
+    applyNs();
+  });
 
   nsSel.onchange = async () => {
     if (nsSel.value === "__other") {
@@ -548,10 +692,7 @@ export function mountK8s(root: HTMLElement) {
       if (v) { if (![...nsSel.options].some((o) => o.value === v)) nsSel.add(new Option(v, v), nsSel.options.length - 1); nsSel.value = v; }
       else nsSel.value = "";
     }
-    store.set(`ns:${ctx!.file}|${ctx!.context}`, nsSel.value);
-    closeDrawer();
-    startWatch();
-    loadMetrics();
+    applyNs();
   };
 
   // ----- kinds -----
@@ -591,6 +732,7 @@ export function mountK8s(root: HTMLElement) {
       }
       const b = document.createElement("button");
       b.className = "kind-item";
+      b.dataset.kind = k.id;
       b.classList.toggle("active", k === kind);
       b.textContent = k.label;
       b.onclick = () => selectKind(k);
@@ -668,17 +810,20 @@ export function mountK8s(root: HTMLElement) {
       const m = e.payload;
       if (m.type === "error") {
         errBox.hidden = false;
+        // пока связи нет, в таблице висит прежний снимок: без этого правку в кластере легко принять
+        // за откат — на самом деле просто не обновилось (из отчёта)
+        setStale(true);
         if (m.retrying) {
           errBox.classList.add("reconnecting");
           errBox.classList.remove("err");
           root.classList.add("loading");
-          errBox.innerHTML = `<span>Нестабильное соединение с кластером, повторное подключение… <span class="muted">(${esc(m.message ?? "")})</span></span> <button class="ghost" data-act="watch-retry" style="margin-left:8px;padding:2px 8px;font-size:11.5px">Повторить</button>`;
+          errBox.innerHTML = `<span>${esc(t("Связь с кластером прервалась, переподключаемся"))}${esc(seenAt())} <span class="muted">(${esc(m.message ?? "")})</span></span> <button class="ghost" data-act="watch-retry" style="margin-left:8px;padding:2px 8px;font-size:11.5px">Повторить</button>`;
           const btn = errBox.querySelector<HTMLButtonElement>("[data-act=watch-retry]");
           if (btn) btn.onclick = () => startWatch();
         } else {
           errBox.classList.remove("reconnecting");
           errBox.classList.add("err");
-          errBox.textContent = m.message ?? "ошибка watch";
+          errBox.textContent = `${m.message ?? t("ошибка watch")}${seenAt()}`;
           root.classList.remove("loading");
           render();
         }
@@ -688,6 +833,7 @@ export function mountK8s(root: HTMLElement) {
       errBox.classList.remove("reconnecting");
       errBox.classList.add("err");
       errBox.textContent = "";
+      setStale(false);
       if (m.type === "reset") { items = m.items ?? []; root.classList.remove("loading"); }
       if (m.type === "apply") {
         const byUid = new Map(items.map((o) => [o.metadata.uid, o]));
@@ -717,11 +863,14 @@ export function mountK8s(root: HTMLElement) {
       if (seq !== loadSeq) return;
       items = list;
       errBox.hidden = true;
+      setStale(false);
       render();
     } catch (e) {
       if (seq !== loadSeq) return;
       errBox.hidden = false;
-      errBox.textContent = String(e);
+      // список не обновился — на экране прежний снимок, и это должно быть видно
+      errBox.textContent = `${e}${seenAt()}`;
+      setStale(true);
       render();
     } finally {
       loading = false;
@@ -839,10 +988,18 @@ export function mountK8s(root: HTMLElement) {
     if (!metricsOk || !ctx || metricsFor !== `${ctxKey(ctx)}|${kind.id}|${currentNs()}`) return [];
     const u = (o: Obj) => usage.get(`${o.metadata.namespace ?? ""}/${o.metadata.name}`);
     if (kind.id === "pods") return [
-      { h: "CPU", v: (o) => (u(o) ? `${Math.round(u(o)!.cpu_m)}m` : ""), sort: (o) => -(u(o)?.cpu_m ?? -1) },
-      { h: "RAM", v: (o) => (u(o) ? fmtMem(u(o)!.mem) : ""), sort: (o) => -(u(o)?.mem ?? -1) },
+      // usage next to what the pod asked for: a number alone says nothing about whether it fits (#79)
+      { h: "CPU", v: (o) => (u(o) ? `${Math.round(u(o)!.cpu_m)}m` : ""), sort: (o) => u(o)?.cpu_m ?? -1, first: "desc",
+        html: (o) => askedHtml(u(o)?.cpu_m, podAsk(o).cpuReq, podAsk(o).cpuLim, (x) => `${Math.round(x)}m`),
+        cls: (o) => askedCls(u(o)?.cpu_m, podAsk(o).cpuReq, podAsk(o).cpuLim) },
+      { h: "RAM", v: (o) => (u(o) ? fmtMem(u(o)!.mem) : ""), sort: (o) => u(o)?.mem ?? -1, first: "desc",
+        html: (o) => askedHtml(u(o)?.mem, podAsk(o).memReq, podAsk(o).memLim, fmtMem),
+        cls: (o) => askedCls(u(o)?.mem, podAsk(o).memReq, podAsk(o).memLim) },
     ];
     const pct = (used: number, total: number) => (total ? ` · ${Math.round((used / total) * 100)}%` : "");
+    // Сортировка узлов — по доле занятого, а не по гигабайтам: колонка и красится по доле, и
+    // «больше всего занято» для узла значит «ближе к пределу», а не «больше байт» (из отчёта).
+    const share = (used: number | undefined, total: number) => (used === undefined ? -1 : total ? used / total : 0);
     const hot = (used: number, total: number) => (total && used / total > 0.85 ? "bad" : total && used / total > 0.7 ? "warn" : "");
     // live view of a node: a bar of the share used and a sparkline of the last samples
     const live = (o: Obj, text: string, used: number, total: number, series: number[]) => {
@@ -858,9 +1015,9 @@ export function mountK8s(root: HTMLElement) {
     const cpuText = (o: Obj) => (u(o) ? `${Math.round(u(o)!.cpu_m)}m${pct(u(o)!.cpu_m, cpuT(o))}` : "");
     const memText = (o: Obj) => (u(o) ? `${fmtMem(u(o)!.mem)}${pct(u(o)!.mem, memT(o))}` : "");
     return [
-      { h: "CPU", v: cpuText, sort: (o) => -(u(o)?.cpu_m ?? -1), cls: (o) => (u(o) ? hot(u(o)!.cpu_m, cpuT(o)) : ""),
+      { h: "CPU", v: cpuText, sort: (o) => share(u(o)?.cpu_m, cpuT(o)), first: "desc", cls: (o) => (u(o) ? hot(u(o)!.cpu_m, cpuT(o)) : ""),
         html: (o) => (u(o) ? live(o, cpuText(o), u(o)!.cpu_m, cpuT(o), trend.get(o.metadata.name)?.cpu ?? []) : "") },
-      { h: "RAM", v: memText, sort: (o) => -(u(o)?.mem ?? -1), cls: (o) => (u(o) ? hot(u(o)!.mem, memT(o)) : ""),
+      { h: "RAM", v: memText, sort: (o) => share(u(o)?.mem, memT(o)), first: "desc", cls: (o) => (u(o) ? hot(u(o)!.mem, memT(o)) : ""),
         html: (o) => (u(o) ? live(o, memText(o), u(o)!.mem, memT(o), trend.get(o.metadata.name)?.mem ?? []) : "") },
     ];
   };
@@ -881,15 +1038,22 @@ export function mountK8s(root: HTMLElement) {
     ).join("");
   }
 
+  /** Колонки таблицы: свои у вида плюс метрики перед «Возрастом». */
+  function columns(): Col[] {
+    const base = kind.namespaced && currentNs() ? kind.cols.filter((c) => c !== ns) : kind.cols;
+    const mc = metricCols();
+    return mc.length ? [...base.slice(0, -1), ...mc, base[base.length - 1]] : base;
+  }
+
   function render() {
     histBar.hidden = kind.source !== "history";
     diagBar.hidden = kind.source !== "issues" && kind.source !== "checks";
-    const base = kind.namespaced && currentNs() ? kind.cols.filter((c) => c !== ns) : kind.cols;
-    // metrics go right before the age column
-    const mc = metricCols();
-    const cols = mc.length ? [...base.slice(0, -1), ...mc, base[base.length - 1]] : base;
+    const cols = columns();
     if (sortCol >= cols.length) sortCol = 0;
-    thead.innerHTML = `<tr>${cols.map((c, i) => `<th data-i="${i}" class="${i === sortCol ? (sortDir > 0 ? "asc" : "desc") : ""}">${esc(c.h)}</th>`).join("")}</tr>`;
+    // deleting, logs and shell make sense for real objects only, not for diagnostics, Helm or recorded events
+    const pickable = !kind.source && !isReadonly();
+    const thPick = pickable ? `<th class="pick"><input type="checkbox" class="pick-all" title="${esc(t("Выбрать показанные"))}" /></th>` : "";
+    thead.innerHTML = `<tr>${thPick}${cols.map((c, i) => `<th data-i="${i}" class="${i === sortCol ? (sortDir > 0 ? "asc" : "desc") : ""}">${esc(c.h)}</th>`).join("")}${pickable ? `<th class="row-acts-h"></th>` : ""}</tr>`;
     if (items.length === 0 && root.classList.contains("loading")) {
       tbody.innerHTML = skeletonRows(cols);
       countEl.textContent = "";
@@ -919,26 +1083,175 @@ export function mountK8s(root: HTMLElement) {
     });
     tbody.innerHTML = rows.map(({ o, cells }) => {
       const k = keyOf(o);
-      return `<tr data-key="${esc(k)}" class="${k === selected ? "sel" : ""}">${cells.map((v, i) => `<td class="${cols[i].cls?.(o) ?? ""}">${cols[i].html ? cols[i].html!(o) : esc(v)}</td>`).join("")}</tr>`;
+      const tick = pickable ? `<td class="pick"><input type="checkbox" class="pick-one" ${picked.has(k) ? "checked" : ""} /></td>` : "";
+      return `<tr data-key="${esc(k)}" class="${k === selected ? "sel" : ""} ${picked.has(k) ? "picked" : ""}">${tick}${
+        cells.map((v, i) => `<td class="${cols[i].cls?.(o) ?? ""}">${cols[i].html ? cols[i].html!(o) : esc(v)}</td>`).join("")}${pickable ? `<td class="row-acts">${rowActs(o)}</td>` : ""}</tr>`;
     }).join("");
+    // ticks only apply to what is on screen: a filtered-out row keeps its tick but is not shown
+    const shownKeys = new Set(rows.map((r) => keyOf(r.o)));
+    if (cursor) tbody.querySelector(`tr[data-key="${CSS.escape(cursor)}"]`)?.classList.add("cur");
+    const all = tbody.closest("table")!.querySelector<HTMLInputElement>(".pick-all");
+    if (all) all.checked = rows.length > 0 && rows.every((r) => picked.has(keyOf(r.o)));
+    for (const k of [...picked]) if (!items.some((o) => keyOf(o) === k)) picked.delete(k);
+    void shownKeys;
+    syncPickBar();
     countEl.textContent = ctx ? `${rows.length}${rows.length !== items.length ? ` из ${items.length}` : ""}` : "";
     openPending();
     syncDetails();
   }
 
+  /** Clicks a tab of the open drawer by its label. */
+  function openDrawerTab(label: string) {
+    const b = [...drawer.querySelectorAll<HTMLElement>(".drawer-tabs .dtab")].find((x) => x.textContent === t(label));
+    b?.click();
+  }
+
+  /** Icons in a row: copy the name, logs, shell, delete (#74). */
+  function rowActs(o: Obj): string {
+    const b = (act: string, title: string, ic: string) => `<button class="icon" data-ra="${act}" title="${esc(t(title))}">${ic}</button>`;
+    const parts = [b("copy", "Скопировать имя", icon("copy", 14))];
+    if (kind.id === "pods") parts.push(b("logs", "Логи", icon("notes", 14)), b("shell", "Shell", icon("terminal", 14)));
+    else if (["deployments", "statefulsets", "daemonsets", "replicasets", "jobs"].includes(kind.id)) parts.push(b("logs", "Логи", icon("notes", 14)));
+    else if (kind.id === "nodes") parts.push(b("shell", "Shell", icon("terminal", 14)));
+    parts.push(b("del", "Удалить", icon("trash", 14)));
+    return parts.join("");
+  }
+
+  function syncPickBar() {
+    pickBar.hidden = picked.size === 0;
+    pickBar.querySelector(".pick-n")!.textContent = `${t("Выбрано")}: ${picked.size}`;
+  }
+
+  /** Deletes everything ticked, one by one, and says what did not go through (#71). */
+  async function deletePicked() {
+    const objs = items.filter((o) => picked.has(keyOf(o)));
+    if (!objs.length) return;
+    const names = objs.slice(0, 5).map((o) => o.metadata.name).join(", ");
+    const what = `${kind.label} (${objs.length}): ${names}${objs.length > 5 ? `, …` : ""}`;
+    const v = await ask(t("Удалить выбранные"),
+      `${what}\n${t("в контексте")} ${ctx!.context}. ${t("Для подтверждения введите количество.")}`,
+      { input: "", placeholder: String(objs.length), ok: t("Удалить"), danger: true });
+    if (v === null) return;
+    if (v.trim() !== String(objs.length)) return toast(t("Число не совпало — ничего не удалено"), "err");
+    let ok = 0;
+    const errors: string[] = [];
+    for (const o of objs) {
+      try {
+        await invoke("k8s_delete", { ctx: ref(), kind: kind.id, namespace: o.metadata.namespace ?? null, name: o.metadata.name, force: false });
+        ok++;
+        picked.delete(keyOf(o));
+      } catch (e) { errors.push(`${o.metadata.name}: ${e}`); }
+    }
+    toast(errors.length ? `${t("Удалено")}: ${ok}, ${t("с ошибкой")}: ${errors.length} — ${errors[0]}` : `${t("Удалено")}: ${ok}`, errors.length ? "err" : undefined);
+    syncPickBar();
+    refresh();
+  }
+
+  pickBar.addEventListener("click", (e) => {
+    const act = (e.target as HTMLElement).closest<HTMLElement>("[data-act]")?.dataset.act;
+    if (act === "pick-del") deletePicked();
+    if (act === "pick-clear") { picked.clear(); render(); }
+  });
+
   thead.onclick = (e) => {
-    const th = (e.target as HTMLElement).closest("th");
-    if (!th) return;
+    const el = e.target as HTMLElement;
+    if (el.classList.contains("pick-all")) {
+      // the header tick covers what is on screen now, not everything loaded
+      const keys = [...tbody.querySelectorAll<HTMLElement>("tr[data-key]")].map((r) => r.dataset.key!);
+      if ((el as HTMLInputElement).checked) keys.forEach((k) => picked.add(k)); else keys.forEach((k) => picked.delete(k));
+      render();
+      return;
+    }
+    const th = el.closest("th");
+    if (!th || th.classList.contains("pick")) return;
     const i = Number(th.dataset.i);
-    sortDir = i === sortCol ? -sortDir : 1;
+    sortDir = i === sortCol ? -sortDir : (columns()[i]?.first === "desc" ? -1 : 1);
     sortCol = i;
     render();
   };
   tbody.onclick = (e) => {
-    const tr = (e.target as HTMLElement).closest("tr");
+    const el = e.target as HTMLElement;
+    const tr = el.closest("tr");
     const o = tr && items.find((x) => keyOf(x) === tr.dataset.key);
-    if (o) openDrawer(o);
+    if (!o) return;
+    if (el.classList.contains("pick-one")) {
+      const k = keyOf(o);
+      if ((el as HTMLInputElement).checked) picked.add(k); else picked.delete(k);
+      tr!.classList.toggle("picked", picked.has(k));
+      syncPickBar();
+      return;
+    }
+    const ra = el.closest<HTMLElement>("[data-ra]")?.dataset.ra;
+    if (ra) {
+      e.stopPropagation();
+      if (ra === "copy") { navigator.clipboard.writeText(o.metadata.name).catch(() => {}); toast(`${t("Скопировано")}: ${o.metadata.name}`); }
+      if (ra === "logs") { openDrawer(o); openDrawerTab("Логи"); }
+      if (ra === "shell") { if (kind.id === "nodes") nodeShell(o); else execShell(o); }
+      if (ra === "del") del(o);
+      return;
+    }
+    openDrawer(o);
   };
+  // ----- клавиатура: без мыши (#79) -----
+  /** Строка под курсором: ↑/↓ двигают, Enter открывает, Пробел отмечает. */
+  let cursor: string | null = null;
+  const rowKeys = () => [...tbody.querySelectorAll<HTMLElement>("tr[data-key]")].map((r) => r.dataset.key!);
+
+  function setCursor(key: string | null, scroll = true) {
+    cursor = key;
+    tbody.querySelectorAll("tr").forEach((r) => r.classList.toggle("cur", !!key && r.dataset.key === key));
+    if (scroll && key) tbody.querySelector(`tr[data-key="${CSS.escape(key)}"]`)?.scrollIntoView({ block: "nearest" });
+  }
+  function moveCursor(delta: number) {
+    const keys = rowKeys();
+    if (!keys.length) return;
+    const at = keys.indexOf(cursor ?? selected ?? "");
+    setCursor(keys[Math.min(keys.length - 1, Math.max(0, at < 0 ? (delta > 0 ? 0 : keys.length - 1) : at + delta))]);
+  }
+  const atCursor = () => items.find((x) => keyOf(x) === cursor);
+
+  document.addEventListener("keydown", (e) => {
+    if (root.hidden || e.ctrlKey || e.metaKey) return;
+    const kinds = () => [...kindList.querySelectorAll<HTMLElement>(".kind-item")];
+    // Alt+↑/↓ — предыдущий или следующий раздел слева; работает и когда курсор в поле фильтра
+    if (e.altKey && (e.key === "ArrowUp" || e.key === "ArrowDown")) {
+      const all = kinds();
+      const at = all.findIndex((b) => b.classList.contains("active"));
+      const next = all[Math.min(all.length - 1, Math.max(0, (at < 0 ? 0 : at) + (e.key === "ArrowDown" ? 1 : -1)))];
+      if (!next) return;
+      e.preventDefault();
+      next.click();
+      next.scrollIntoView({ block: "nearest" });
+      return;
+    }
+    if (e.altKey || e.isComposing) return;
+    // в полях ввода и в терминале стрелки и пробел принадлежат им
+    if ((e.target as HTMLElement | null)?.closest("input, textarea, select, .xterm, .cm-editor, dialog")) return;
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      moveCursor(e.key === "ArrowDown" ? 1 : -1);
+      return;
+    }
+    if (e.key === "Enter") {
+      const o = atCursor();
+      if (!o) return;
+      e.preventDefault();
+      openDrawer(o);
+      return;
+    }
+    if (e.key === " ") {
+      const o = atCursor();
+      const box = cursor ? tbody.querySelector<HTMLInputElement>(`tr[data-key="${CSS.escape(cursor)}"] .pick-one`) : null;
+      if (!o || !box) return;
+      e.preventDefault();
+      const k = keyOf(o);
+      if (picked.has(k)) picked.delete(k); else picked.add(k);
+      box.checked = picked.has(k);
+      box.closest("tr")!.classList.toggle("picked", picked.has(k));
+      syncPickBar();
+    }
+  });
+
   filterIn.oninput = render;
   lfilterIn.oninput = render;
   lfilterIn.onblur = () => { if (lfilterIn.classList.contains("bad")) toast(t(lfilterIn.dataset.err ?? ""), "err"); };
@@ -1008,6 +1321,7 @@ export function mountK8s(root: HTMLElement) {
     if (["deployments", "statefulsets", "daemonsets", "replicasets", "jobs"].includes(kind.id)) tabs.unshift(["Логи", () => showWorkloadLogs(o)]);
     if (kind.source !== "helm") tabs.unshift(["Детали", () => showDetails(o)]);
     if (kind.id === "applications") tabs.unshift(["Ресурсы", () => showArgoResources(o)]);
+    if (POD_OWNERS.includes(kind.id) || kind.id === "nodes") tabs.unshift(["Поды", () => showPods(o)]);
     const tabsEl = $(".drawer-tabs");
     tabsEl.innerHTML = "";
     tabs.forEach(([label, fn], i) => {
@@ -1037,6 +1351,7 @@ export function mountK8s(root: HTMLElement) {
     if (kind.id === "pods" && !ro) {
       act("Shell", () => execShell(o));
     }
+    if (kind.id === "nodes" && !ro) act("Shell", () => nodeShell(o));
     if (kind.id === "pods") act("Port-forward", () => portForward(o, "pod"));
     if (kind.id === "services") act("Port-forward", () => portForward(o, "svc"));
     if (kind.id === "applications" && !ro) {
@@ -1196,6 +1511,45 @@ export function mountK8s(root: HTMLElement) {
     if (Date.now() - eventsAt > 20000) loadEvents(o);
   }
 
+  /** Pods of this object: a workload's own pods, or everything running on a node (#72). */
+  async function showPods(o: Obj) {
+    const onNode = kind.id === "nodes";
+    const ns = onNode ? null : o.metadata.namespace ?? null;
+    drawerBody.innerHTML = `<div class="pods-of"><p class="muted pad">загрузка…</p></div>`;
+    const box = drawerBody.querySelector<HTMLElement>(".pods-of")!;
+    let list: Obj[];
+    try {
+      list = await invoke<Obj[]>("k8s_list", { ctx: ref(), kind: "pods", namespace: ns });
+    } catch (e) { box.innerHTML = `<p class="err pad">${esc(String(e))}</p>`; return; }
+    if (drawerBody.querySelector(".pods-of") !== box) return; // the drawer moved on while we were loading
+    const mine = onNode
+      ? list.filter((p) => p.spec?.nodeName === o.metadata.name)
+      : list.filter((p) => ownerChain(p, o));
+    if (!mine.length) {
+      box.innerHTML = `<p class="muted pad">${esc(t(onNode ? "На этом узле нет подов" : "Подов нет"))}</p>`;
+      return;
+    }
+    const rows = mine.map((p) => {
+      const u = usage.get(`${p.metadata.namespace}/${p.metadata.name}`);
+      const st = podStatus(p);
+      const restarts = (p.status?.containerStatuses ?? []).reduce((n: number, c: Obj) => n + (c.restartCount ?? 0), 0);
+      return `<tr data-pod="${esc(p.metadata.namespace + "/" + p.metadata.name)}">
+        <td>${esc(p.metadata.name)}</td>${onNode ? `<td>${esc(p.metadata.namespace ?? "")}</td>` : `<td>${esc(p.spec?.nodeName ?? "")}</td>`}
+        <td class="${statusClass(st)}">${esc(st)}</td><td>${restarts || ""}</td>
+        <td>${u ? `${u.cpu_m}m` : ""}</td><td>${u ? fmtMem(u.mem) : ""}</td><td>${esc(age(p.metadata.creationTimestamp))}</td></tr>`;
+    }).join("");
+    box.innerHTML = `<div class="table-wrap"><table class="res"><thead><tr>
+      <th>Имя</th><th>${esc(t(onNode ? "Namespace" : "Узел"))}</th><th>Статус</th><th>Рестарты</th><th>CPU</th><th>RAM</th><th>Возраст</th></tr></thead>
+      <tbody>${rows}</tbody></table></div>`;
+    box.querySelector("tbody")!.addEventListener("click", (e) => {
+      const key = (e.target as HTMLElement).closest<HTMLElement>("[data-pod]")?.dataset.pod;
+      const pod = key && mine.find((p) => `${p.metadata.namespace}/${p.metadata.name}` === key);
+      if (!pod) return;
+      // open it in the pods table, where all the actions are
+      navigateTo("pods", pod.metadata.namespace ?? "", pod.metadata.name);
+    });
+  }
+
   function showArgoResources(o: Obj) {
     const res: Obj[] = o.status?.resources ?? [];
     const cls = (s?: string) => ({ Synced: "ok", OutOfSync: "warn", Healthy: "ok", Progressing: "warn", Degraded: "bad", Missing: "bad" } as Record<string, string>)[s ?? ""] ?? "muted";
@@ -1213,15 +1567,23 @@ export function mountK8s(root: HTMLElement) {
 
   async function showYaml(o: Obj) {
     drawerBody.innerHTML = `<div class="yaml-pane"><textarea spellcheck="false" class="yaml">загрузка…</textarea>
-      <div class="yaml-actions"><span class="err yaml-err"></span><span class="spacer"></span>
+      <div class="yaml-actions"><span class="err yaml-err"></span><span class="muted yaml-info"></span><span class="spacer"></span>
       <button class="ghost" data-y="reload">Перечитать</button><button class="primary" data-y="apply" ${isReadonly() ? "disabled title=\"Контекст в режиме только чтения\"" : ""}>Применить</button></div></div>`;
     const ta = drawerBody.querySelector<HTMLTextAreaElement>("textarea")!;
     const errEl = drawerBody.querySelector<HTMLElement>(".yaml-err")!;
+    const info = drawerBody.querySelector<HTMLElement>(".yaml-info")!;
+    const read = async () => {
+      ta.value = await invoke<string>("k8s_get_yaml", { ctx: ref(), kind: kind.id, namespace: o.metadata.namespace ?? null, name: o.metadata.name });
+      info.textContent = `${t("прочитано в")} ${new Date().toLocaleTimeString(locale())}`;
+    };
     const load = async () => {
       errEl.textContent = "";
       try {
-        ta.value = await invoke<string>("k8s_get_yaml", { ctx: ref(), kind: kind.id, namespace: o.metadata.namespace ?? null, name: o.metadata.name });
-      } catch (e) { errEl.textContent = String(e); }
+        await read();
+      } catch (e) {
+        errEl.textContent = `${t("не удалось прочитать")}: ${e}`;
+        info.textContent = "";
+      }
     };
     ta.addEventListener("keydown", (e) => {
       if (e.key === "Tab") { e.preventDefault(); ta.setRangeText("  ", ta.selectionStart, ta.selectionEnd, "end"); }
@@ -1232,11 +1594,72 @@ export function mountK8s(root: HTMLElement) {
       try {
         await invoke("k8s_apply_yaml", { ctx: ref(), kind: kind.id, namespace: o.metadata.namespace ?? null, yaml: ta.value });
         toast("Применено");
-        await load();
+        errEl.textContent = "";
+        // перечитываем, чтобы видеть, что в кластере на самом деле; если связь оборвалась — говорим
+        // об этом прямо, иначе прежний текст на экране выглядит как откат изменений (из отчёта)
+        try {
+          await read();
+        } catch (err) {
+          errEl.textContent = `${t("Применено, но перечитать не удалось")}: ${err} — ${t("связь с кластером нестабильна, на экране прежний текст")}`;
+          info.textContent = "";
+          toast(t("Применено, но проверить не удалось: связь с кластером прервалась"), "err");
+        }
         refresh();
-      } catch (e) { errEl.textContent = String(e); }
+      } catch (e) {
+        errEl.textContent = `${t("Не применилось")}: ${e}`;
+        toast(`${t("Не применилось")}: ${e}`, "err");
+      }
     };
     await load();
+  }
+
+  /** Гистограмма над логами (#73): столбики по времени, красным — ошибки. Клик оставляет окно. */
+  const HIST_HTML = `<div class="log-hist" hidden><div class="lh-bars"></div><div class="lh-note muted"></div></div>`;
+
+  function mountHist(view: LogView, redrawFilter: () => void) {
+    const box = drawerBody.querySelector<HTMLElement>(".log-hist")!;
+    const bars = box.querySelector<HTMLElement>(".lh-bars")!;
+    const note = box.querySelector<HTMLElement>(".lh-note")!;
+    const fmt = (ms: number) => new Date(ms).toLocaleTimeString(locale(), { hour12: false });
+    let shown: Bucket[] = [];
+    let timer = 0;
+
+    const draw = () => {
+      shown = buckets(view.timeline(), 60);
+      box.hidden = shown.length === 0;
+      if (!shown.length) return;
+      const max = Math.max(...shown.map((b) => b.error + b.warn + b.info));
+      const win = view.window;
+      bars.innerHTML = shown.map((b, i) => {
+        const n = b.error + b.warn + b.info;
+        const h = Math.round((n / max) * 100);
+        const part = (c: number) => (n ? (c / n) * h : 0);
+        const active = win && b.from >= win[0] && b.to <= win[1];
+        // доли рисуем только когда они есть: пустой span сбивал бы и вид, и поиск по разметке
+        const seg = (cls: string, c: number) => (c ? `<span class="${cls}" style="height:${part(c)}%"></span>` : "");
+        return `<button class="lh-bar${active ? " active" : ""}${n ? "" : " empty"}" data-b="${i}" title="${esc(bucketTitle(b, fmt))}" style="height:${h}%">
+          ${seg("lh-err", b.error)}${seg("lh-warn", b.warn)}</button>`;
+      }).join("");
+      const total = shown.reduce((x, b) => x + b.error + b.warn + b.info, 0);
+      const errs = shown.reduce((x, b) => x + b.error, 0);
+      note.textContent = win
+        ? `${t("окно")}: ${fmt(win[0])}–${fmt(win[1])} · ${t("клик по столбику снимет")}`
+        : `${fmt(shown[0].from)}–${fmt(shown.at(-1)!.to + 1)} · ${t("строк")} ${total}${errs ? `, ${t("ошибок")} ${errs}` : ""}`;
+    };
+
+    bars.onclick = (e) => {
+      const i = Number((e.target as HTMLElement).closest<HTMLElement>("[data-b]")?.dataset.b);
+      const b = shown[i];
+      if (!b) return;
+      const win = view.window;
+      const same = win && b.from >= win[0] && b.to <= win[1];
+      view.setFilter(drawerBody.querySelector<HTMLInputElement>(".lf")!.value, undefined, same ? null : [b.from, b.to]);
+      redrawFilter();
+      draw();
+    };
+    // перерисовка не чаще раза в полсекунды: строки идут потоком
+    const schedule = () => { if (!timer) timer = window.setTimeout(() => { timer = 0; draw(); }, 500); };
+    return { draw, schedule, stop: () => clearTimeout(timer) };
   }
 
   function showLogs(o: Obj) {
@@ -1247,12 +1670,15 @@ export function mountK8s(root: HTMLElement) {
         <select class="lt"><option value="100">100 строк</option><option value="500" selected>500 строк</option><option value="2000">2000 строк</option><option value="10000">10000 строк</option></select>
         <label class="muted"><input type="checkbox" class="lp" /> previous</label>
         <label class="muted"><input type="checkbox" class="lts" /> время</label>
+        <label class="muted" title="График: сколько строк было в каждом отрезке времени, красным — ошибки"><input type="checkbox" class="lh" checked /> график</label>
         <input class="lf" placeholder="фильтр…" spellcheck="false" />
         <span class="spacer"></span>
         <span class="lstate muted"></span>
+        <button class="ghost" data-l="save" title="Сохранить показанные строки в файл">${icon("folderOpen", 14)} В файл</button>
         <button class="ghost" data-l="ai" title="Отправить выделение (или последние 150 строк) в AI-панель">⇢ в AI</button>
         <button class="ghost" data-l="clear">Очистить</button>
       </div>
+      ${HIST_HTML}
       <div class="logs-term"></div></div>`;
     const q = <T extends HTMLElement>(s: string) => drawerBody.querySelector<T>(s)!;
     const term = new Terminal({ fontFamily: "'JetBrains Mono', 'Fira Code', monospace", fontSize: 12, scrollback: 50000,
@@ -1260,30 +1686,59 @@ export function mountK8s(root: HTMLElement) {
     const fit = new FitAddon();
     term.loadAddon(fit);
     term.open(q(".logs-term"));
-    const ro = new ResizeObserver(() => { if (q<HTMLElement>(".logs-term").clientWidth) fit.fit(); });
+    // Панель могли перерисовать или закрыть, а вызов ResizeObserver уже стоял в очереди: у
+    // выброшенного терминала нет рендерера, и fit() падал на чтении его размеров (журнал, WebKit).
+    let gone = false;
+    const safeFit = () => {
+      const el = drawerBody.querySelector<HTMLElement>(".logs-term");
+      if (gone || !el?.clientWidth || !el.clientHeight) return;
+      try {
+        fit.fit();
+      } catch {
+        /* рендерер ещё не готов — размеры поправятся следующим вызовом */
+      }
+    };
+    const ro = new ResizeObserver(safeFit);
     ro.observe(q(".logs-term"));
 
     const id = `log${Date.now()}`;
     let unlisten: UnlistenFn[] = [];
     const state = q(".lstate");
     const view = new LogView(term);
+    const hist = mountHist(view, safeFit);
     const stop = () => { invoke("k8s_logs_stop", { id }); unlisten.forEach((u) => u()); unlisten = []; };
     let ft = 0;
-    q<HTMLInputElement>(".lf").oninput = () => { clearTimeout(ft); ft = window.setTimeout(() => view.setFilter(q<HTMLInputElement>(".lf").value), 150); };
+    q<HTMLInputElement>(".lf").oninput = () => { clearTimeout(ft); ft = window.setTimeout(() => { view.setFilter(q<HTMLInputElement>(".lf").value); hist.draw(); }, 150); };
+    q<HTMLInputElement>(".lh").onchange = () => {
+      const on = q<HTMLInputElement>(".lh").checked;
+      q(".log-hist").hidden = !on;
+      if (on) hist.draw();
+      // график скрыли — его окно времени снимаем, иначе часть строк пропала бы без видимой причины
+      else if (view.window) view.setFilter(q<HTMLInputElement>(".lf").value, undefined, null);
+    };
 
     const start = async () => {
       stop();
       view.clear();
       state.textContent = "подключение…";
       unlisten = [
-        await listen<string[]>(`k8s-log-${id}`, (e) => { view.add(e.payload.map((text) => ({ text }))); state.textContent = "● live"; }),
-        await listen<string | null>(`k8s-log-end-${id}`, (e) => { state.textContent = e.payload ? `ошибка: ${e.payload}` : "поток завершён"; }),
+        await listen<string[]>(`k8s-log-${id}`, (e) => {
+          // метки времени просим всегда — на них держится график; в строках их видно по галочке «время»
+          const withTs = q<HTMLInputElement>(".lts").checked;
+          view.add(e.payload.map((raw) => {
+            const p = parseLogLine(raw);
+            return { text: withTs ? raw : p.text, time: p.time, level: p.level };
+          }));
+          state.textContent = "● live";
+          hist.schedule();
+        }),
+        await listen<string | null>(`k8s-log-end-${id}`, (e) => { state.textContent = e.payload ? `ошибка: ${e.payload}` : "поток завершён"; hist.draw(); }),
       ];
       try {
         await invoke("k8s_logs_start", { ctx: ref(), id, req: {
           namespace: o.metadata.namespace, pod: o.metadata.name, container: q<HTMLSelectElement>(".lc").value,
           tail: Number(q<HTMLSelectElement>(".lt").value), previous: q<HTMLInputElement>(".lp").checked,
-          timestamps: q<HTMLInputElement>(".lts").checked } });
+          timestamps: true } });
       } catch (e) {
         state.textContent = "";
         term.write(`\x1b[31m${String(e)}\x1b[0m\n`);
@@ -1295,8 +1750,20 @@ export function mountK8s(root: HTMLElement) {
       const text = view.tail();
       if (text) window.dispatchEvent(new CustomEvent("send-to-ai", { detail: `Логи пода ${o.metadata.namespace}/${o.metadata.name} (${ctx!.context}):\n${text}` }));
     };
-    drawerCleanup = () => { stop(); ro.disconnect(); term.dispose(); };
-    requestAnimationFrame(() => { fit.fit(); start(); });
+    q<HTMLElement>("[data-l=save]").onclick = () => saveLogs(`${o.metadata.name}-${q<HTMLSelectElement>(".lc").value}`, view);
+    drawerCleanup = () => { gone = true; stop(); hist.stop(); ro.disconnect(); term.dispose(); };
+    requestAnimationFrame(() => { safeFit(); start(); });
+  }
+
+  /** Saves what the log view shows (filter included) to a file the user picks (#75). */
+  async function saveLogs(name: string, view: LogView) {
+    const text = view.all();
+    if (!text) return toast(t("Нечего сохранять: строк нет"), "err");
+    const stamp = new Date().toISOString().slice(0, 16).replace(/[:T]/g, "-");
+    try {
+      const path = await invoke<string | null>("k8s_save_text", { name: `${name}-${stamp}.log`, text });
+      if (path) toast(`${t("Сохранено")}: ${path}`);
+    } catch (e) { toast(String(e), "err"); }
   }
 
   /** Logs of every pod of a Deployment/StatefulSet/DaemonSet/ReplicaSet/Job, merged, one color per pod. */
@@ -1311,6 +1778,7 @@ export function mountK8s(root: HTMLElement) {
         <input class="lf" placeholder="фильтр…" spellcheck="false" />
         <span class="spacer"></span>
         <span class="lstate muted"></span>
+        <button class="ghost" data-l="save" title="Сохранить показанные строки в файл">${icon("folderOpen", 14)} В файл</button>
         <button class="ghost" data-l="ai" title="Отправить выделение (или последние 150 строк) в AI-панель">⇢ в AI</button>
         <button class="ghost" data-l="clear">Очистить</button>
       </div>
@@ -1321,7 +1789,19 @@ export function mountK8s(root: HTMLElement) {
     const fit = new FitAddon();
     term.loadAddon(fit);
     term.open(q(".logs-term"));
-    const ro = new ResizeObserver(() => { if (q<HTMLElement>(".logs-term").clientWidth) fit.fit(); });
+    // Панель могли перерисовать или закрыть, а вызов ResizeObserver уже стоял в очереди: у
+    // выброшенного терминала нет рендерера, и fit() падал на чтении его размеров (журнал, WebKit).
+    let gone = false;
+    const safeFit = () => {
+      const el = drawerBody.querySelector<HTMLElement>(".logs-term");
+      if (gone || !el?.clientWidth || !el.clientHeight) return;
+      try {
+        fit.fit();
+      } catch {
+        /* рендерер ещё не готов — размеры поправятся следующим вызовом */
+      }
+    };
+    const ro = new ResizeObserver(safeFit);
     ro.observe(q(".logs-term"));
 
     const id = `wlog${Date.now()}`;
@@ -1375,8 +1855,9 @@ export function mountK8s(root: HTMLElement) {
       const text = view.tail();
       if (text) window.dispatchEvent(new CustomEvent("send-to-ai", { detail: `Логи ${kind.label} ${o.metadata.namespace}/${o.metadata.name}, все поды (${ctx!.context}):\n${text}` }));
     };
-    drawerCleanup = () => { stop(); ro.disconnect(); term.dispose(); };
-    requestAnimationFrame(() => { fit.fit(); start(); });
+    q<HTMLElement>("[data-l=save]").onclick = () => saveLogs(o.metadata.name, view);
+    drawerCleanup = () => { gone = true; stop(); ro.disconnect(); term.dispose(); };
+    requestAnimationFrame(() => { safeFit(); start(); });
   }
 
   // ----- actions -----
@@ -1394,6 +1875,23 @@ export function mountK8s(root: HTMLElement) {
   function execShell(o: Obj) {
     const c = o.spec.containers.length > 1 ? drawerBody.querySelector<HTMLSelectElement>(".lc")?.value ?? o.spec.containers[0].name : o.spec.containers[0].name;
     kubectlTab(`⎈ ${o.metadata.name}`, ["exec", "-it", "-n", o.metadata.namespace, o.metadata.name, "-c", c, "--",
+      "sh", "-c", "command -v bash >/dev/null && exec bash || exec sh"]);
+  }
+
+  /**
+   * Shell on a node: `kubectl debug node/<name>` starts a temporary pod on it with the host's root at /host
+   * (needs Kubernetes 1.25+ and the right to create pods in the namespace). The pod is removed when the
+   * tab closes; its name is printed by kubectl.
+   */
+  async function nodeShell(o: Obj) {
+    const name = o.metadata.name;
+    const img = store.get("debug-image") || "busybox:1.36";
+    const v = await ask(t("Shell на узле"), `${t("На узле")} ${name} ${t("будет запущен временный под")} (kubectl debug) ${t("с образом")} ${img}; ${t("файловая система узла — в /host. Под удалится вместе с вкладкой.")}`,
+      { input: img, ok: t("Запустить") });
+    if (v === null) return;
+    const image = v.trim() || img;
+    store.set("debug-image", image);
+    kubectlTab(`⎈ ${name}`, ["debug", `node/${name}`, "-it", "--image", image, "--profile", "sysadmin", "--",
       "sh", "-c", "command -v bash >/dev/null && exec bash || exec sh"]);
   }
 

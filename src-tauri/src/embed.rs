@@ -126,6 +126,21 @@ fn mac_y(parent_height: f64, y: f64, h: f64, flipped: bool) -> f64 {
     if flipped { y } else { parent_height - y - h }
 }
 
+/// Высота рабочей области окна на macOS: `contentLayoutRect` — окно без системного заголовка,
+/// а frame родителя его включает. Координаты панели приходят из HTML, где заголовка нет, поэтому
+/// по полной высоте панель уезжала вверх ровно на заголовок и накрывала полосу вкладок (#68).
+/// Окна у вью может не быть (панель ещё не в иерархии) — тогда остаётся высота родителя.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn mac_parent_height(content_top: Option<f64>, superview_height: f64) -> f64 {
+    content_top.filter(|h| *h > 0.0).unwrap_or(superview_height)
+}
+
+/// Верх рабочей области в координатах окна: `origin.y + height` (AppKit считает y снизу).
+#[cfg(target_os = "macos")]
+fn content_top(rect: objc2_foundation::NSRect) -> f64 {
+    rect.origin.y + rect.size.height
+}
+
 fn place(wv: &tauri::Webview, r: Rect) -> Result<(), String> {
     #[cfg(target_os = "linux")]
     return wv.with_webview(move |pw| gtk_layer::place(&pw.inner(), r)).map_err(|e| e.to_string());
@@ -134,12 +149,15 @@ fn place(wv: &tauri::Webview, r: Rect) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     return wv
         .with_webview(move |pw| {
-            use objc2_app_kit::NSView;
+            use objc2_app_kit::{NSAutoresizingMaskOptions, NSView};
             use objc2_foundation::{NSPoint, NSRect, NSSize};
             // SAFETY: wry hands out the panel's WKWebView (an NSView) and runs this closure on the main thread
             let view = unsafe { &*(pw.inner() as *const NSView) };
+            view.setAutoresizingMask(NSAutoresizingMaskOptions::empty());
             let y = match unsafe { view.superview() } {
-                Some(sup) => mac_y(sup.frame().size.height, r.y, r.h, sup.isFlipped()),
+                // contentLayoutRect: высота окна без системного заголовка — координаты из HTML
+                // приходят тоже без него, а frame родителя заголовок включает (#68, PR #89)
+                Some(sup) => mac_y(mac_parent_height(view.window().map(|w| content_top(w.contentLayoutRect())), sup.frame().size.height), r.y, r.h, sup.isFlipped()),
                 None => r.y,
             };
             view.setFrame(NSRect { origin: NSPoint { x: r.x, y }, size: NSSize { width: r.w, height: r.h } });
@@ -260,5 +278,20 @@ mod tests {
         assert_eq!(mac_y(900.0, 40.0, 300.0, true), 40.0);
         // the tab bar on top stays free: a panel right under it does not reach the top of the window
         assert!(mac_y(900.0, 34.0, 866.0, false) == 0.0, "a panel under a 34 pt tab bar ends at the window bottom");
+    }
+
+    /// #68: по полной высоте окна (с системным заголовком) панель уезжала вверх на эти самые
+    /// ~32 pt и накрывала полосу вкладок. Берём высоту без заголовка, а если окна нет — родителя.
+    #[test]
+    fn the_title_bar_is_not_counted_in_the_panel_height() {
+        use super::mac_parent_height;
+        // окно 900 pt, заголовок 32 pt: рабочая область 868 pt
+        assert_eq!(mac_parent_height(Some(868.0), 900.0), 868.0);
+        // окна нет или высота невменяемая — остаётся родитель
+        assert_eq!(mac_parent_height(None, 900.0), 900.0);
+        assert_eq!(mac_parent_height(Some(0.0), 900.0), 900.0);
+        // с учётом заголовка панель под полосой вкладок упирается в низ окна, а не уходит выше
+        let (tab_bar, panel) = (34.0, 834.0);
+        assert_eq!(mac_y(mac_parent_height(Some(868.0), 900.0), tab_bar, panel, false), 0.0);
     }
 }

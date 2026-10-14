@@ -1,8 +1,21 @@
 import { test, expect } from "./fixtures";
 
 test.describe("start and modules", () => {
+  // на ноутбуке без мыши: модуль по номеру в колонке слева (#79)
+  test("Ctrl+Shift+1…9 switch modules, 9 is the last one", async ({ page }) => {
+    const active = () => page.locator("#sidebar button.active").getAttribute("data-view");
+    const order = await page.evaluate(() =>
+      [...document.querySelectorAll<HTMLElement>("#sidebar button[data-view]:not(.bottom)")].filter((b) => !b.hidden).map((b) => b.dataset.view!));
+    await page.keyboard.press("Control+Shift+Digit2");
+    await expect.poll(active).toBe(order[1]);
+    await page.keyboard.press("Control+Shift+Digit1");
+    await expect.poll(active).toBe(order[0]);
+    await page.keyboard.press("Control+Shift+Digit9");
+    await expect.poll(active).toBe(order.at(-1));
+  });
+
   test("every section opens without errors", async ({ app, page }) => {
-    for (const id of ["terminal", "k8s", "web", "alerts", "net", "ssh", "monitor", "code", "db", "notes", "tasks", "vault", "winbox", "settings"]) {
+    for (const id of ["terminal", "k8s", "web", "alerts", "net", "ssh", "monitor", "sftp", "yc", "code", "db", "notes", "tasks", "vault", "winbox", "settings"]) {
       await app.view(id);
       await expect(page.locator("section.view:not([hidden])")).toHaveCount(1);
     }

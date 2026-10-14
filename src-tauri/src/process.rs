@@ -25,11 +25,12 @@ pub fn no_console_tokio(cmd: &mut tokio::process::Command) {
     }
 }
 
-/// Apps started from Finder/Dock on macOS get a minimal PATH without Homebrew, ~/.local/bin and so
-/// on: git, terraform, kubectl, claude, opencode would not be found. Take PATH from the user's login
-/// shell (1.5 s at most) plus the usual folders, keeping what was there.
-// compiled everywhere (so CI on Linux type-checks it), called only on macOS
-#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+/// Приложение, запущенное из меню (Finder, Dock, ярлык в Linux), получает PATH сеанса, а не тот,
+/// что человек видит в терминале: установщики дописывают свои папки в ~/.bashrc или ~/.zshrc
+/// (yc, kubectl, terraform, claude, opencode, Homebrew, ~/.local/bin). Берём PATH из login-шелла
+/// (не дольше 1,5 с) плюс привычные папки, сохраняя то, что уже было.
+// compiled everywhere (so CI type-checks it), called on macOS and Linux
+#[cfg_attr(windows, allow(dead_code))]
 pub fn fix_macos_path() {
     use std::{path::PathBuf, process::{Command, Stdio}, time::{Duration, Instant}};
     let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".into());
@@ -68,9 +69,9 @@ pub fn fix_macos_path() {
         add(p);
     }
     let home = dirs::home_dir().unwrap_or_default();
-    for p in ["/opt/homebrew/bin", "/opt/homebrew/sbin", "/usr/local/bin", "/usr/local/sbin"].map(PathBuf::from)
+    for p in ["/opt/homebrew/bin", "/opt/homebrew/sbin", "/usr/local/bin", "/usr/local/sbin", "/snap/bin"].map(PathBuf::from)
         .into_iter()
-        .chain([".local/bin", ".cargo/bin", ".opencode/bin"].map(|d| home.join(d)))
+        .chain([".local/bin", ".cargo/bin", ".opencode/bin", "bin", "yandex-cloud/bin"].map(|d| home.join(d)))
     {
         if p.is_dir() {
             add(p);

@@ -1,7 +1,7 @@
 import { currentTheme } from "./themes";
 import { invoke } from "@tauri-apps/api/core";
 import { t } from "../i18n";
-import { listen, UnlistenFn } from "@tauri-apps/api/event";
+import { listen, EventCallback, UnlistenFn } from "@tauri-apps/api/event";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { ShellBlocks } from "./blocks";
@@ -114,6 +114,8 @@ export class PtyTerminal {
     this.resize();
   };
   private unlisten: UnlistenFn[] = [];
+  /** Closed: a subscription or the shell start that was awaited at that moment must not outlive it. */
+  private disposed = false;
   private ro: ResizeObserver;
   onExit?: () => void;
   /** What the backend actually started (a plain tab gets the shell chosen in Settings). */
@@ -138,7 +140,7 @@ export class PtyTerminal {
       e.stopPropagation();
       termFontStep(e.deltaY < 0 ? 1 : -1);
     }, { passive: false, capture: true });
-    this.term.onData((data) => invoke("pty_write", { id: this.id, data }));
+    this.term.onData((data) => this.send(data));
     this.term.attachCustomKeyEventHandler((e) => {
       // → / End accept the grey suggestion
       if (this.sugg.key(e)) { e.preventDefault(); return false; }
@@ -178,22 +180,42 @@ export class PtyTerminal {
     this.started = this.start(opts).then(() => this.launched);
   }
 
+  /** Subscribes to a backend event until dispose(): the handler's closure holds this terminal and its scrollback. */
+  async listen<T>(event: string, handler: EventCallback<T>) {
+    const un = await listen<T>(event, handler);
+    if (this.disposed) un();
+    else this.unlisten.push(un);
+  }
+
   private async start(opts: SpawnOpts) {
-    this.unlisten.push(await listen<string>(`pty-data-${this.id}`, (e) => this.term.write(this.outHl.feed(b64(e.payload), this.hl.output))));
-    this.unlisten.push(await listen(`pty-exit-${this.id}`, () => {
+    await this.listen<string>(`pty-data-${this.id}`, (e) => this.term.write(this.outHl.feed(b64(e.payload), this.hl.output)));
+    await this.listen(`pty-exit-${this.id}`, () => {
       this.term.write(`\r\n\x1b[2m[${t("процесс завершён")}]\x1b[0m\r\n`);
       this.onExit?.();
-    }));
+    });
+    // closed while subscribing: its pty_kill has already gone, a shell started now would be orphaned
+    if (this.disposed) return;
     this.safeFit();
     try {
       this.launched = await invoke<Launched>("pty_spawn", { req: { id: this.id, ...opts, cols: this.term.cols, rows: this.term.rows } });
     } catch (e) {
-      this.term.write(`\x1b[31m${t("Не удалось запустить")} ${opts.program ?? "shell"}: ${t(String(e))}\x1b[0m\r\n`);
+      if (!this.disposed) this.term.write(`\x1b[31m${t("Не удалось запустить")} ${opts.program ?? "shell"}: ${t(String(e))}\x1b[0m\r\n`);
+      return;
     }
+    // closed while pty_spawn was running: nothing guarantees its pty_kill reached the backend after the spawn
+    if (this.disposed) invoke("pty_kill", { id: this.id });
   }
 
   private safeFit() {
-    if (this.host.offsetParent !== null && this.host.clientWidth > 0) this.fit.fit();
+    // dispose() мог случиться, пока в очереди висел вызов ResizeObserver: у выброшенного терминала
+    // рендерера уже нет, и чтение его размеров падало — в журнале это сотни одинаковых ошибок
+    // «this._renderer.value.dimensions» (WebKit). Нулевая высота — та же история: мерить нечего.
+    if (this.disposed || this.host.offsetParent === null || this.host.clientWidth < 2 || this.host.clientHeight < 2) return;
+    try {
+      this.fit.fit();
+    } catch {
+      /* рендерер ещё не готов (или уже выброшен) — размеры поправятся следующим вызовом */
+    }
   }
 
   resize() {
@@ -204,10 +226,14 @@ export class PtyTerminal {
   }
 
   send(text: string) {
-    return invoke("pty_write", { id: this.id, data: text });
+    // процесс мог уже закончиться: «no such pty» — не ошибка интерфейса, писать её в журнал незачем
+    return invoke("pty_write", { id: this.id, data: text }).catch((e) => {
+      if (!String(e).includes("no such pty")) throw e;
+    });
   }
 
   dispose() {
+    this.disposed = true;
     this.ro.disconnect();
     window.removeEventListener("term-highlight", this.onHl);
     window.removeEventListener("term-font", this.onFont);

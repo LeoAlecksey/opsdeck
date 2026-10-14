@@ -19,9 +19,12 @@ export const HELP_EN: Record<string, { title: string; html: string }> = {
         <li><b>A− 13 A+</b> — font size in all terminals (click the number — back to 13). Also ${kbd("Ctrl+=")} / ${kbd("Ctrl+-")} / ${kbd("Ctrl+0")} or ${kbd("Ctrl")}+mouse wheel over the terminal. The size is remembered.</li>
         <li><b>The bottom bar</b> — resources of the machine: this one, or the remote one when the active tab runs an SSH session (Linux hosts; metrics go over the same SSH connection, no second login).</li>
         <li><b>Highlighting</b>: while typing, the command is green if it exists and red if not (aliases and functions from your .bashrc/.zshrc count); flags, strings, $VARIABLES, | && ; and comments get their own colours. In the output: ERROR/WARN, pod states (Running, CrashLoopBackOff…), IPs, links and time. Turn off in ⚙ → Terminal or via the palette.</li>
+        <li><b>🌐 Folder on the web</b> — serve the folder the active pane's shell is in over http: <code>python3 -m http.server</code> is sent into the session, bound to the host's 127.0.0.1 (never exposed to the network), an <code>ssh -L</code> tunnel is opened to it and the link opens in the browser. Handy for grabbing files off a server without sftp. ${kbd("Ctrl+C")} in the terminal stops it, and the tunnel closes with the tab. If you went further to another host from inside the session, the tunnel leads to the first one and the share will not answer — OpsDeck notices that and offers to serve the folder on all of the host's addresses (visible to anyone who can reach it over the network).</li>
         <li><b>📁 Files</b> (${kbd("Ctrl+Shift+B")}) — tree of the folder the shell is in (follows <code>cd</code>; ⌖ — stop following, double-click a folder — make it the root). Click a file — open it in the chosen editor (the built-in <b>OpsDeck IDE</b> by default); <b>Open in IDE</b> — the whole project (the git repository root). On a row: ↗ — in the IDE, ⎘ — paste the path into the terminal, ⤷ — cd. Colours show git status: yellow changed, green new, red deleted. External editors are detected (VS Code, Cursor, Zed, Sublime, JetBrains…; vim/nvim/helix open in a terminal tab), or “Custom command…”.</li>
         <li><b>Inline suggestion</b>: the rest of the command in grey, from this session, bash/zsh history and code blocks in notes. ${kbd("→")} or ${kbd("End")} — accept it all, ${kbd("Ctrl+→")} — one word. Turn off in ⚙ → Terminal.</li>
+        <li><b>Several AIs side by side.</b> Picking an agent at the top of the AI panel no longer restarts it: one already open just gets the focus, a new one is added next to it (up to three). Each keeps its own conversation and its own ⟳ and ×. A selection or logs go to the one in focus.</li>
         <li><b>✦ AI</b> (${kbd("Ctrl+Shift+K")}) — <b>local AI</b>: describe in words what to do (“restart the api deployment in stage”) and get a command based on your notes and history. <b>Paste</b> (${kbd("Enter")}) puts it on the line without running, <b>Run</b> (${kbd("Ctrl+Enter")}) runs it. The model (Qwen2.5-Coder 1.5B by default) is chosen and installed in ⚙ → Local AI and runs only on this computer.</li>
+        <li><b>AI knowledge base</b> — built-in cheat sheets for kubectl, helm, docker, systemd, terraform, git, ssh, jq, networking, disks, nginx, PostgreSQL, MySQL, ClickHouse, Kafka, Redis, Vault, PromQL, ansible, certificates and Yandex Cloud: when a request looks like one of the topics, proven commands go into the model's prompt, so the flags are real rather than invented. Your own commands go into <code>knowledge.md</code> next to the settings (⚙ → Local AI → “Open folder”), and they come first.</li>
         <li>${kbd("Ctrl")}+click a path in the output (e.g. <code>src/main.rs:42</code> from a compiler error) — open the file in the editor at that line.</li>
       </ul>
       <h4>Hotkeys</h4>
@@ -51,6 +54,10 @@ export const HELP_EN: Record<string, { title: string; html: string }> = {
         <li><b>Diagnostics</b> (at the top of the resource list), computed from what your kubeconfig can read — nothing is installed in the cluster:
           <b>Problems</b> — what is broken now: CrashLoopBackOff, OOMKilled, image pull errors, pods that cannot be scheduled (with the reason), unfinished rollouts, failed Jobs, pods stuck in Terminating (which finalizers hold them), references to missing ConfigMaps/Secrets/PVCs, services without pods or ready endpoints, Ingresses to a missing service or port. Pods of one app with the same trouble are one row (×N).
           <b>Checks</b> — best practices of the templates: privileged, hostPID/hostNetwork, the docker/containerd socket, dangerous capabilities, the latest tag, missing probes, a single replica, no PodDisruptionBudget, no requests/limits — each with “How to fix”. A row opens the explanation, “Open the object” and “⇢ AI”. System namespaces (kube-system…) are hidden by a checkbox. Secret values never reach the diagnostics: the backend sends only names.</li>
+        <li><b>Multiselect and row actions.</b> The ticks on the left select rows (the one in the header selects everything shown), “Delete the selected” removes them in one go, confirmed by their count. Hovering a row shows icons on the right: copy the name, logs, shell (pods and nodes), delete.</li>
+        <li><b>Pods of an object.</b> A Deployment, StatefulSet, DaemonSet, ReplicaSet, Job, CronJob and a node have a <b>Pods</b> tab: what belongs to that object, or what runs on that node, with status, restarts and CPU/RAM. A click opens the pod in the pods table.</li>
+        <li><b>Shell on a node</b> (the Shell button on a node): runs <code>kubectl debug node/…</code> — a temporary pod on the node with its filesystem at <code>/host</code>. Needs Kubernetes 1.25+ and the right to create pods; the image is asked for and remembered.</li>
+        <li><b>Logs to a file</b> — the “To a file” button in the log panel saves the shown lines (filter included) to a text file.</li>
         <li><b>Event history</b> (Cluster → Event history): Kubernetes keeps events for about an hour, so by morning “what fell over at night” is gone. “Record this cluster's events” — while OpsDeck runs it watches events of all namespaces and keeps them for a week; repeats fold into one row (×N). At the top — what fell over most in 24 h (click to filter); a row opens its message and “⇢ AI”.</li>
         <li><b>Kubeconfig folders</b> (⚙ → Kubernetes, like in Freelens): every kubeconfig in the folder (and subfolders two levels deep) is listed as clusters marked “folder” and read in place — a new file shows up after ⟳ or the next time the section opens.</li>
         <li>The <b>label filter</b> next to the plain one works like <code>kubectl -l</code>: <code>app=api</code>, <code>tier!=db</code>, <code>env in (prod,stage)</code>, <code>!canary</code>; terms separated by commas. <b>Nodes</b>: CPU and RAM refresh every 5 s — a usage bar and a chart of the last samples (metrics-server needed).</li>
@@ -62,7 +69,12 @@ export const HELP_EN: Record<string, { title: string; html: string }> = {
         <li>Buttons on the right of the panel: Shell, Port-forward, Scale, Restart, Delete; for Helm — Rollback/Uninstall, for Argo CD — Refresh/Sync.</li>
         <li>Pods and nodes have CPU/RAM columns (needs metrics-server).</li>
         <li>A pod stuck in <b>Terminating</b> (its node is offline): Delete explains why and offers <b>Force delete</b>.</li>
-      </ul>
+      
+      <li><b>If the connection to the cluster drops</b>, the table dims and a line at the top gives the reason and the time the data is from: an old snapshot on screen is easy to mistake for your changes being rolled back. In YAML, after “Apply” the object is read back, and if that fails it says so instead of silently showing the old text.</li>
+      <li><b>Sorting</b> — click a column header. For load (CPU, RAM) and age the first click puts the largest on top, and the arrow in the header shows the direction. On nodes these columns sort by the share of capacity rather than by gigabytes: a node at 100% matters more than one with more bytes used but room to spare.</li>
+      <li><b>Several namespaces</b> — the ones you pick become chips next to the list: click to switch, × to remove. They are remembered per context, eight at a time.</li>
+      <li><b>From the keyboard</b>: ${kbd("↑")} / ${kbd("↓")} — row, ${kbd("Enter")} — details, ${kbd("Space")} — mark for bulk actions, ${kbd("Alt+↑")} / ${kbd("Alt+↓")} — previous and next kind on the left. ${kbd("Ctrl+Shift+1")}…${kbd("Ctrl+Shift+9")} switch modules (9 is the last in the column).</li>
+      <li><b>A chart above the logs</b> — how many lines were in each slice of time, errors in red, warnings in yellow. A click on a bar keeps only its lines, a second click clears it. The “chart” tick hides it altogether.</li></ul>
       <h4>Tips</h4>
       <ul><li>Put 🔒 on prod — the backend itself blocks changes, a stray click breaks nothing.</li>
       <li>Deleting always asks you to type the object's name.</li></ul>`,
@@ -133,6 +145,38 @@ export const HELP_EN: Record<string, { title: string; html: string }> = {
       <li>For DNS you can set the record type and the server (e.g. 8.8.8.8), for ping/mtr — the packet count.</li>
       <li><b>Stop</b> interrupts a long command.</li></ul>`,
   },
+  yc: {
+    title: "Yandex Cloud",
+    html: `
+      <h4>What it is</h4>
+      <p>The cloud at a glance: instances, networks, security groups, public addresses, service accounts with their roles, and billing accounts. OpsDeck works through the cloud's own <code>yc</code> CLI and its profiles (<code>yc init</code>), so it <b>stores no tokens and no service-account keys</b> — everything comes from your own login.</p>
+      <h4>What you need</h4>
+      <ul><li>The module is enabled with a tick in the ⊞ menu at the bottom of the left column.</li>
+      <li><code>yc</code> with <code>yc init</code> done. OpsDeck looks for it in PATH and where the installer puts it (<code>~/yandex-cloud/bin</code>, <code>~/.local/bin</code>, <code>/usr/local/bin</code>, <code>/snap/bin</code>): an app started from the menu does not read <code>~/.bashrc</code>, where the installer appends to PATH. If it lives somewhere else — the “Set the path to yc…” button under the header. With several profiles a list appears at the top — switching changes the CLI's own active profile.</li>
+      <li>Pick the <b>cloud</b> and the <b>folder</b> at the top; everything below is shown for that folder.</li></ul>
+      <h4>What's where</h4>
+      <ul><li><b>Instances</b> — status, zone, configuration (platform, vCPU with core fraction, memory, “preemptible”) and addresses. Start, stop and restart ask for confirmation: these are real machines. <b>SSH</b> opens a terminal tab with the public address, or the internal one when there is none.</li>
+      <li><b>Networks</b> — subnets grouped by network: zone, addresses, route table.</li>
+      <li><b>Security groups</b> — rules in plain words: direction, protocol, ports and where from (addresses, “the same group”, another group, load-balancer health checks). A group with no rules lets nothing through.</li>
+      <li><b>Addresses</b> — public addresses; a reserved address that is not in use is marked, as it is billed.</li>
+      <li><b>Access</b> — the folder's service accounts and the roles granted on the folder.</li>
+      <li><b>Billing</b> — billing accounts with their balance (visible if the profile has rights to them).</li></ul>`,
+  },
+  sftp: {
+    title: "Files on hosts",
+    html: `
+      <h4>What it is</h4>
+      <p>Two panes for exchanging files (#78): each one is either this machine or a host over SSH. Select files and press <b>→</b> or <b>←</b>. It works through the system <code>sftp</code> and <code>scp</code> — the same OpenSSH the terminal uses, so <code>~/.ssh/config</code>, ProxyJump and keys all apply.</p>
+      <h4>How to use it</h4>
+      <ul><li>The module is enabled with a tick in the ⊞ menu at the bottom of the left column.</li>
+      <li>At the top of a pane — <b>where to look</b> (this machine, an SSH profile, a host from ~/.ssh/config); the path can be typed in, ↑ goes up, a double click on a folder enters it.</li>
+      <li>A click on a column header changes the order: by name, size or modification date; folders always come first. For date and size the first click puts the newest and the largest on top.</li>
+      <li>After a copy, what was transferred is selected in the receiving pane — you see at once what arrived.</li>
+      <li>A click selects, ${kbd("Ctrl")}+click adds to the selection. At the bottom — create a folder, rename, delete (a folder goes with its contents).</li>
+      <li><b>Host → host</b> goes through <code>scp -3</code>: OpsDeck runs both connections, so the hosts don't need to see each other and the keys stay with you. If a host has a non-standard port, its own key or a jump host, scp cannot split the options between the ends — download the files to yourself first, then upload them.</li></ul>
+      <h4>Login</h4>
+      <p>By key only (<code>BatchMode</code>): <code>sftp</code> reads a password from the terminal, and in batch mode there is nowhere to get it. If a host asks for a password — add a key (<code>ssh-copy-id</code>) or set one in the SSH profile. The host key must already be accepted: connect to it once from the terminal.</p>`,
+  },
   monitor: {
     title: "Host monitoring",
     html: `
@@ -142,6 +186,8 @@ export const HELP_EN: Record<string, { title: string; html: string }> = {
       <ul><li>The module is turned on with a checkbox in the ⊞ menu at the bottom of the left column.</li>
       <li><b>＋ Hosts</b> — choose profiles from the SSH section and hosts from ~/.ssh/config; the choice is remembered. Host groups become sections of the board.</li>
       <li>“Refresh” — how often to poll (or by hand with ⟳). While the section is not open, hosts are not polled.</li>
+      <li><b>The order of the cards</b> is set by dragging them. Until the board is rearranged, hosts in a group go by name (1, 2, 10); after the first drag the order is yours and is remembered.</li>
+      <li><b>%</b> at the top switches RAM and disk between gigabytes and percentages.</li>
       <li>A group can be folded (▾): a summary by colour stays and its hosts are not polled. × on a card or a group takes it off the board — SSH profiles stay.</li></ul>
       <h4>How metrics are collected</h4>
       <p>Over ssh without a password: a key login (ssh-agent, IdentityFile) or a session already open in OpsDeck is needed. The connection is kept for 2 minutes and reused, so the next poll is cheap. /proc and df are read — Linux only. If a host has never been connected to, accept its key: connect once from the terminal.</p>`,
@@ -150,9 +196,9 @@ export const HELP_EN: Record<string, { title: string; html: string }> = {
     title: "SSH",
     html: `
       <h4>How it works</h4>
-      <p>“Connect” opens a terminal tab with ssh. Hosts from ~/.ssh/config connect by alias with all their settings (keys, ProxyJump).</p>
+      <p>“Connect”, or a double click on the row, opens a terminal tab with ssh. Hosts from ~/.ssh/config connect by alias with all their settings (keys, ProxyJump).</p>
       <h4>What's where</h4>
-      <ul><li><b>＋ Host</b> — your own profile: address, port, user, key (-i), jump host (-J), login method.</li>
+      <ul><li><b>＋ Host</b> — your own profile: address, port, user, key (-i), jump host (-J), login method. If the key's permissions are wider than ssh allows, it says so under the field, with a “Fix permissions” button next to it.</li>
       <li>A password from KeePass/Passbolt/keyring goes to the clipboard for 30 seconds — paste with ${kbd("Ctrl+Shift+V")} when ssh asks.</li>
       <li><b>Groups</b> — collapsible blocks. For your own profile the group is set in ✎, for a host from ~/.ssh/config — with the 📁 button (OpsDeck keeps it to itself and doesn't change the ssh config) or with a <code># group: prod</code> comment on the line above <code>Host</code>. ✎ in a group header renames the whole group.</li>
       <li><b>⧉</b> on a host from ~/.ssh/config — save as a profile to bind a KeePass password.</li>
@@ -170,11 +216,15 @@ export const HELP_EN: Record<string, { title: string; html: string }> = {
         <li><b>Right-click in the tree</b> — a new file or folder here, rename, copy and paste (a taken name gets “copy”), delete. There is no trash — deleted files come back only from git, so OpsDeck asks first. Open tabs follow a rename. It works only inside the project folder.</li>
         <li><b>⇢ AI</b> at the bottom right — ask the AI about the file (or the selection), about the project (structure and <code>git status</code>) or to review the changes (<code>git diff</code>). The text goes to the terminal's AI panel — the chosen agent or the local AI; you add the question and send it.</li>
         <li>${kbd("Ctrl+S")} — save. If the file was changed outside after it was opened, OpsDeck asks whether to overwrite it.</li>
+        <li><b>Several projects.</b> The open ones are chips above the tree: a click switches, × closes. Each keeps its own open files, expanded folders and current file — nothing is lost when you switch.</li>
+        <li><b>Search across the project</b> — the ⌘ button at the top left or ${kbd("Ctrl+Shift+F")} outside the editor: plain text or a regular expression, case-sensitive by a checkbox. Hits are grouped by file and a click opens that line. Build output and other people's code (.git, node_modules, target, dist, .terraform, vendor…), binary files and anything over 2 MB are skipped; the first 500 hits are shown.</li>
+        <li>${kbd("Ctrl+W")} closes the tab (a pane in the terminal), not the application window. ${kbd("Ctrl+Z")}, ${kbd("Ctrl+Shift+Z")}, ${kbd("Ctrl+Y")}, ${kbd("Ctrl+A")}, ${kbd("Ctrl+D")} and ${kbd("Ctrl+/")} work on any keyboard layout.</li>
         <li>${kbd("Ctrl+F")} — find and replace (like ${kbd("Ctrl+S")}, it works on any keyboard layout, and from the tree too), ${kbd("Ctrl+/")} — comment out, ${kbd("Tab")} / ${kbd("Shift+Tab")} — indent.</li>
         <li><b>▭ console</b> at the bottom (${kbd("Ctrl+`")}) — a terminal right in the project folder: ↻ restart, ⧉ open this folder in a terminal tab. When the project changes, the console runs <code>cd</code> itself — if nothing is running in it (otherwise OpsDeck says so and does not type a command into a program).</li>
         <li><b>Panel sizes</b> — drag the borders between the tree, the editor, the console and the git panel; double-click a border — back to the default size. Sizes are remembered.</li>
         <li><b>⛓ pipeline</b> at the bottom right (the button appears when the project has <code>.gitlab-ci.yml</code> or <code>.github/workflows</code>) — the pipeline graph: columns are stages (for GitHub, the order from <code>needs</code>), cards are jobs. At the top you pick the <b>event</b> (push, merge request, tag, schedule, started by hand), the <b>branch</b>, the list of <b>changed files</b> (for <code>rules:changes</code> and <code>on: paths</code>) and variables. Card colour: green — runs, yellow — only by hand, grey — does not run, purple — unknown (the condition depends on what the file does not hold). A click on a job shows which rule matched, “In the file” opens its line, “⇢ AI” sends the job with its condition to the AI panel. The <b>compare with</b> checkbox shows what another branch would change. <code>include: local</code>, <code>extends</code>, YAML anchors and <code>!reference</code> are resolved; this reads the files, it is not the server — project variables, protected branches and child pipelines are not visible here.</li>
         <li><b>⎇ git</b> at the bottom right — the git panel: changed files (click — diff, double-click — open the file), the commit box (<b>Commit all</b> = <code>git add -A</code> + commit, ${kbd("Ctrl+Enter")}) and the commit graph of all branches (click — the whole commit).</li>
+        <li><b>A yellow bar to the left of a line</b> — that line has not been pushed to the remote branch yet (compared with <code>@{upstream}</code>, or with <code>origin/HEAD</code> for a local-only branch). It refreshes on save, on switching tabs and after git operations.</li>
         <li><b>Branches</b> — the button with the branch name at the top of the git panel: click a branch — switch (a remote one becomes a local tracking branch), <b>＋ New branch</b> — from the current one, on hover <b>⤵</b> — merge into the current one, <b>×</b> — delete (OpsDeck asks again for an unmerged one). <b>⟳</b> fetch, <b>↓</b> pull (fast-forward only), <b>↑</b> push (a new branch goes with <code>-u origin</code>). Open files are re-read after switching; if they have unsaved edits, OpsDeck warns you.</li>
         <li>In the terminal's “Files” panel and with ${kbd("Ctrl")}+click on a path in the output, files open here if “OpsDeck IDE” is chosen there.</li>
       </ul>

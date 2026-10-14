@@ -62,6 +62,25 @@ test.describe("IDE tree: rename, copy, delete", () => {
   });
 });
 
+test.describe("IDE: lines not pushed yet", () => {
+  // видно, что ещё не ушло в удалённую ветку, прямо в редакторе (из пожеланий)
+  test("the lines git reports as unpushed are marked, another file stays clean", async ({ app, page }) => {
+    await openProject(app, page);
+    await page.evaluate((p) => window.dispatchEvent(new CustomEvent("open-in-code", { detail: { path: p + "/main.tf" } })), PROJ);
+    await expect(page.locator(".cm-content")).toContainText('module "cluster"');
+    expect((await app.called("code_unpushed")).args).toEqual({ root: PROJ, file: "main.tf" });
+    // ханки 2–3 и 6 из git diff --unified=0
+    await expect.poll(async () => page.locator(".cm-line.cm-unpushed").count()).toBe(3);
+    const marked = await page.locator(".cm-content .cm-line").evaluateAll((els) =>
+      els.map((e, i) => (e.classList.contains("cm-unpushed") ? i + 1 : 0)).filter(Boolean));
+    expect(marked).toEqual([2, 3, 6]);
+
+    // в другом файле ничего не помечено
+    await page.evaluate((p) => window.dispatchEvent(new CustomEvent("open-in-code", { detail: { path: p + "/variables.tf" } })), PROJ);
+    await expect.poll(async () => page.locator(".cm-line.cm-unpushed").count()).toBe(0);
+  });
+});
+
 test.describe("IDE keys on the Russian layout", () => {
   test("Ctrl+F opens the search, Ctrl+S saves (physical keys, not letters)", async ({ app, page }) => {
     await openProject(app, page);
@@ -126,5 +145,125 @@ test.describe("IDE → AI", () => {
     sent = await page.evaluate(() => (window as any).__sent);
     expect(sent).toContain("feature/monitoring");
     expect(sent).toContain("main.tf");
+  });
+});
+
+test.describe("IDE: standard shortcuts on any layout", () => {
+  const press = (page: import("@playwright/test").Page, key: string, code: string, shift = false) =>
+    page.evaluate(([k, c, sh]) => {
+      document.querySelector(".cm-content")!.dispatchEvent(
+        new KeyboardEvent("keydown", { key: k as string, code: c as string, ctrlKey: true, shiftKey: !!sh, bubbles: true, cancelable: true }));
+    }, [key, code, shift] as const);
+
+  test("Ctrl+Z and Ctrl+Shift+Z work with a Russian layout (#79)", async ({ app, page }) => {
+    await app.view("code");
+    await page.evaluate((p) => window.dispatchEvent(new CustomEvent("open-in-code", { detail: { path: p } })), "/home/demo/projects/infra/main.tf");
+    await expect(page.locator(".cm-content")).toContainText('module "cluster"');
+    await page.locator(".cm-content").click();
+    await page.keyboard.type("# добавил строку");
+    await expect(page.locator(".cm-content")).toContainText("# добавил строку");
+    // "я" is what Ctrl+Z types on the Russian layout
+    await press(page, "я", "KeyZ");
+    await expect(page.locator(".cm-content")).not.toContainText("# добавил строку");
+    await press(page, "Я", "KeyZ", true);
+    await expect(page.locator(".cm-content")).toContainText("# добавил строку");
+    // Ctrl+Y redoes too, also by the physical key
+    await press(page, "я", "KeyZ");
+    await press(page, "н", "KeyY");
+    await expect(page.locator(".cm-content")).toContainText("# добавил строку");
+  });
+
+  test("Ctrl+A selects the whole file on any layout", async ({ app, page }) => {
+    await app.view("code");
+    await page.evaluate((p) => window.dispatchEvent(new CustomEvent("open-in-code", { detail: { path: p } })), "/home/demo/projects/infra/main.tf");
+    await expect(page.locator(".cm-content")).toContainText("terraform");
+    await page.locator(".cm-content").click();
+    await press(page, "ф", "KeyA");
+    expect(await page.evaluate(() => (window.getSelection()?.toString() ?? "").length)).toBeGreaterThan(100);
+  });
+});
+
+test.describe("Ctrl+W closes a tab, not the window (#79)", () => {
+  test("IDE: the open file closes", async ({ app, page }) => {
+    await app.view("code");
+    for (const f of ["main.tf", "variables.tf"]) {
+      await page.evaluate((p) => window.dispatchEvent(new CustomEvent("open-in-code", { detail: { path: p } })), `/home/demo/projects/infra/${f}`);
+    }
+    await expect(page.locator(".code-tab")).toHaveCount(2);
+    await page.keyboard.press("Control+KeyW");
+    await expect(page.locator(".code-tab")).toHaveCount(1);
+  });
+
+  test("terminal: the pane closes", async ({ app, page }) => {
+    await app.view("terminal");
+    await page.keyboard.press("Control+Shift+KeyD");
+    await expect(page.locator(".term-host:not([hidden]) .pane")).toHaveCount(2);
+    await page.keyboard.press("Control+KeyW");
+    await expect(page.locator(".term-host:not([hidden]) .pane")).toHaveCount(1);
+  });
+});
+
+test.describe("IDE: search across the project", () => {
+  const openProj = async (app: any, page: any) => {
+    await app.view("code");
+    await page.evaluate(() => window.dispatchEvent(new CustomEvent("open-in-code", { detail: { path: "/home/demo/projects/infra" } })));
+    await expect(page.locator(".code-tree")).toContainText("main.tf");
+  };
+
+  test("hits are grouped by file and a click opens the line", async ({ app, page }) => {
+    await openProj(app, page);
+    await page.locator("[data-a=find]").click();
+    await page.locator(".cf-q").fill("module");
+    await expect(page.locator(".cf-file")).toHaveCount(1);
+    await expect(page.locator(".cf-state")).toContainText("в 1 файлах");
+    const call = await app.called("code_search");
+    expect(call.args).toMatchObject({ root: "/home/demo/projects/infra", regex: false, caseSensitive: false });
+    await page.locator(".cf-hit").first().click();
+    await expect(page.locator(".code-tab", { hasText: "main.tf" })).toBeVisible();
+  });
+
+  test("the regex and case switches reach the backend; Escape closes", async ({ app, page }) => {
+    await openProj(app, page);
+    await page.locator("[data-a=find]").click();
+    await page.locator(".cf-q").fill("modu.e");
+    await expect(page.locator(".cf-state")).toContainText("ничего не найдено");
+    await page.locator(".cf-re").check();
+    await expect(page.locator(".cf-file")).toHaveCount(1);
+    await expect.poll(async () => (await app.calls("code_search")).at(-1)?.args.regex).toBe(true);
+    await page.locator(".cf-q").press("Escape");
+    await expect(page.locator(".code-find")).toBeHidden();
+  });
+});
+
+test.describe("IDE: several projects (#79)", () => {
+  test("switching keeps each project's open files", async ({ app, page }) => {
+    await app.view("code");
+    await page.evaluate(() => window.dispatchEvent(new CustomEvent("open-in-code", { detail: { path: "/home/demo/projects/infra" } })));
+    await expect(page.locator(".code-tree")).toContainText("main.tf");
+    await page.evaluate(() => window.dispatchEvent(new CustomEvent("open-in-code", { detail: { path: "/home/demo/projects/infra/main.tf" } })));
+    await expect(page.locator(".code-tab", { hasText: "main.tf" })).toBeVisible();
+
+    // a second project: its own tree and no tabs from the first one
+    await page.evaluate(() => window.dispatchEvent(new CustomEvent("open-in-code", { detail: { path: "/home/demo/projects/infra/helm" } })));
+    await expect(page.locator(".code-proj-chip")).toHaveCount(2);
+    await expect(page.locator(".code-proj-chip.active")).toContainText("helm");
+    await expect(page.locator(".code-tab")).toHaveCount(0);
+
+    // back to the first: the file is open again
+    await page.locator(".code-proj-chip", { hasText: "infra" }).first().click();
+    await expect(page.locator(".code-proj-chip.active")).toContainText("infra");
+    await expect(page.locator(".code-tab", { hasText: "main.tf" })).toBeVisible();
+  });
+
+  test("a project can be closed by its ×", async ({ app, page }) => {
+    await app.view("code");
+    for (const p of ["/home/demo/projects/infra", "/home/demo/projects/infra/helm"]) {
+      await page.evaluate((x) => window.dispatchEvent(new CustomEvent("open-in-code", { detail: { path: x } })), p);
+      await expect(page.locator(".code-tree .ct-row").first()).toBeVisible();
+    }
+    await expect(page.locator(".code-proj-chip")).toHaveCount(2);
+    await page.locator(".code-proj-chip", { hasText: "helm" }).locator(".x").click();
+    await expect(page.locator(".code-projects")).toBeHidden(); // one project left: the row hides
+    await expect(page.locator(".code-proj")).toContainText("infra");
   });
 });

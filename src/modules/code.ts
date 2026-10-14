@@ -1,6 +1,6 @@
 import { relTo } from "./paths";
 import { eolOf, toLf, withEol, type Eol } from "./eol";
-import { locale } from "../i18n";
+import { locale, t } from "../i18n";
 import { helpBtn } from "./help";
 import { icon } from "./icons";
 import { invoke } from "@tauri-apps/api/core";
@@ -14,12 +14,12 @@ import { diffContext, fileContext, projectContext } from "./aictx";
 import { attachPathLinks } from "./files";
 import { fileIcon, folderIcon } from "./fileicons";
 import { basicSetup } from "codemirror";
-import { EditorView, keymap } from "@codemirror/view";
-import { Compartment, EditorState, Prec, type Extension } from "@codemirror/state";
-import { openSearchPanel } from "@codemirror/search";
+import { Decoration, EditorView, keymap, type DecorationSet } from "@codemirror/view";
+import { Compartment, EditorState, Prec, StateEffect, StateField, type Extension } from "@codemirror/state";
+import { openSearchPanel, selectNextOccurrence } from "@codemirror/search";
 import { StreamLanguage, indentUnit } from "@codemirror/language";
 import { linter, lintGutter, type Diagnostic } from "@codemirror/lint";
-import { indentWithTab } from "@codemirror/commands";
+import { indentWithTab, redo, selectAll, toggleComment, undo } from "@codemirror/commands";
 import { oneDark } from "@codemirror/theme-one-dark";
 import { javascript } from "@codemirror/lang-javascript";
 import { json, jsonParseLinter } from "@codemirror/lang-json";
@@ -104,6 +104,29 @@ function languageFor(path: string): { ext: Extension; name: string } {
 }
 
 /** YAML: syntax errors and warnings for every document in the file. */
+/** Строки, которых ещё нет в удалённой ветке (git diff с @{upstream}): полоса слева от строки. */
+const setUnpushed = StateEffect.define<[number, number][]>();
+const unpushedLine = Decoration.line({ class: "cm-unpushed" });
+/** разумный предел: новый файл целиком — это весь документ, подсвечивать каждую строку незачем */
+const MAX_UNPUSHED_LINES = 5000;
+
+const unpushedField = StateField.define<DecorationSet>({
+  create: () => Decoration.none,
+  update(set, tr) {
+    const eff = tr.effects.find((e) => e.is(setUnpushed));
+    if (!eff) return set.map(tr.changes);
+    const doc = tr.state.doc;
+    const marks = [];
+    for (const [a, b] of eff.value as [number, number][]) {
+      for (let n = Math.max(1, a); n <= Math.min(b, doc.lines) && marks.length < MAX_UNPUSHED_LINES; n++) {
+        marks.push(unpushedLine.range(doc.line(n).from));
+      }
+    }
+    return Decoration.set(marks, true);
+  },
+  provide: (f) => EditorView.decorations.from(f),
+});
+
 function yamlLint(view: EditorView): Diagnostic[] {
   const text = view.state.doc.toString();
   const out: Diagnostic[] = [];
@@ -134,11 +157,25 @@ export function mountCode(root: HTMLElement) {
         <span class="row">
           <button class="icon" data-a="open" title="Выбрать папку проекта (весь проект откроется деревом слева)">${icon("folderOpen", 16)}</button>
           <button class="icon" data-a="from-term" title="Открыть папку, в которой сейчас терминал">⌁</button>
+          <button class="icon" data-a="find" title="Поиск по всем файлам проекта (Ctrl+Shift+F)">${icon("command", 16)}</button>
           <button class="icon" data-a="new-file" title="Новый файл в проекте">${icon("plus", 16)}</button>
           <button class="icon" data-a="refresh" title="Обновить">${icon("refresh", 16)}</button>
           ${helpBtn("code")}
         </span></div>
+      <div class="code-projects" hidden></div>
       <select class="code-recent" title="Недавние проекты"><option value="">Недавние проекты…</option></select>
+      <div class="code-find" hidden>
+        <div class="row">
+          <input class="cf-q" placeholder="искать в проекте…" spellcheck="false" />
+          <button class="icon" data-a="find-close" title="Закрыть поиск">${icon("close", 14)}</button>
+        </div>
+        <div class="row muted cf-opts">
+          <label class="check" title="Регулярное выражение, как в grep -E"><input type="checkbox" class="cf-re" /> .*</label>
+          <label class="check" title="Учитывать регистр"><input type="checkbox" class="cf-case" /> Aa</label>
+          <span class="spacer"></span><span class="cf-state"></span>
+        </div>
+        <div class="cf-hits"></div>
+      </div>
       <div class="code-tree"></div>
     </aside>
     <div class="code-split" data-split="side" title="Потяните, чтобы изменить ширину"></div>
@@ -189,7 +226,7 @@ export function mountCode(root: HTMLElement) {
 
   const $ = <T extends HTMLElement = HTMLElement>(s: string) => root.querySelector<T>(s)!;
   const treeEl = $(".code-tree"), tabsEl = $(".code-tabs"), host = $(".code-editor"), empty = $(".code-empty"), pipeEl = $(".code-pipe");
-  const gitPanel = $(".code-git"), recentSel = $<HTMLSelectElement>(".code-recent");
+  const gitPanel = $(".code-git"), recentSel = $<HTMLSelectElement>(".code-recent"), projectsEl = $(".code-projects");
 
   let project = ls.get("opsdeck.code.root") ?? "";
   let git: Git = { root: "", branch: "", files: {} };
@@ -230,17 +267,27 @@ export function mountCode(root: HTMLElement) {
     return [
       basicSetup,
       oneDark,
+      unpushedField,
       indentUnit.of("  "),
       keymap.of([indentWithTab]),
-      // by physical key (event.code): CodeMirror's own bindings go by the typed letter, so Ctrl+S / Ctrl+F
-      // did nothing on the Russian layout
+      // By physical key (event.code): CodeMirror binds by the typed letter, so on the Russian layout
+      // Ctrl+Z, Ctrl+F, Ctrl+S and the rest did nothing at all.
       Prec.highest(EditorView.domEventHandlers({
         keydown(e, v) {
           if (!(e.ctrlKey || e.metaKey) || e.altKey) return false;
-          if (e.code === "KeyS" && !e.shiftKey) save();
-          else if (e.code === "KeyF" && e.shiftKey) fmt();
-          else if (e.code === "KeyF") openSearchPanel(v);
-          else return false;
+          const shift = e.shiftKey;
+          const run = (cmd: (v: EditorView) => boolean) => { cmd(v); return true; };
+          const done = e.code === "KeyS" && !shift ? (save(), true)
+            : e.code === "KeyF" && shift ? (fmt(), true)
+            : e.code === "KeyF" ? run(openSearchPanel)
+            : e.code === "KeyZ" && shift ? run(redo)
+            : e.code === "KeyZ" ? run(undo)
+            : e.code === "KeyY" ? run(redo)
+            : e.code === "KeyA" ? run(selectAll)
+            : e.code === "KeyD" ? run(selectNextOccurrence)
+            : e.code === "Slash" ? run(toggleComment)
+            : false;
+          if (!done) return false;
           e.preventDefault();
           return true;
         },
@@ -254,6 +301,14 @@ export function mountCode(root: HTMLElement) {
       roC.of(EditorState.readOnly.of(t.readonly)),
       EditorView.theme({ "&": { height: "100%", fontSize: "13px" }, ".cm-scroller": { fontFamily: "'JetBrains Mono', 'Fira Code', monospace" } }),
     ];
+  }
+
+  /** Что в этом файле ещё не отправлено в удалённую ветку: спрашиваем git и красим строки. */
+  async function loadUnpushed(t: Tab | null) {
+    if (!t) return;
+    const rel = t.path ? relToGit(t.path) : null;
+    const ranges = !rel || !git.root ? [] : await invoke<[number, number][]>("code_unpushed", { root: git.root, file: rel }).catch(() => []);
+    if (active === t) view.dispatch({ effects: setUnpushed.of(ranges) });
   }
 
   const isDirty = (t: Tab) => !t.readonly && (t === active ? view.state : t.state).doc.toString() !== t.saved;
@@ -290,8 +345,10 @@ export function mountCode(root: HTMLElement) {
     tfErrors = [];
     syncStatus();
     syncPos();
+    loadUnpushed(t);
     ls.set("opsdeck.code.tabs", JSON.stringify(tabs.filter((x) => x.path).map((x) => x.path)));
     ls.set("opsdeck.code.active", t?.path ?? "");
+    saveProjectState();
   }
 
   function addTab(id: string, title: string, path: string | null, text: string, mtime: number, readonly: boolean, langOverride?: Extension): Tab {
@@ -374,6 +431,7 @@ export function mountCode(root: HTMLElement) {
       markDirty(t);
       toast(`Сохранено: ${t.title}`);
       refreshGit();
+      loadUnpushed(t);
     } catch (e) {
       if (String(e).startsWith("CONFLICT")) {
         const choice = await ask("Файл изменён на диске", `«${t.title}» поменялся снаружи после открытия. Перезаписать своей версией?`, { ok: "Перезаписать", danger: true });
@@ -454,10 +512,69 @@ export function mountCode(root: HTMLElement) {
     ls.set("opsdeck.code.expanded", JSON.stringify([...expanded]));
   });
 
+  /** Open projects (#79): switching keeps each one's files, tree and chosen file. */
+  type ProjectState = { tabs: string[]; active: string; expanded: string[] };
+  let open: string[] = (() => { try { return JSON.parse(ls.get("opsdeck.code.projects") ?? "[]") as string[]; } catch { return []; } })();
+  const stateKey = (p: string) => `opsdeck.code.state:${p}`;
+  /** While switching, the tabs of the old project are closed and the new ones are not open yet: saving then
+   *  would wipe what we are about to restore. */
+  let switching = false;
+  const saveProjectState = () => {
+    if (!project || switching) return;
+    const st: ProjectState = { tabs: tabs.filter((x) => x.path).map((x) => x.path!), active: active?.path ?? "", expanded: [...expanded] };
+    ls.set(stateKey(project), JSON.stringify(st));
+  };
+  const readProjectState = (p: string): ProjectState => {
+    try { return JSON.parse(ls.get(stateKey(p)) ?? "") as ProjectState; } catch { return { tabs: [], active: "", expanded: [] }; }
+  };
+
+  function drawProjects() {
+    projectsEl.hidden = open.length < 2;
+    projectsEl.innerHTML = open.map((p) => `<button class="code-proj-chip ${p === project ? "active" : ""}" data-p="${esc(p)}" title="${esc(p)}">
+      <span class="label">${esc(base(p))}</span><span class="x" title="${esc(t("Закрыть проект"))}">×</span></button>`).join("");
+  }
+  projectsEl.addEventListener("click", (e) => {
+    const chip = (e.target as HTMLElement).closest<HTMLElement>("[data-p]");
+    if (!chip) return;
+    const p = chip.dataset.p!;
+    if ((e.target as HTMLElement).classList.contains("x")) {
+      open = open.filter((x) => x !== p);
+      ls.set("opsdeck.code.projects", JSON.stringify(open));
+      try { localStorage.removeItem(stateKey(p)); } catch { /* ignore */ }
+      if (p === project) {
+        const next = open[0];
+        project = ""; // the closed project must not have its state written back
+        drawProjects();
+        if (next) setProject(next);
+      }
+      else drawProjects();
+      return;
+    }
+    if (p !== project) setProject(p);
+  });
+
   async function setProject(dir: string) {
     if (!dir) return;
-    project = dir.replace(/\/+$/, "") || "/";
+    const next = dir.replace(/\/+$/, "") || "/";
+    if (next === project) return;
+    // remember where we were, then come back to the other project exactly as it was
+    saveProjectState();
+    switching = true;
+    const prev = project;
+    project = next;
+    if (prev) {
+      // close the files of the project we are leaving
+      for (const tb of [...tabs]) { tabs.splice(tabs.indexOf(tb), 1); tb.btn.remove(); }
+      active = null;
+      activate(null);
+    }
+    expanded.clear();
     ls.set("opsdeck.code.root", project);
+    if (!open.includes(project)) open.push(project);
+    ls.set("opsdeck.code.projects", JSON.stringify(open));
+    drawProjects();
+    const st = readProjectState(project);
+    st.expanded.forEach((d) => expanded.add(d));
     const recent = [project, ...((JSON.parse(ls.get("opsdeck.code.recent") ?? "[]") as string[]).filter((x) => x !== project))].slice(0, 12);
     ls.set("opsdeck.code.recent", JSON.stringify(recent));
     fillRecent();
@@ -465,6 +582,14 @@ export function mountCode(root: HTMLElement) {
     await loadTree();
     if (!gitPanel.hidden) drawGit();
     followConsole();
+    // reopen that project's files
+    for (const p of st.tabs) {
+      const r = await invoke<{ text: string; mtime: number }>("code_read", { path: p }).catch(() => null);
+      if (r) addTab(p, base(p), p, r.text, r.mtime, false);
+    }
+    switching = false;
+    const act = tabs.find((x) => x.path === st.active) ?? tabs[0] ?? null;
+    activate(act ?? null);
   }
   function fillRecent() {
     const recent = JSON.parse(ls.get("opsdeck.code.recent") ?? "[]") as string[];
@@ -599,6 +724,61 @@ export function mountCode(root: HTMLElement) {
     popupMenu({ left: e.clientX, top: e.clientY, bottom: e.clientY }, items);
   });
   $("[data-a=fmt]").onclick = () => fmt();
+
+  // ----- search across the project: results grouped by file, a click opens the line -----
+  type Hit = { path: string; line: number; text: string };
+  const findBox = $(".code-find"), findIn = $<HTMLInputElement>(".cf-q"), findHits = $(".cf-hits"), findState = $(".cf-state");
+  const findRe = $<HTMLInputElement>(".cf-re"), findCase = $<HTMLInputElement>(".cf-case");
+  let findSeq = 0;
+
+  function toggleFind(show = findBox.hidden) {
+    findBox.hidden = !show;
+    if (show) { findIn.focus(); findIn.select(); } else { findHits.innerHTML = ""; }
+  }
+
+  async function runFind() {
+    const query = findIn.value;
+    const seq = ++findSeq;
+    if (!project) return;
+    if (query.trim().length < 2) { findHits.innerHTML = ""; findState.textContent = ""; return; }
+    findState.textContent = t("ищу…");
+    let hits: Hit[];
+    try {
+      hits = await invoke<Hit[]>("code_search", { root: project, query, regex: findRe.checked, caseSensitive: findCase.checked });
+    } catch (e) {
+      if (seq !== findSeq) return;
+      findState.textContent = "";
+      findHits.innerHTML = `<p class="err pad">${esc(String(e))}</p>`;
+      return;
+    }
+    if (seq !== findSeq) return; // a newer search already runs
+    const byFile = new Map<string, Hit[]>();
+    for (const h of hits) byFile.set(h.path, [...(byFile.get(h.path) ?? []), h]);
+    findState.textContent = hits.length
+      ? `${hits.length}${hits.length >= 500 ? "+" : ""} ${t("в")} ${byFile.size} ${t("файлах")}`
+      : t("ничего не найдено");
+    findHits.innerHTML = [...byFile].map(([file, list]) => `
+      <div class="cf-file"><div class="cf-fname" title="${esc(file)}">${fileIcon(file)} ${esc(file)} <span class="muted">${list.length}</span></div>
+      ${list.map((h) => `<div class="cf-hit" data-f="${esc(file)}" data-l="${h.line}"><span class="muted">${h.line}</span> ${esc(h.text)}</div>`).join("")}</div>`).join("");
+  }
+
+  let findTimer = 0;
+  findIn.addEventListener("input", () => { clearTimeout(findTimer); findTimer = window.setTimeout(runFind, 250); });
+  for (const c of [findRe, findCase]) c.addEventListener("change", runFind);
+  findIn.addEventListener("keydown", (e) => { if (e.key === "Escape") toggleFind(false); });
+  findHits.addEventListener("click", (e) => {
+    const hit = (e.target as HTMLElement).closest<HTMLElement>(".cf-hit");
+    if (hit) openFile(join(project, hit.dataset.f!), Number(hit.dataset.l));
+  });
+  $("[data-a=find]").onclick = () => { toggleFind(); if (!findBox.hidden) runFind(); };
+  $("[data-a=find-close]").onclick = () => toggleFind(false);
+  // Ctrl+Shift+F is terraform fmt in the editor, so project search is on the button and Ctrl+Shift+F outside it
+  window.addEventListener("keydown", (e) => {
+    if (root.hidden || !e.ctrlKey || !e.shiftKey || e.altKey || e.code !== "KeyF") return;
+    if (view.dom.contains(e.target as Node)) return; // inside the editor it formats Terraform
+    e.preventDefault();
+    toggleFind(true);
+  });
 
   // ----- the pipeline graph (GitLab CI / GitHub Actions) -----
   let pipe: Awaited<ReturnType<typeof import("./pipeview")["mountPipeline"]>> | null = null;
@@ -737,6 +917,7 @@ export function mountCode(root: HTMLElement) {
     git = await invoke<Git>("fs_git_status", { path: project }).catch(() => ({ root: "", branch: "", files: {} }));
     if (redraw) drawTree();
     if (!gitPanel.hidden) drawChanges();
+    loadUnpushed(active);
   }
 
   function drawChanges() {
@@ -1023,6 +1204,14 @@ export function mountCode(root: HTMLElement) {
   root.querySelectorAll<HTMLElement>("[data-a=console]").forEach((b) => (b.onclick = () => toggleConsole()));
   $("[data-a=cc-restart]").onclick = () => { con?.dispose(); con = null; startConsole(); con!.term.focus(); };
   $("[data-a=cc-tab]").onclick = () => window.dispatchEvent(new CustomEvent("open-terminal", { detail: { cwd: project || undefined } }));
+  // Ctrl+W closes the open file, not the application window (#79)
+  window.addEventListener("keydown", (e) => {
+    if (root.hidden || !e.ctrlKey || e.shiftKey || e.altKey || e.code !== "KeyW") return;
+    e.preventDefault();
+    if (!pipeEl.hidden) closePipeline();
+    else if (active) closeTab(active);
+  }, true);
+
   // Ctrl+F with the focus outside the editor (the tree, an empty tab bar): search in the open file
   window.addEventListener("keydown", (e) => {
     if (root.hidden || !active || !(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey || e.code !== "KeyF") return;
@@ -1089,6 +1278,8 @@ export function mountCode(root: HTMLElement) {
   const prevTabs = JSON.parse(ls.get("opsdeck.code.tabs") ?? "[]") as string[];
   const prevActive = ls.get("opsdeck.code.active");
   fillRecent();
+  if (project && !open.includes(project)) { open.push(project); ls.set("opsdeck.code.projects", JSON.stringify(open)); }
+  drawProjects();
   activate(null);
   if (ls.get("opsdeck.code.git") === "1") toggleGit(true);
 

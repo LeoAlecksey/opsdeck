@@ -357,6 +357,7 @@ mod tests {
     /// Deleting removes exactly that line, and only while the line is still the task it was.
     #[tokio::test]
     async fn delete_takes_the_right_line() {
+        let _guard = crate::store::SETTINGS_TEST_LOCK.lock();
         let dir = std::env::temp_dir().join(format!("opsdeck-task-del-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();

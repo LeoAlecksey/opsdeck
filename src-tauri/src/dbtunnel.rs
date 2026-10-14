@@ -62,7 +62,20 @@ pub async fn open(state: &TunnelState, id: &str, jump: &str, host: &str, port: u
 
 /// `extra`: more ssh options before the forward (tests point ssh at their own config with `-F`).
 async fn open_with(state: &TunnelState, id: &str, jump: &str, host: &str, port: u16, extra: &[String]) -> Result<u16, String> {
-    let spec = format!("{jump}|{host}|{port}");
+    let dest = sanitize_ssh_args(&crate::ssh::probe_args(jump)?)?;
+    open_dest(state, id, &format!("{jump}|{host}|{port}"), &dest, host, port, extra).await
+}
+
+/// Same tunnel for a destination that is already known as ssh arguments (an open terminal session):
+/// «открыть папку в web» serves the folder on 127.0.0.1 of that host and reaches it through here.
+pub(crate) async fn open_args(state: &TunnelState, id: &str, dest: &[String], host: &str, port: u16) -> Result<u16, String> {
+    let dest = sanitize_ssh_args(dest)?;
+    let spec = format!("{}|{host}|{port}", dest.join(" "));
+    open_dest(state, id, &spec, &dest, host, port, &[]).await
+}
+
+async fn open_dest(state: &TunnelState, id: &str, spec: &str, dest: &[String], host: &str, port: u16, extra: &[String]) -> Result<u16, String> {
+    let spec = spec.to_string();
     let mut map = state.map.lock().await;
     if let Some(t) = map.get_mut(id) {
         if t.spec == spec && matches!(t.child.try_wait(), Ok(None)) {
@@ -70,10 +83,9 @@ async fn open_with(state: &TunnelState, id: &str, jump: &str, host: &str, port: 
         }
         map.remove(id); // dropped: kill_on_drop ends the old ssh
     }
-    let dest = sanitize_ssh_args(&crate::ssh::probe_args(jump)?)?;
     let local = free_port()?;
     let mut cmd = tokio::process::Command::new("ssh");
-    cmd.args(ssh_args(local, host, port, &dest, extra)).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::piped()).kill_on_drop(true);
+    cmd.args(ssh_args(local, host, port, dest, extra)).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::piped()).kill_on_drop(true);
     crate::process::no_console_tokio(&mut cmd);
     let mut child = cmd.spawn().map_err(|e| format!("не удалось запустить ssh: {e}"))?;
     let mut stderr = child.stderr.take();
@@ -103,6 +115,43 @@ async fn open_with(state: &TunnelState, id: &str, jump: &str, host: &str, port: 
     }
     map.insert(id.to_string(), Tunnel { spec, port: local, child });
     Ok(local)
+}
+
+/// «Открыть папку в web»: папка раздаётся `python3 -m http.server` на 127.0.0.1 удалённого хоста
+/// (в сеть не светится), а сюда ведёт локальный порт через ssh -L — его и открывает браузер.
+/// `dest` — аргументы уже открытой сессии ssh (опции и адрес), как их видит `sshTarget`.
+#[tauri::command]
+pub async fn web_share_tunnel(tunnels: tauri::State<'_, TunnelState>, dest: Vec<String>, port: u16) -> Result<u16, String> {
+    if dest.is_empty() {
+        return Err("нет адреса ssh-сессии".into());
+    }
+    open_args(&tunnels, &format!("web:{}", dest.join(" ")), &dest, "127.0.0.1", port).await
+}
+
+/// Отвечает ли раздача через туннель. Просто подключиться к локальному порту мало: его слушает сам
+/// ssh и принимает соединение всегда, даже когда на той стороне никого нет. Поэтому делаем запрос и
+/// ждём ответа — заодно это покрывает секунду-другую, пока python поднимается.
+#[tauri::command]
+pub async fn web_share_ready(port: u16) -> bool {
+    let client = reqwest::Client::builder().timeout(Duration::from_secs(2)).build();
+    let Ok(client) = client else { return false };
+    let url = format!("http://127.0.0.1:{port}/");
+    let until = std::time::Instant::now() + Duration::from_secs(8);
+    loop {
+        if client.get(&url).send().await.is_ok() {
+            return true;
+        }
+        if std::time::Instant::now() >= until {
+            return false;
+        }
+        tokio::time::sleep(Duration::from_millis(300)).await;
+    }
+}
+
+/// Папку больше не раздают: туннель к ней не нужен.
+#[tauri::command]
+pub fn web_share_close(tunnels: tauri::State<'_, TunnelState>, dest: Vec<String>) {
+    close(&tunnels, &format!("web:{}", dest.join(" ")));
 }
 
 /// The profile is gone: its tunnel goes too (skipped if one is being opened right now; it ends with the app).

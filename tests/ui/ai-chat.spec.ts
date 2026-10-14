@@ -88,3 +88,17 @@ test.describe("local AI in the AI panel (from feedback)", () => {
     await expect(page.locator(".ai-chat textarea")).toHaveValue(/Перезапуск воркера/);
   });
 });
+
+// база знаний: что знает локальный ИИ и куда дописать своё
+test.describe("AI knowledge base", () => {
+  test("settings say which tools are covered and open the folder for your own file", async ({ app, page }) => {
+    await app.view("settings");
+    const line = page.locator(".kb-line");
+    await expect(line).toContainText("11 инструментов, 257 команд");
+    await expect(line).toContainText("флаги настоящие");
+    await expect(line).toContainText("kubectl, helm, docker, systemd, terraform, git, clickhouse, kafka, redis, vault, promql");
+    await expect(line.locator(".kb-path")).toHaveText("/home/demo/.config/opsdeck/knowledge.md");
+    await line.locator("[data-a=kb-open]").click();
+    await app.called("kb_open");
+  });
+});

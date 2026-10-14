@@ -103,12 +103,14 @@ function mountAi(el: HTMLElement) {
       }
     } catch (err) { toast(String(err), "err"); }
   });
-  listen<{ stage: string; done: number; total: number }>("ai-progress", (e) => {
+  listen<{ stage: string; done: number; total: number; check?: boolean }>("ai-progress", (e) => {
     const p = e.payload;
     const bar = el.querySelector<HTMLElement>(".ai-prog");
     if (bar) { bar.hidden = false; (bar.firstElementChild as HTMLElement).style.width = p.total ? `${(100 * p.done) / p.total}%` : "5%"; }
     const s = el.querySelector(".ai-stage");
-    if (s) s.textContent = `${p.stage === "engine" ? t("Движок llama.cpp") : `${t("Модель")}: ${t(title)}`} — ${(p.done / 1048576).toFixed(0)}${p.total ? ` / ${(p.total / 1048576).toFixed(0)}` : ""} ${t("МБ")}`;
+    const what = p.stage === "engine" ? t("Движок llama.cpp") : `${t("Модель")}: ${t(title)}`;
+    const how = p.check ? ` — ${t("проверка контрольной суммы")}` : "";
+    if (s) s.textContent = `${what}${how} — ${(p.done / 1048576).toFixed(0)}${p.total ? ` / ${(p.total / 1048576).toFixed(0)}` : ""} ${t("МБ")}`;
   });
   listen("ai-fallback", () => {
     toast("Видеокарта недоступна — локальный ИИ работает на процессоре");
@@ -192,7 +194,9 @@ export function mountSettings(root: HTMLElement) {
         </fieldset>
         <fieldset class="ai-field"><legend>Локальный ИИ</legend>
           <div class="ai-root"></div>
-          <p class="muted hint">Модель и движок llama.cpp скачиваются отдельно (по умолчанию — лёгкая Qwen2.5-Coder 1.5B, ≈1,1 ГБ; для мощных ПК есть модели крупнее, можно указать и свой файл .gguf) и работают только на этом компьютере — запросы никуда не уходят. В терминале ${"Ctrl+Shift+K"} или кнопка «✦ ИИ»: опишите словами, что сделать, — ИИ предложит команду с учётом ваших заметок и истории. Модель запускается при первом запросе и выгружается из памяти через 15 минут без дела.</p>
+          <p class="muted hint">Модель и движок llama.cpp скачиваются отдельно (по умолчанию — лёгкая Qwen2.5-Coder 1.5B, ≈1,1 ГБ; для мощных ПК есть модели крупнее, можно указать и свой файл .gguf) и работают только на этом компьютере — запросы никуда не уходят. В терминале ${"Ctrl+Shift+K"} или кнопка «✦ ИИ»: опишите словами, что сделать, — ИИ предложит команду с учётом ваших заметок и истории. Модель запускается при первом запросе и выгружается из памяти через 15 минут без дела. Крупные файлы качаются в четыре соединения — так заметно быстрее; после загрузки считается контрольная сумма. Если загрузка оборвалась, она продолжится с того же места, а не начнётся заново.</p>
+        <hr />
+          <p class="kb-line muted hint">База знаний: <span class="kb-what">…</span> Проверенные команды по теме запроса уходят в подсказку модели, поэтому флаги настоящие. Свои команды — в файле <code class="kb-path mono"></code>: «Открыть папку» создаст его с примером и описанием формата. <button type="button" class="ghost" data-a="kb-open">Открыть папку</button></p>
         <hr />
           <div class="ai-remote">
             <p class="muted">Внешний ИИ-сервер (Ollama, vLLM, LM Studio — любой с OpenAI-совместимым /v1)</p>
@@ -300,6 +304,14 @@ export function mountSettings(root: HTMLElement) {
   agentSel.onchange = () => setAiAgent(agentSel.value);
   window.addEventListener("ai-agent", () => { agentSel.value = aiAgent(); });
   mountAi(root.querySelector<HTMLElement>(".ai-root")!);
+  // что знает база знаний ИИ и где лежит свой файл
+  invoke<{ tools: string[]; lines: number; path: string; own: boolean }>("kb_info").then((kb) => {
+    const own = kb.own ? ` (${t("включая ваши")})` : "";
+    root.querySelector(".kb-what")!.textContent =
+      `${kb.tools.length} ${t("инструментов")}, ${kb.lines} ${t("команд")}${own}: ${kb.tools.join(", ")}.`;
+    root.querySelector(".kb-path")!.textContent = kb.path;
+  }).catch(() => {});
+  root.querySelector<HTMLElement>("[data-a=kb-open]")!.onclick = () => invoke("kb_open").catch((e) => toast(String(e), "err"));
   // внешний ИИ-сервер: «Проверить» → список моделей в выпадающий список поля «Модель»
   // (комбо-поле: можно и выбрать из списка, и ввести любую свою модель)
   const aiTest = (host: string, port: string, key: string) => invoke<{ models: string[] }>("ai_test", { host, port, apiKey: key });

@@ -10,19 +10,21 @@ import { registerProvider } from "./palette";
 import { hlPrefs, setHlPrefs } from "./highlight";
 import { addSnippet } from "./snippets";
 import { attachPathLinks, mountFiles } from "./files";
-import { esc, overlay, toast } from "./ui";
+import { ask, esc, overlay, toast } from "./ui";
 import { t } from "../i18n";
 import { isWindows } from "./themes";
 import { AI_PROVIDERS, aiAgent, setAiAgent } from "./ai-agents";
 import { LocalChat } from "./aichat";
-import { isProgramPath, isWsl, shellName, wslDistro } from "./shellkind";
+import { isProgramPath, isWsl, shellName, webShareCommand, wslDistro } from "./shellkind";
 
 /** Other modules open a tab via: window.dispatchEvent(new CustomEvent("open-terminal", { detail })) */
 export type OpenTerminalDetail = SpawnOpts & { title?: string; keepOpen?: boolean };
 
 /** `spawn`: what runs in the pane (started again on reconnect); `exited`: a kept-open pane whose
  *  process ended; `lastConn`: the last failed connection command typed in a shell (ssh, kubectl exec…) */
-type Pane = { pty: PtyTerminal; el: HTMLElement; tab: Tab; keepOpen: boolean; recording?: string; spawn: SpawnOpts; exited?: boolean; lastConn?: string; title?: string; termTitle?: string };
+type Pane = { pty: PtyTerminal; el: HTMLElement; tab: Tab; keepOpen: boolean; recording?: string; spawn: SpawnOpts; exited?: boolean; lastConn?: string; title?: string; termTitle?: string;
+  /** «Открыть папку в web»: адрес сессии, к которому поднят ssh -L — закрывается вместе с панелью */
+  shared?: string[] };
 
 /** Commands that connect somewhere: when one fails, «⟳ Повторить» / Ctrl+Shift+R run it again. */
 export const CONNECT_CMD = /^\s*(sudo\s+)?(ssh|mosh|telnet|sftp|autossh|kubectl\s+(exec|attach|port-forward|logs\s+-f)|docker\s+(exec|attach)|podman\s+exec|wsl)\b/;
@@ -60,6 +62,7 @@ export function mountTerminal(root: HTMLElement) {
     <div class="term-main">
       <div class="tabbar">
         <button class="icon" data-act="files" title="Файлы: дерево текущей папки, открыть в IDE (Ctrl+Shift+B)">${icon("folder", 16)}</button>
+        <button class="icon" data-act="web-share" title="Открыть папку в web: раздать текущую папку сессии по http (python3 -m http.server) и открыть в браузере">${icon("web", 16)}</button>
         <div class="tabs"></div>
         <button class="icon" data-act="new" title="Новая вкладка (Ctrl+Shift+T)">${icon("plus", 16)}</button>
         <button class="icon wsl-btn" data-act="wsl" title="Новая вкладка WSL: выбрать дистрибутив" hidden>WSL</button>
@@ -96,9 +99,9 @@ export function mountTerminal(root: HTMLElement) {
     <div class="splitter" hidden></div>
     <aside class="ai-panel" hidden>
       <div class="tabbar">
-        <select class="ai-provider"></select>
+        <select class="ai-provider" title="Открыть агента: уже открытый просто получит фокус, новый добавится рядом"></select>
         <span class="spacer"></span>
-        <button class="icon" data-act="ai-restart" title="Перезапустить">${icon("refresh", 16)}</button>
+        <button class="icon" data-act="ai-restart" title="Перезапустить выбранного агента">${icon("refresh", 16)}</button>
       </div>
       <div class="ai-host"></div>
     </aside>`;
@@ -129,7 +132,6 @@ export function mountTerminal(root: HTMLElement) {
   const filesPanel = $(".files-panel");
   /** what the AI panel holds: an agent's CLI in a terminal, or the local AI chat */
   type AiPane = { dispose(): void; resize(): void; paste(text: string): void; focus(): void };
-  let ai: AiPane | null = null;
 
   for (const name of Object.keys(AI_PROVIDERS)) providerSel.add(new Option(name, name));
   providerSel.value = aiAgent();
@@ -137,7 +139,8 @@ export function mountTerminal(root: HTMLElement) {
   window.addEventListener("ai-agent", () => {
     if (providerSel.value === aiAgent()) return;
     providerSel.value = aiAgent();
-    if (ai) startAi();
+    // the panel is open: bring that agent up, keeping the others and their conversations
+    if (slots.length) openAgent(providerSel.value);
   });
 
   const activePane = () => activeTab?.active ?? null;
@@ -268,7 +271,7 @@ export function mountTerminal(root: HTMLElement) {
       bar.querySelector(".reconnect-text")!.textContent = pane.spawn.program ? `${t("Соединение закрыто")}: ${[pane.spawn.program, ...(pane.spawn.args ?? [])].join(" ").slice(0, 80)}` : t("Сессия завершена");
       bar.hidden = false;
     };
-    listen<string>(`pty-record-${pty.id}`, (e) => {
+    pty.listen<string>(`pty-record-${pty.id}`, (e) => {
       if (!pane.recording) return;
       pane.recording = undefined;
       toast(`Сессия завершилась, запись сохранена: ${e.payload}`);
@@ -280,7 +283,8 @@ export function mountTerminal(root: HTMLElement) {
   function reconnect(pane: Pane) {
     pane.el.querySelector<HTMLElement>(".reconnect-bar")!.hidden = true;
     pane.el.querySelector<HTMLElement>(".fail-chip")!.hidden = true;
-    pane.pty.dispose();
+    disposePane(pane);
+    syncRec();
     mountPty(pane);
     requestAnimationFrame(() => { pane.pty.resize(); pane.pty.term.focus(); });
   }
@@ -294,12 +298,24 @@ export function mountTerminal(root: HTMLElement) {
     pane.pty.term.focus();
   }
 
+  /** A recording pane saves its file here: once disposed, its terminal no longer hears «pty-record» from the backend. */
+  function disposePane(p: Pane) {
+    if (p.shared) invoke("web_share_close", { dest: p.shared }).catch(() => {});
+    if (p.recording) {
+      p.recording = undefined;
+      invoke<string | null>("pty_record_stop", { id: p.pty.id })
+        .then((path) => { if (path) toast(`Запись сохранена: ${path}`); })
+        .catch((e) => toast(String(e), "err"));
+    }
+    p.pty.dispose();
+  }
+
   function closePane(p: Pane) {
     const tab = p.tab;
     const i = tab.panes.indexOf(p);
     if (i < 0) return;
     tab.panes.splice(i, 1);
-    p.pty.dispose();
+    disposePane(p);
     p.el.remove();
     if (!tab.panes.length) return closeTab(tab);
     layoutTab(tab);
@@ -455,7 +471,7 @@ export function mountTerminal(root: HTMLElement) {
     const i = tabs.indexOf(t);
     if (i < 0) return;
     tabs.splice(i, 1);
-    t.panes.splice(0).forEach((p) => p.pty.dispose());
+    t.panes.splice(0).forEach(disposePane);
     t.btn.remove();
     t.host.remove();
     if (!tabs.length) newTab();
@@ -565,6 +581,55 @@ export function mountTerminal(root: HTMLElement) {
     };
   }
 
+  // ----- «открыть папку в web» -----
+
+  async function webShare() {
+    const p = activePane();
+    if (!p) return;
+    if (p.exited) return toast(t("Сессия закрыта — переподключитесь"), "err");
+    const port = 8000 + Math.floor(Math.random() * 1000);
+    const remote = p.spawn.program === "ssh" ? parseSshTarget(p.spawn.args ?? []) : null;
+    if (p.spawn.program === "ssh" && !remote) return toast(t("Не удалось понять адрес ssh-сессии"), "err");
+    p.pty.send(webShareCommand(port, !remote && isWindows()) + "\r");
+    p.pty.term.focus();
+    toast(t("Поднимаю раздачу…"));
+    try {
+      // ssh -L к порту на самом хосте; для локального шелла порт уже локальный
+      const local = remote ? await invoke<number>("web_share_tunnel", { dest: remote, port }) : port;
+      if (remote) p.shared = remote;
+      // туннель открыт — это ещё не значит, что раздача отвечает: локальный порт слушает сам ssh,
+      // а на том конце может не быть никого (python ещё не поднялся или сессия ведёт на другой хост)
+      if (!(await invoke<boolean>("web_share_ready", { port: local }))) return void sharePlanB(p, remote, port);
+      const url = `http://127.0.0.1:${local}/`;
+      await invoke("open_external", { url });
+      toast(`Папка раздаётся: ${url} — Ctrl+C в терминале останавливает`);
+    } catch (e) {
+      toast(String(e), "err");
+    }
+  }
+
+  /** Через туннель не ответили: предлагаем раздать по адресу хоста — но вслух про то, что это видно в сети. */
+  async function sharePlanB(p: Pane, remote: string[] | null, port: number) {
+    const host = (remote?.at(-1) ?? "").split("@").pop() ?? "";
+    const why = t("Через туннель раздача не ответила. Так бывает, когда внутри этой сессии вы зашли дальше на другой хост: туннель ведёт на первый.");
+    const ok = await ask(t("Раздать папку по адресу хоста?"), `${why}\n${t("Можно раздать её на всех адресах хоста — тогда папку увидит любой, кто дотянется до него по сети. Останавливает Ctrl+C.")}`,
+      { ok: t("Раздать на всех адресах"), danger: true });
+    if (ok === null) {
+      p.pty.send("\x03"); // Ctrl+C: приватная раздача не нужна
+      return;
+    }
+    p.pty.send("\x03");
+    p.pty.send(`python3 -m http.server ${port}\r`);
+    p.pty.term.focus();
+    if (host) {
+      const url = `http://${host}:${port}/`;
+      await invoke("open_external", { url }).catch(() => {});
+      toast(`Папка раздаётся: ${url} — Ctrl+C в терминале останавливает`);
+    } else {
+      toast(`${t("Папка раздаётся на порту")} ${port} — ${t("откройте её по адресу этого хоста")}`);
+    }
+  }
+
   // ----- files panel -----
 
   const files = mountFiles(filesPanel, {
@@ -583,31 +648,78 @@ export function mountTerminal(root: HTMLElement) {
 
   // ----- AI panel -----
 
-  function startAi() {
-    ai?.dispose();
-    aiHost.innerHTML = "";
-    const p = AI_PROVIDERS[providerSel.value];
+  /** One agent in the AI panel. Several live at once, so switching between them keeps every conversation. */
+  type AiSlot = { provider: string; pane: AiPane; el: HTMLElement; body: HTMLElement };
+  const slots: AiSlot[] = [];
+  let current: AiSlot | null = null;
+  const MAX_AI = 3;
+
+  function makePane(provider: string, body: HTMLElement): AiPane {
+    const p = AI_PROVIDERS[provider];
     if (p.local) {
-      ai = new LocalChat(aiHost, {
+      return new LocalChat(body, {
         context: () => ({ cwd: cwd(), shell: shellName(activePane()?.pty.launched ?? null) }),
         // into the active pane, as a bracketed paste: multi-line stays one input, no Enter
         insert: (cmd) => { const pane = activePane(); if (!pane) return; pane.pty.send(`\x1b[200~${cmd}\x1b[201~`); pane.pty.term.focus(); },
       });
-      return;
     }
-    const pty = new PtyTerminal(aiHost, { program: p.program, args: p.args, cwd: cwd() });
-    ai = { dispose: () => pty.dispose(), resize: () => pty.resize(), focus: () => pty.term.focus(), paste: (text) => { pty.send(`\x1b[200~${text}\x1b[201~`); } };
+    const pty = new PtyTerminal(body, { program: p.program, args: p.args, cwd: cwd() });
+    return { dispose: () => pty.dispose(), resize: () => pty.resize(), focus: () => pty.term.focus(), paste: (text) => { pty.send(`\x1b[200~${text}\x1b[201~`); } };
+  }
+
+  function focusSlot(slot: AiSlot) {
+    current = slot;
+    slots.forEach((s) => s.el.classList.toggle("current", s === slot));
+    providerSel.value = slot.provider;
+  }
+
+  /** Opens an agent: an already open one just gets the focus, a new one is added next to the others. */
+  function openAgent(provider: string): AiSlot | null {
+    const existing = slots.find((s) => s.provider === provider);
+    if (existing) { focusSlot(existing); existing.pane.focus(); return existing; }
+    if (slots.length >= MAX_AI) { toast(`${t("Не больше")} ${MAX_AI} ${t("агентов рядом")}`, "err"); return null; }
+    const el = document.createElement("div");
+    el.className = "ai-slot";
+    el.innerHTML = `<div class="ai-slot-head"><span class="ai-slot-name"></span><span class="spacer"></span>
+      <button class="icon" data-s="restart" title="${esc(t("Перезапустить"))}">${icon("refresh", 14)}</button>
+      <button class="icon" data-s="close" title="${esc(t("Закрыть агента"))}">${icon("close", 14)}</button></div>
+      <div class="ai-slot-body"></div>`;
+    el.querySelector(".ai-slot-name")!.textContent = provider;
+    aiHost.appendChild(el);
+    const body = el.querySelector<HTMLElement>(".ai-slot-body")!;
+    const slot: AiSlot = { provider, pane: makePane(provider, body), el, body };
+    slots.push(slot);
+    el.addEventListener("mousedown", () => focusSlot(slot));
+    el.querySelector<HTMLElement>("[data-s=restart]")!.onclick = () => {
+      slot.pane.dispose();
+      body.innerHTML = "";
+      slot.pane = makePane(slot.provider, body);
+      requestAnimationFrame(() => { slot.pane.resize(); slot.pane.focus(); });
+    };
+    el.querySelector<HTMLElement>("[data-s=close]")!.onclick = () => {
+      slot.pane.dispose();
+      el.remove();
+      slots.splice(slots.indexOf(slot), 1);
+      if (current === slot) current = slots[slots.length - 1] ?? null;
+      if (current) focusSlot(current);
+      slots.forEach((s) => requestAnimationFrame(() => s.pane.resize()));
+      if (!slots.length) toggleAi(false);
+    };
+    slots.forEach((s) => s.el.classList.toggle("multi", slots.length > 1));
+    focusSlot(slot);
+    requestAnimationFrame(() => slots.forEach((s) => s.pane.resize()));
+    return slot;
   }
 
   function toggleAi(force?: boolean) {
     const show = force ?? aiPanel.hidden;
     aiPanel.hidden = !show;
     splitter.hidden = !show;
-    if (show && !ai) startAi();
+    if (show && !slots.length) openAgent(providerSel.value);
     requestAnimationFrame(() => {
       activeTab?.panes.forEach((p) => p.pty.resize());
-      ai?.resize();
-      if (show) ai?.focus(); else activePane()?.pty.term.focus();
+      slots.forEach((s) => s.pane.resize());
+      if (show) current?.pane.focus(); else activePane()?.pty.term.focus();
     });
   }
 
@@ -617,13 +729,15 @@ export function mountTerminal(root: HTMLElement) {
   }
 
   function sendToAi(text: string) {
-    const fresh = !ai;
+    const fresh = !slots.length;
     toggleAi(true);
+    const slot = current ?? slots[0];
+    if (!slot) return;
     // bracketed paste so multi-line text lands as one message instead of being submitted line by line
     // a CLI agent needs a moment to start before it takes input; the chat takes it at once
-    const local = AI_PROVIDERS[providerSel.value]?.local;
-    setTimeout(() => ai?.paste(text), fresh && !local ? 1500 : 0);
-    ai?.focus();
+    const local = AI_PROVIDERS[slot.provider]?.local;
+    setTimeout(() => slot.pane.paste(text), fresh && !local ? 1500 : 0);
+    slot.pane.focus();
   }
 
   splitter.addEventListener("pointerdown", (e) => {
@@ -706,7 +820,8 @@ export function mountTerminal(root: HTMLElement) {
 
   // ----- wiring -----
 
-  providerSel.onchange = () => { setAiAgent(providerSel.value); startAi(); };
+  providerSel.onchange = () => { setAiAgent(providerSel.value); toggleAi(true); openAgent(providerSel.value); };
+  $("[data-act=web-share]").onclick = () => webShare();
   $("[data-act=new]").onclick = () => newTab();
 
   // Windows: WSL distributions in one click (the button shows only when WSL has any)
@@ -764,7 +879,7 @@ export function mountTerminal(root: HTMLElement) {
   $("[data-act=palette]").onclick = () => window.dispatchEvent(new Event("open-palette"));
   $("[data-act=ai]").onclick = () => toggleAi();
   $("[data-act=send]").onclick = sendSelection;
-  $("[data-act=ai-restart]").onclick = startAi;
+  $("[data-act=ai-restart]").onclick = () => current?.el.querySelector<HTMLElement>("[data-s=restart]")?.click();
   window.addEventListener("send-to-ai", (e) => sendToAi((e as CustomEvent<string>).detail));
   window.addEventListener("open-terminal", (e) => newTab((e as CustomEvent<OpenTerminalDetail>).detail));
 
@@ -822,6 +937,14 @@ export function mountTerminal(root: HTMLElement) {
     }
   });
 
+  // Ctrl+W: a terminal closes its tab, the webview would close the whole window (#79)
+  window.addEventListener("keydown", (e) => {
+    if (root.hidden || !e.ctrlKey || e.shiftKey || e.altKey || e.code !== "KeyW") return;
+    e.preventDefault();
+    const p = activePane();
+    if (p) closePane(p);
+  }, true);
+
   window.addEventListener("keydown", (e) => {
     if (root.hidden || !e.ctrlKey || !e.shiftKey) return;
     // letters by key position, so the shortcuts also work on the Russian layout
@@ -871,7 +994,7 @@ export function mountTerminal(root: HTMLElement) {
     if ((e as CustomEvent).detail !== "terminal") return;
     requestAnimationFrame(() => {
       activeTab?.panes.forEach((p) => p.pty.resize());
-      ai?.resize();
+      slots.forEach((s) => s.pane.resize());
       // the local AI box opens together with the view: keep the cursor in its input
       if (root.querySelector(".ai-ask")?.hasAttribute("hidden") !== false) activePane()?.pty.term.focus();
     });
@@ -893,7 +1016,7 @@ export function mountTerminal(root: HTMLElement) {
     { group: "Терминал", title: "Шрифт по умолчанию", hint: "Ctrl+0", run: () => termFontStep(0) },
     { group: "Терминал", title: "Открыть папку с записями сессий", run: () => { invoke("pty_records_open").catch((e) => toast(String(e), "err")); } },
     ...Object.keys(AI_PROVIDERS).map((name) => ({
-      group: "AI", title: `AI-панель: ${name}`, run: () => { show(); providerSel.value = name; setAiAgent(name); startAi(); toggleAi(true); },
+      group: "AI", title: `AI-панель: ${name}`, run: () => { show(); setAiAgent(name); toggleAi(true); openAgent(name); },
     })),
     // recent commands of the active pane, newest first, without duplicates
     ...[...new Map(terminalApi.history().map((b) => [b.command, b])).values()].slice(0, 40).map((b) => ({

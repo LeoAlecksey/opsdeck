@@ -44,6 +44,7 @@ export type IconName =
   | "externalLink"
   | "menu"
   | "copy"
+  | "cloud"
 ;
 
 const ICONS: Record<IconName, string> = {
@@ -51,6 +52,7 @@ const ICONS: Record<IconName, string> = {
   grid: "<rect width=\"7\" height=\"7\" x=\"3\" y=\"3\" rx=\"1\" /> <rect width=\"7\" height=\"7\" x=\"14\" y=\"3\" rx=\"1\" /> <rect width=\"7\" height=\"7\" x=\"14\" y=\"14\" rx=\"1\" /> <rect width=\"7\" height=\"7\" x=\"3\" y=\"14\" rx=\"1\" />",
   terminal: "<path d=\"M12 19h8\" /> <path d=\"m4 17 6-6-6-6\" />",
   k8s: "<circle cx=\"12\" cy=\"12\" r=\"8\" /> <path d=\"M12 2v7.5\" /> <path d=\"m19 5-5.23 5.23\" /> <path d=\"M22 12h-7.5\" /> <path d=\"m19 19-5.23-5.23\" /> <path d=\"M12 14.5V22\" /> <path d=\"M10.23 13.77 5 19\" /> <path d=\"M9.5 12H2\" /> <path d=\"M10.23 10.23 5 5\" /> <circle cx=\"12\" cy=\"12\" r=\"2.5\" />",
+  cloud: "<path d=\"M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9\" />",
   web: "<circle cx=\"12\" cy=\"12\" r=\"10\" /> <path d=\"M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20\" /> <path d=\"M2 12h20\" />",
   bell: "<path d=\"M10.268 21a2 2 0 0 0 3.464 0\" /> <path d=\"M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326\" />",
   bellOff: "<path d=\"M10.268 21a2 2 0 0 0 3.464 0\" /> <path d=\"M17 17H4a1 1 0 0 1-.74-1.673C4.59 13.956 6 12.499 6 8a6 6 0 0 1 .258-1.742\" /> <path d=\"m2 2 20 20\" /> <path d=\"M8.668 3.01A6 6 0 0 1 18 8c0 2.687.77 4.653 1.707 6.05\" />",

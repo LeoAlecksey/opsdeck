@@ -403,9 +403,286 @@ fn progress(app: &AppHandle, stage: &str, done: u64, total: u64) {
     let _ = app.emit("ai-progress", serde_json::json!({ "stage": stage, "done": done, "total": total }));
 }
 
+/// Проверка контрольной суммы уже скачанного файла: прогресс тот же, но интерфейс пишет «проверка».
+fn progress_check(app: &AppHandle, stage: &str, done: u64, total: u64) {
+    let _ = app.emit("ai-progress", serde_json::json!({ "stage": stage, "done": done, "total": total, "check": true }));
+}
+
+/// Сколько соединений открывать и с какого размера файла это вообще имеет смысл.
+const DL_PARTS: u64 = 4;
+const DL_MIN_SPLIT: u64 = 64 * 1024 * 1024;
+
+/// Что уже лежит в .part: по каждой части — сколько байт дошло до диска. Обрыв загрузки (сеть,
+/// выход из приложения) больше не стоит всей модели: при следующем запуске части продолжаются
+/// с того места, где остановились.
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug, Default)]
+struct DlState {
+    url: String,
+    total: u64,
+    /// по части: начало, конец (включительно) и сколько от начала уже записано
+    parts: Vec<(u64, u64, u64)>,
+}
+
+fn state_path(part: &Path) -> PathBuf {
+    part.with_extension("part.state")
+}
+
+/// Сохранённое состояние, если оно про этот же файл и совпадает по размеру.
+fn load_state(part: &Path, url: &str, total: u64) -> Option<DlState> {
+    let st: DlState = serde_json::from_str(&fs::read_to_string(state_path(part)).ok()?).ok()?;
+    let same_file = st.url == url && st.total == total && fs::metadata(part).ok()?.len() == total;
+    // диапазоны должны быть те же: иначе это состояние от другого числа соединений
+    let sane = st.parts.iter().all(|(a, b, d)| b >= a && *d <= b - a + 1);
+    (same_file && sane && !st.parts.is_empty()).then_some(st)
+}
+
+fn save_state(part: &Path, st: &DlState) {
+    if let Ok(text) = serde_json::to_string(st) {
+        let _ = fs::write(state_path(part), text);
+    }
+}
+
+fn drop_state(part: &Path) {
+    let _ = fs::remove_file(state_path(part));
+}
+
+/// Границы диапазонов (включительно) для `Range: bytes=a-b`. Последняя часть забирает остаток.
+fn ranges(total: u64, parts: u64) -> Vec<(u64, u64)> {
+    if total == 0 || parts <= 1 {
+        return vec![(0, total.saturating_sub(1))];
+    }
+    // частей не больше, чем байт: иначе шаг нулевой и диапазоны вывернутся
+    let parts = parts.min(total);
+    let step = total / parts;
+    (0..parts)
+        .map(|i| (i * step, if i + 1 == parts { total - 1 } else { (i + 1) * step - 1 }))
+        .collect()
+}
+
+/// Сервер отдаёт куски по Range? Ответ на пробный запрос «первый байт» — 206 и размер целого файла.
+fn range_total(status: u16, content_range: Option<&str>) -> Option<u64> {
+    if status != 206 {
+        return None;
+    }
+    // «bytes 0-0/5680522464»
+    content_range?.rsplit('/').next()?.trim().parse().ok().filter(|n| *n > 0)
+}
+
+/// sha256 уже записанного файла: считать на ходу нельзя, части приходят вразнобой.
+fn sha_of(path: &Path, cancel: &std::sync::atomic::AtomicBool, on_progress: &dyn Fn(u64)) -> Result<String, String> {
+    use std::io::Read;
+    let mut f = fs::File::open(path).map_err(err)?;
+    let mut hasher = Sha256::new();
+    let mut buf = vec![0u8; 4 * 1024 * 1024];
+    let mut done = 0u64;
+    let mut last = Instant::now();
+    loop {
+        if cancel.load(std::sync::atomic::Ordering::Relaxed) {
+            return Err("установка отменена".into());
+        }
+        let n = f.read(&mut buf).map_err(err)?;
+        if n == 0 {
+            break;
+        }
+        hasher.update(&buf[..n]);
+        done += n as u64;
+        if last.elapsed() > Duration::from_millis(250) {
+            on_progress(done);
+            last = Instant::now();
+        }
+    }
+    Ok(format!("{:x}", hasher.finalize()))
+}
+
+/// Файл в несколько соединений: каждая часть пишется на своё место в одном файле (позиционная
+/// запись), прогресс — сумма по частям. Нужен сервер, умеющий Range; иначе остаётся обычный поток.
+async fn download_parts(
+    client: &reqwest::Client,
+    url: &str,
+    part: &Path,
+    total: u64,
+    parts: u64,
+    cancel: &std::sync::atomic::AtomicBool,
+    on_progress: &(dyn Fn(u64) + Send + Sync),
+) -> Result<(), String> {
+    // продолжаем прежний .part, если он про этот же файл; иначе начинаем заново
+    let resumed = load_state(part, url, total).filter(|st| st.parts.len() as u64 == parts.min(total.max(1)));
+    if resumed.is_none() {
+        let f = fs::File::create(part).map_err(err)?;
+        f.set_len(total).map_err(err)?;
+        drop(f);
+        drop_state(part);
+    }
+    let plan: Vec<(u64, u64, u64)> = resumed
+        .map(|st| st.parts)
+        .filter(|p| p.len() as u64 == parts.min(total.max(1)))
+        .unwrap_or_else(|| ranges(total, parts).into_iter().map(|(a, b)| (a, b, 0)).collect());
+    let already: u64 = plan.iter().map(|(.., d)| *d).sum();
+
+    // по части: сколько записано (для интерфейса) и сколько из этого доведено до диска (для докачки)
+    let live: Vec<_> = plan.iter().map(|(.., d)| std::sync::Arc::new(std::sync::atomic::AtomicU64::new(*d))).collect();
+    let safe: Vec<_> = live.iter().map(|d| std::sync::Arc::new(std::sync::atomic::AtomicU64::new(d.load(std::sync::atomic::Ordering::Relaxed)))).collect();
+    let sum = |xs: &[std::sync::Arc<std::sync::atomic::AtomicU64>]| xs.iter().map(|x| x.load(std::sync::atomic::Ordering::Relaxed)).sum::<u64>();
+    let snapshot = |xs: &[std::sync::Arc<std::sync::atomic::AtomicU64>]| DlState {
+        url: url.to_string(),
+        total,
+        parts: plan.iter().zip(xs).map(|((a, b, _), d)| (*a, *b, d.load(std::sync::atomic::Ordering::Relaxed))).collect(),
+    };
+
+    let mut set = tokio::task::JoinSet::new();
+    for (i, &(from, to, done_before)) in plan.iter().enumerate() {
+        if from + done_before > to {
+            continue; // эта часть уже целиком скачана в прошлый раз
+        }
+        let (client, url, path) = (client.clone(), url.to_string(), part.to_path_buf());
+        let (live, safe) = (live[i].clone(), safe[i].clone());
+        set.spawn(async move {
+            let start = from + done_before;
+            let mut resp = client.get(&url).header(reqwest::header::RANGE, format!("bytes={start}-{to}")).send().await.map_err(|e| format!("загрузка {url}: {e}"))?;
+            if !resp.status().is_success() {
+                return Err(format!("загрузка {url}: {}", resp.status()));
+            }
+            let mut f = fs::OpenOptions::new().write(true).open(&path).map_err(err)?;
+            let mut at = start;
+            let mut unsynced = 0u64;
+            // в состояние для докачки попадает только то, что уже на диске: иначе после жёсткого
+            // обрыва мы считали бы скачанным хвост, оставшийся в кэше
+            let publish = |f: &mut fs::File, at: u64| {
+                let _ = f.sync_data();
+                safe.store(at - from, std::sync::atomic::Ordering::Relaxed);
+            };
+            loop {
+                let chunk = match resp.chunk().await {
+                    Ok(Some(c)) => c,
+                    Ok(None) => break,
+                    // обрыв: то, что успели записать, остаётся для следующей попытки
+                    Err(e) => {
+                        publish(&mut f, at);
+                        return Err(format!("загрузка прервалась: {e}"));
+                    }
+                };
+                write_at(&mut f, at, &chunk)?;
+                at += chunk.len() as u64;
+                unsynced += chunk.len() as u64;
+                live.store(at - from, std::sync::atomic::Ordering::Relaxed);
+                if unsynced >= 2 * 1024 * 1024 {
+                    publish(&mut f, at);
+                    unsynced = 0;
+                }
+            }
+            publish(&mut f, at);
+            if at <= to {
+                return Err(format!("соединение закрылось на {at} из {}", to + 1));
+            }
+            Ok(())
+        });
+    }
+    // прогресс, состояние для докачки и отмена, пока части качаются
+    let mut saved = Instant::now();
+    loop {
+        if cancel.load(std::sync::atomic::Ordering::Relaxed) {
+            set.shutdown().await;
+            save_state(part, &snapshot(&safe));
+            return Err("установка отменена".into());
+        }
+        let step = tokio::time::timeout(Duration::from_millis(250), set.join_next()).await;
+        let all_done = matches!(step, Ok(None));
+        if let Ok(Some(res)) = step {
+            let failed = match res {
+                Err(e) => Some(format!("загрузка прервалась: {e}")),
+                Ok(Err(e)) => Some(e),
+                Ok(Ok(())) => None,
+            };
+            if let Some(e) = failed {
+                set.shutdown().await;
+                // то, что скачано, остаётся: следующая попытка продолжит с этого места
+                save_state(part, &snapshot(&safe));
+                return Err(e);
+            }
+        }
+        on_progress(already.min(total).max(sum(&live)));
+        if saved.elapsed() > Duration::from_secs(2) {
+            save_state(part, &snapshot(&safe));
+            saved = Instant::now();
+        }
+        if all_done {
+            break;
+        }
+    }
+    let got = sum(&live);
+    if got != total {
+        save_state(part, &snapshot(&safe));
+        return Err(format!("скачано {got} из {total} байт — соединение оборвалось"));
+    }
+    drop_state(part);
+    on_progress(total);
+    Ok(())
+}
+
+/// Запись по смещению: на Unix write_at, на Windows seek_write (оба из std).
+fn write_at(f: &mut fs::File, at: u64, buf: &[u8]) -> Result<(), String> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::FileExt;
+        let mut off = at;
+        let mut rest = buf;
+        while !rest.is_empty() {
+            let n = f.write_at(rest, off).map_err(err)?;
+            if n == 0 {
+                return Err("запись в файл не удалась".into());
+            }
+            off += n as u64;
+            rest = &rest[n..];
+        }
+        Ok(())
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::FileExt;
+        let mut off = at;
+        let mut rest = buf;
+        while !rest.is_empty() {
+            let n = f.seek_write(rest, off).map_err(err)?;
+            if n == 0 {
+                return Err("запись в файл не удалась".into());
+            }
+            off += n as u64;
+            rest = &rest[n..];
+        }
+        Ok(())
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
+        use std::io::{Seek, SeekFrom, Write};
+        f.seek(SeekFrom::Start(at)).map_err(err)?;
+        f.write_all(buf).map_err(err)
+    }
+}
+
 /// Stream `url` to `dest` (via a .part file), checking sha256 when given. Cancellable.
+/// Крупный файл с сервера, понимающего Range, качается в несколько соединений: у CDN на одно
+/// соединение часто стоит ограничение, и модель на несколько гигабайт ползла часами.
 async fn download(app: &AppHandle, url: &str, dest: &Path, sha256: Option<&str>, stage: &str, cancel: &std::sync::atomic::AtomicBool) -> Result<(), String> {
     let client = reqwest::Client::builder().user_agent(concat!("OpsDeck/", env!("CARGO_PKG_VERSION"))).connect_timeout(Duration::from_secs(20)).build().map_err(err)?;
+    // пробный запрос одного байта: сразу видно и размер, и умеет ли сервер отдавать куски
+    let probe = client.get(url).header(reqwest::header::RANGE, "bytes=0-0").send().await.map_err(|e| format!("загрузка {url}: {e}"))?;
+    let whole = range_total(probe.status().as_u16(), probe.headers().get(reqwest::header::CONTENT_RANGE).and_then(|v| v.to_str().ok()));
+    drop(probe);
+    // Сервер умеет Range — идём этим путём всегда: крупный файл в несколько соединений, мелкий в
+    // одно, и в обоих случаях обрыв можно докачать (состояние лежит рядом с .part).
+    if let Some(total) = whole {
+        let part = dest.with_extension("part");
+        let parts = if total >= DL_MIN_SPLIT { DL_PARTS } else { 1 };
+        download_parts(&client, url, &part, total, parts, cancel, &|done| progress(app, stage, done, total)).await?;
+        if let Some(expected) = sha256 {
+            let got = sha_of(&part, cancel, &|done| progress_check(app, stage, done, total))?;
+            if !got.eq_ignore_ascii_case(expected) {
+                let _ = fs::remove_file(&part);
+                return Err(format!("контрольная сумма не совпала ({stage}) — файл повреждён или подменён, установка остановлена"));
+            }
+        }
+        return fs::rename(&part, dest).map_err(err);
+    }
     let mut resp = client.get(url).send().await.map_err(|e| format!("загрузка {url}: {e}"))?;
     if !resp.status().is_success() {
         return Err(format!("загрузка {url}: {}", resp.status()));
@@ -841,6 +1118,8 @@ pub async fn ai_command(app: AppHandle, request: String, cwd: Option<String>, re
             context += &format!("  {r}\n");
         }
     }
+    // база знаний: проверенные команды по теме запроса — чтобы флаги были настоящими, а не выдуманными
+    context += &crate::kb::hint(&crate::kb::load(), &request, 2, 6);
     if !notes.is_empty() {
         context += "Команды из заметок пользователя (используй их стиль, имена хостов, неймспейсов и ресурсов):\n";
         for n in &notes {
@@ -884,6 +1163,190 @@ pub(crate) fn clean_command(raw: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    /// Сборка файла из частей целиком: свой маленький сервер с поддержкой Range, четыре соединения,
+    /// позиционная запись. Если бы диапазоны или смещения разъехались, sha256 это сразу покажет.
+    #[test]
+    fn four_connections_assemble_the_same_file() {
+        use std::io::{Read, Write};
+        // «модель»: байты с предсказуемым содержимым, чтобы перепутанные куски были видны
+        let body: Vec<u8> = (0..300_000u32).flat_map(|i| i.to_le_bytes()).collect();
+        let expected = {
+            let mut h = Sha256::new();
+            h.update(&body);
+            format!("{:x}", h.finalize())
+        };
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let served = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let srv = {
+            let body = body.clone();
+            let served = served.clone();
+            std::thread::spawn(move || {
+                let mut served_n = 0;
+                while served_n < 4 {
+                    let Ok((mut s, _)) = listener.accept() else { return };
+                    let Some(req) = read_request(&mut s) else { continue };
+                    served_n += 1;
+                    let range = req
+                        .lines()
+                        .find(|l| l.to_ascii_lowercase().starts_with("range:"))
+                        .and_then(|l| l.split('=').nth(1).map(str::trim).map(str::to_string));
+                    let (from, to) = match range.as_deref().and_then(|r| r.split_once('-')) {
+                        Some((a, b)) => (a.parse::<usize>().unwrap(), b.parse::<usize>().unwrap()),
+                        None => (0, body.len() - 1),
+                    };
+                    let slice = &body[from..=to];
+                    let head = format!(
+                        "HTTP/1.1 206 Partial Content\r\nContent-Length: {}\r\nContent-Range: bytes {from}-{to}/{}\r\nAccept-Ranges: bytes\r\nConnection: close\r\n\r\n",
+                        slice.len(),
+                        body.len()
+                    );
+                    let _ = s.write_all(head.as_bytes()).and_then(|_| s.write_all(slice));
+                    served.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                }
+            })
+        };
+
+        let dir = std::env::temp_dir().join(format!("opsdeck-dl-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let part = dir.join("model.part");
+        let cancel = std::sync::atomic::AtomicBool::new(false);
+        let seen = std::sync::Mutex::new(Vec::<u64>::new());
+        let client = reqwest::Client::new();
+        let url = format!("http://127.0.0.1:{port}/model.gguf");
+        tauri::async_runtime::block_on(download_parts(&client, &url, &part, body.len() as u64, 4, &cancel, &|done| {
+            seen.lock().unwrap().push(done)
+        }))
+        .unwrap();
+        srv.join().unwrap();
+
+        assert_eq!(served.load(std::sync::atomic::Ordering::SeqCst), 4, "каждая часть — своё соединение");
+        let mut got = Vec::new();
+        fs::File::open(&part).unwrap().read_to_end(&mut got).unwrap();
+        assert_eq!(got.len(), body.len());
+        assert_eq!(sha_of(&part, &cancel, &|_| {}).unwrap(), expected, "файл собран не так, как отдавал сервер");
+        assert_eq!(*seen.lock().unwrap().last().unwrap(), body.len() as u64, "в конце прогресс — весь размер");
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// Запрос целиком: один read может принести половину заголовков, а пустое соединение (клиент
+    /// открыл и закрыл) запросом не считается.
+    #[cfg(test)]
+    fn read_request(s: &mut std::net::TcpStream) -> Option<String> {
+        use std::io::Read;
+        let mut req = String::new();
+        let mut buf = [0u8; 1024];
+        loop {
+            match s.read(&mut buf) {
+                Ok(0) | Err(_) => break,
+                Ok(n) => req.push_str(&String::from_utf8_lossy(&buf[..n])),
+            }
+            if req.contains("\r\n\r\n") {
+                break;
+            }
+        }
+        (!req.trim().is_empty()).then_some(req)
+    }
+
+    /// Обрыв не стоит всей модели: при следующей попытке части продолжаются с того места, где
+    /// остановились, и собранный файл совпадает с отданным сервером.
+    #[test]
+    fn an_interrupted_download_resumes_where_it_stopped() {
+        use std::io::{Read, Write};
+        let body: Vec<u8> = (0..200_000u32).flat_map(|i| i.to_le_bytes()).collect();
+        let expected = {
+            let mut h = Sha256::new();
+            h.update(&body);
+            format!("{:x}", h.finalize())
+        };
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let asked: std::sync::Arc<std::sync::Mutex<Vec<(u64, u64)>>> = Default::default();
+        // первая попытка: каждая часть отдаёт только четверть своего диапазона и обрывается
+        let srv = {
+            let (body, asked) = (body.clone(), asked.clone());
+            std::thread::spawn(move || {
+                let mut round = 0;
+                while round < 8 {
+                    let Ok((mut s, _)) = listener.accept() else { return };
+                    let Some(req) = read_request(&mut s) else { continue };
+                    let r = req.lines().find(|l| l.to_ascii_lowercase().starts_with("range:")).and_then(|l| l.split('=').nth(1).map(str::trim).map(str::to_string)).unwrap();
+                    let (a, b) = r.split_once('-').unwrap();
+                    let (from, to) = (a.parse::<u64>().unwrap(), b.parse::<u64>().unwrap());
+                    asked.lock().unwrap().push((from, to));
+                    round += 1;
+                    let cut = if round <= 4 { (to - from + 1) / 4 } else { to - from + 1 };
+                    let slice = &body[from as usize..(from + cut) as usize];
+                    // длину объявляем полную, а отдаём кусок и закрываем: для клиента это обрыв
+                    let head = format!(
+                        "HTTP/1.1 206 Partial Content\r\nContent-Length: {}\r\nContent-Range: bytes {from}-{to}/{}\r\nConnection: close\r\n\r\n",
+                        to - from + 1,
+                        body.len()
+                    );
+                    let _ = s.write_all(head.as_bytes()).and_then(|_| s.write_all(slice));
+                }
+            })
+        };
+
+        let dir = std::env::temp_dir().join(format!("opsdeck-resume-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let part = dir.join("model.part");
+        let cancel = std::sync::atomic::AtomicBool::new(false);
+        let client = reqwest::Client::new();
+        let url = format!("http://127.0.0.1:{port}/model.gguf");
+        let total = body.len() as u64;
+
+        // первая попытка обрывается, но состояние остаётся
+        let first = tauri::async_runtime::block_on(download_parts(&client, &url, &part, total, 4, &cancel, &|_| {}));
+        assert!(first.is_err(), "сервер оборвал отдачу — загрузка должна была не дойти");
+        let st = load_state(&part, &url, total).expect("состояние докачки не сохранилось");
+        let got_before: u64 = st.parts.iter().map(|(.., d)| *d).sum();
+        assert!(got_before > 0 && got_before < total, "скачано {got_before} из {total}");
+
+        // вторая попытка: спрашиваются только остатки
+        asked.lock().unwrap().clear();
+        tauri::async_runtime::block_on(download_parts(&client, &url, &part, total, 4, &cancel, &|_| {})).unwrap();
+        srv.join().unwrap();
+        let second = asked.lock().unwrap().clone();
+        assert_eq!(second.len(), 4);
+        let again: u64 = second.iter().map(|(a, b)| b - a + 1).sum();
+        assert_eq!(again, total - got_before, "докачивается ровно остаток, а не файл заново");
+
+        let mut got = Vec::new();
+        fs::File::open(&part).unwrap().read_to_end(&mut got).unwrap();
+        assert_eq!(got.len(), body.len());
+        assert_eq!(sha_of(&part, &cancel, &|_| {}).unwrap(), expected, "после докачки файл собран верно");
+        assert!(load_state(&part, &url, total).is_none(), "состояние убирается, когда файл дошёл целиком");
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// Модель на несколько гигабайт качается в несколько соединений: границы диапазонов не должны
+    /// ни пересекаться, ни оставлять дыр, иначе файл соберётся битым.
+    #[test]
+    fn ranges_cover_the_file_exactly() {
+        let r = ranges(1000, 4);
+        assert_eq!(r, [(0, 249), (250, 499), (500, 749), (750, 999)]);
+        // нечётный размер: остаток забирает последняя часть
+        let r = ranges(1003, 4);
+        assert_eq!(r.last().unwrap(), &(750, 1002));
+        for w in r.windows(2) {
+            assert_eq!(w[1].0, w[0].1 + 1, "дыра или наложение: {w:?}");
+        }
+        assert_eq!(r.iter().map(|(a, b)| b - a + 1).sum::<u64>(), 1003);
+        // вырожденные случаи
+        assert_eq!(ranges(10, 1), [(0, 9)]);
+        assert_eq!(ranges(0, 4), [(0, 0)]);
+        assert_eq!(ranges(3, 4).iter().map(|(a, b)| b - a + 1).sum::<u64>(), 3);
+    }
+
+    #[test]
+    fn the_probe_tells_the_size_only_for_a_real_range_answer() {
+        assert_eq!(range_total(206, Some("bytes 0-0/5680522464")), Some(5680522464));
+        assert_eq!(range_total(206, Some("bytes 0-0/*")), None, "размер неизвестен");
+        assert_eq!(range_total(200, Some("bytes 0-0/100")), None, "сервер отдал весь файл — куски он не умеет");
+        assert_eq!(range_total(206, None), None);
+    }
+
     use super::*;
     use crate::settings::Settings;
 
