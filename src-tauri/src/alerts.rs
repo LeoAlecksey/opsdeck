@@ -252,11 +252,36 @@ fn items_of(v: &Value) -> Vec<&Value> {
 // ---------- state updates ----------
 
 fn persist(data: &Data) {
-    let _ = store::save_json(DATA_FILE, data);
+    // компактный JSON: файл машинный, а в истории тысяча записей — ради читаемости его никто не открывает
+    let _ = store::save_json_compact(DATA_FILE, data);
+}
+
+/// Запись для истории: в списке видно время, состояние, имя, важность, краткое описание и источник.
+/// Метки, аннотации и ссылки занимают по 1,8 КБ на запись — в истории они не нужны, а файл и то,
+/// что уходит в интерфейс, растут на порядок (у пользователя 475 записей дали 1,2 МБ и зависание
+/// на разборе и перерисовке).
+fn for_history(a: &Alert) -> Alert {
+    Alert {
+        labels: BTreeMap::new(),
+        annotations: BTreeMap::new(),
+        links: Vec::new(),
+        generator_url: String::new(),
+        silence_url: String::new(),
+        dashboard_url: String::new(),
+        panel_url: String::new(),
+        description: a.description.chars().take(300).collect(),
+        ..a.clone()
+    }
 }
 
 pub fn load_data(state: &AlertsState) {
-    let d: Data = store::load_json(DATA_FILE).unwrap_or_default();
+    let mut d: Data = store::load_json(DATA_FILE).unwrap_or_default();
+    // файл от прежних версий: сжимаем историю один раз, при первом же сохранении он станет меньше
+    let fat = d.history.iter().any(|a| !a.annotations.is_empty() || !a.labels.is_empty() || !a.links.is_empty());
+    if fat {
+        d.history = d.history.iter().map(for_history).collect();
+        persist(&d);
+    }
     *state.data.lock().unwrap() = d;
 }
 
@@ -279,7 +304,7 @@ fn apply(app: &AppHandle, incoming: Vec<Alert>) {
                 a.acked = p.acked && p.status == a.status && p.starts_at == a.starts_at;
             }
             if changed {
-                d.history.push_front(a.clone());
+                d.history.push_front(for_history(&a));
                 news.push(a.clone());
             }
             if a.status == "resolved" {
@@ -1027,6 +1052,39 @@ pub async fn alerts_poll_now(app: AppHandle) -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
+    /// История занимала по 2,4 КБ на запись из-за метеок и аннотаций: 475 записей — 1,2 МБ, и
+    /// интерфейс замирал на их разборе и перерисовке (журнал пользователя).
+    #[test]
+    fn history_records_keep_only_what_the_list_shows() {
+        let a = Alert {
+            kind: "alert".into(),
+            fingerprint: "f1".into(),
+            status: "firing".into(),
+            source: "Grafana".into(),
+            name: "PodCrashLooping".into(),
+            severity: "critical".into(),
+            summary: "под перезапускается".into(),
+            description: "x".repeat(900),
+            labels: [("namespace".to_string(), "shop".to_string())].into_iter().collect(),
+            annotations: [("runbook".to_string(), "y".repeat(1200))].into_iter().collect(),
+            links: vec![Link { title: "Grafana".into(), url: "https://example".into() }],
+            generator_url: "https://example/graph".into(),
+            received_at: "2026-10-13T08:00:00Z".into(),
+            ..Default::default()
+        };
+        let h = for_history(&a);
+        // то, что видно в таблице истории, остаётся
+        assert_eq!((h.name.as_str(), h.severity.as_str(), h.summary.as_str(), h.source.as_str(), h.status.as_str()), ("PodCrashLooping", "critical", "под перезапускается", "Grafana", "firing"));
+        assert_eq!(h.received_at, a.received_at);
+        // тяжёлое — нет
+        assert!(h.annotations.is_empty() && h.labels.is_empty() && h.links.is_empty());
+        assert!(h.generator_url.is_empty() && h.dashboard_url.is_empty());
+        assert_eq!(h.description.chars().count(), 300, "описание обрезано");
+        let one = serde_json::to_string(&h).unwrap().len();
+        assert!(one < 800, "запись истории всё ещё большая: {one} байт");
+        assert!(serde_json::to_string(&a).unwrap().len() > one * 3, "сжатие должно быть заметным");
+    }
+
     use super::*;
     use serde_json::json;
 

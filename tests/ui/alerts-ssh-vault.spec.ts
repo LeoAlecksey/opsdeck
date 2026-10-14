@@ -16,6 +16,23 @@ test.describe("alerts", () => {
     await expect(page.locator(".al-card:visible")).toHaveCount(5);
   });
 
+  // скрытый раздел не перечитывал историю на каждый опрос — на большой истории интерфейс замирал
+  test("a hidden section does not reload on every poll, and bursts collapse into one reload", async ({ app, page }) => {
+    const loads = async () => (await app.calls("alerts_get")).filter((c) => (c.args as any).historyLimit).length;
+    const before = await loads();
+    await app.view("terminal");
+    for (let i = 0; i < 3; i++) await app.emit("alerts-changed", 5);
+    await page.waitForTimeout(500);
+    expect(await loads()).toBe(before);
+
+    // возврат в раздел — одна перезагрузка, даже если событий было несколько
+    await app.view("alerts");
+    await expect.poll(loads).toBe(before + 1);
+    for (let i = 0; i < 4; i++) await app.emit("alerts-changed", 6);
+    await page.waitForTimeout(600);
+    expect(await loads()).toBe(before + 2);
+  });
+
   test("a card shows the alert; the rule's details open by a button (from feedback)", async ({ page }) => {
     const c = card(page, "PodCrashLooping");
     await expect(c.locator(".al-name")).toBeVisible();

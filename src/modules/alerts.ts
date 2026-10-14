@@ -102,6 +102,10 @@ export function mountAlerts(root: HTMLElement) {
   const expanded = new Set<string>();
   groupSel.value = prefs.get("group", "name");
 
+  // один форматтер на все строки: toLocaleString на каждую из 300 записей заметно дороже
+  const dateFmt = new Intl.DateTimeFormat(locale(), { dateStyle: "short", timeStyle: "medium" });
+  const when = (iso: string) => { const d = new Date(iso); return Number.isNaN(+d) ? iso : dateFmt.format(d); };
+
   const isMuted = (a: Alert) => muted.some((m) => m.name === a.name && (!m.source || m.source === a.source));
   const match = (a: Alert) => {
     const q = filter.value.trim().toLowerCase();
@@ -233,7 +237,7 @@ export function mountAlerts(root: HTMLElement) {
     $(".al-summary").textContent = `горит ${data.firing}${mutedNow ? ` · скрыто правилами ${mutedNow}` : ""}`;
 
     hist.innerHTML = data.history.filter(match).slice(0, 300).map((a) => `<tr>
-      <td title="${esc(new Date(a.received_at).toLocaleString(locale()))}">${esc(age(a.received_at))}</td>
+      <td title="${esc(when(a.received_at))}">${esc(age(a.received_at))}</td>
       <td class="${a.status === "resolved" ? "ok" : "bad"}">${a.status === "resolved" ? "resolved" : "firing"}</td>
       <td>${esc(a.name)}</td><td>${esc(a.severity)}</td><td class="wrap">${esc(a.summary || a.description)}</td><td class="muted">${esc(a.source)}</td></tr>`).join("")
       || `<tr><td class="muted" colspan="6">Пока пусто</td></tr>`;
@@ -380,9 +384,23 @@ export function mountAlerts(root: HTMLElement) {
   filter.oninput = draw;
   sourceSel.onchange = draw;
   groupSel.onchange = () => { prefs.set("group", groupSel.value); draw(); };
-  listen("alerts-changed", load);
+  // Раздел скрыт — перечитывать нечего: счётчик у 🔔 обновляет сам сайдбар по тому же событию.
+  // Раньше каждый опрос источников тянул 300 записей истории и перерисовывал таблицу даже в
+  // закрытом разделе — на большой истории это и был замерший интерфейс на несколько секунд.
+  let stale = false;
+  let soon = 0;
+  /** Несколько источников заканчивают опрос почти одновременно: сводим их в одну перезагрузку. */
+  const reload = () => {
+    if (root.hidden) { stale = true; return; }
+    clearTimeout(soon);
+    soon = window.setTimeout(load, 250);
+  };
+  listen("alerts-changed", reload);
   listen<string[]>("alerts-poll", (e) => showErrors(e.payload));
-  window.addEventListener("view-shown", (e) => { if ((e as CustomEvent).detail === "alerts") load(); });
+  window.addEventListener("view-shown", (e) => {
+    if ((e as CustomEvent).detail !== "alerts") return;
+    if (stale || !sources.length) { stale = false; load(); }
+  });
   registerProvider(() => data.current.filter((a) => !isMuted(a)).map((a) => ({
     group: "Алерт", title: a.name, hint: `${a.severity} · ${a.source}`,
     run: () => { window.dispatchEvent(new CustomEvent("show-view", { detail: "alerts" })); filter.value = a.name; draw(); },

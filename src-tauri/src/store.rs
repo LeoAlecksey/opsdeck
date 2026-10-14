@@ -76,8 +76,17 @@ pub fn clean_path_buf(p: PathBuf) -> PathBuf {
 /// Writes atomically and keeps the previous version next to it: `fs::write` truncates first, so an
 /// app killed mid-write (an update, a reboot) used to leave an empty file — and settings were gone.
 pub fn save_json<T: Serialize>(name: &str, value: &T) -> Result<(), String> {
+    write_json(name, &serde_json::to_string_pretty(value).map_err(err)?)
+}
+
+/// Для машинных файлов, которые никто не читает глазами (история алертов): без отступов — вчетверо
+/// меньше байт на запись и на разбор.
+pub fn save_json_compact<T: Serialize>(name: &str, value: &T) -> Result<(), String> {
+    write_json(name, &serde_json::to_string(value).map_err(err)?)
+}
+
+fn write_json(name: &str, data: &str) -> Result<(), String> {
     let path = config_dir()?.join(name);
-    let data = serde_json::to_string_pretty(value).map_err(err)?;
     let tmp = sibling(&path, "tmp");
     {
         use std::io::Write;
