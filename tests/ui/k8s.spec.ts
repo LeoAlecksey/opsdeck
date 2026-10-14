@@ -84,6 +84,34 @@ test.describe("kubernetes", () => {
     await expect(lf).not.toHaveClass(/\bbad\b/);
   });
 
+  // из отчёта: клик по RAM расставлял узлы по гигабайтам, хотя колонка красится по доле занятого,
+  // и стрелка в шапке показывала противоположное направление
+  test("nodes sort by the share of capacity, and the arrow matches the order", async ({ page }) => {
+    const node = (name: string, mem: string) => ({ metadata: { name, uid: name, creationTimestamp: new Date().toISOString() },
+      status: { allocatable: { cpu: "4", memory: mem }, conditions: [{ type: "Ready", status: "True" }], nodeInfo: { kubeletVersion: "v1.31.2" } } });
+    await page.evaluate(([big, small]) => {
+      const o = (window as any).__DEMO_OVERRIDES;
+      o.k8s_list = (a: any) => (a.kind === "nodes" ? [big, small] : undefined);
+      // big: 24 ГБ из 64 (37%), small: 7 ГБ из 8 (87%) — по байтам и по доле порядок разный
+      o.k8s_metrics = (a: any) => (a.kind === "nodes"
+        ? [{ namespace: "", name: "big", cpu_m: 100, mem: 24 * 2 ** 30 }, { namespace: "", name: "small", cpu_m: 100, mem: 7 * 2 ** 30 }]
+        : []);
+      o.k8s_watch_start = (a: any) => { setTimeout(() => (window as any).__demoEmit(`k8s-watch-${a.id}`, { type: "reset", items: a.kind === "nodes" ? [big, small] : [] }), 30); return null; };
+    }, [node("big", "64Gi"), node("small", "8Gi")]);
+    await page.locator(".kind-list button", { hasText: "Nodes" }).click();
+    await expect(rows(page)).toHaveCount(2);
+
+    const names = () => rows(page).locator("td:first-child").allTextContents();
+    const ramTh = page.locator(".k8s-main thead th", { hasText: "RAM" });
+    await ramTh.click();
+    // первый клик — самые загруженные сверху, и стрелка это подтверждает
+    await expect.poll(names).toEqual(["small", "big"]);
+    await expect(ramTh).toHaveClass(/desc/);
+    await ramTh.click();
+    await expect.poll(names).toEqual(["big", "small"]);
+    await expect(ramTh).toHaveClass(/asc/);
+  });
+
   test("nodes: live CPU/RAM with a bar and a sparkline (from feedback)", async ({ app, page }) => {
     const node = (name: string) => ({ metadata: { name, uid: name, labels: { "node-role.kubernetes.io/worker": "" }, creationTimestamp: new Date().toISOString() },
       status: { allocatable: { cpu: "4", memory: "16Gi" }, conditions: [{ type: "Ready", status: "True" }], nodeInfo: { kubeletVersion: "v1.31.2" } } });

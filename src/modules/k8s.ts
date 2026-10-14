@@ -22,14 +22,16 @@ type CtxInfo = {
 type Ctx = { file: string; context: string };
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Obj = any;
-type Col = { h: string; v: (o: Obj) => string | number; sort?: (o: Obj) => string | number; cls?: (o: Obj) => string; html?: (o: Obj) => string };
+/** `first: "desc"` — по такой колонке первый клик сортирует по убыванию (нагрузка, возраст):
+ *  раньше это делали минусом в `sort`, и стрелка в шапке показывала противоположное. */
+type Col = { h: string; v: (o: Obj) => string | number; sort?: (o: Obj) => string | number; cls?: (o: Obj) => string; html?: (o: Obj) => string; first?: "desc" };
 
 // ---------- column helpers ----------
 
 const ts = (s?: string) => (s ? Date.parse(s) : 0);
 const name: Col = { h: "Имя", v: (o) => o.metadata.name };
 const ns: Col = { h: "Namespace", v: (o) => o.metadata.namespace ?? "" };
-const ageCol: Col = { h: "Возраст", v: (o) => age(o.metadata.creationTimestamp), sort: (o) => -ts(o.metadata.creationTimestamp) };
+const ageCol: Col = { h: "Возраст", v: (o) => age(o.metadata.creationTimestamp), sort: (o) => ts(o.metadata.creationTimestamp), first: "desc" };
 const keys = (o: Obj) => Object.keys(o.data ?? {}).length + Object.keys(o.binaryData ?? {}).length;
 
 function podStatus(p: Obj): string {
@@ -973,14 +975,17 @@ export function mountK8s(root: HTMLElement) {
     const u = (o: Obj) => usage.get(`${o.metadata.namespace ?? ""}/${o.metadata.name}`);
     if (kind.id === "pods") return [
       // usage next to what the pod asked for: a number alone says nothing about whether it fits (#79)
-      { h: "CPU", v: (o) => (u(o) ? `${Math.round(u(o)!.cpu_m)}m` : ""), sort: (o) => -(u(o)?.cpu_m ?? -1),
+      { h: "CPU", v: (o) => (u(o) ? `${Math.round(u(o)!.cpu_m)}m` : ""), sort: (o) => u(o)?.cpu_m ?? -1, first: "desc",
         html: (o) => askedHtml(u(o)?.cpu_m, podAsk(o).cpuReq, podAsk(o).cpuLim, (x) => `${Math.round(x)}m`),
         cls: (o) => askedCls(u(o)?.cpu_m, podAsk(o).cpuReq, podAsk(o).cpuLim) },
-      { h: "RAM", v: (o) => (u(o) ? fmtMem(u(o)!.mem) : ""), sort: (o) => -(u(o)?.mem ?? -1),
+      { h: "RAM", v: (o) => (u(o) ? fmtMem(u(o)!.mem) : ""), sort: (o) => u(o)?.mem ?? -1, first: "desc",
         html: (o) => askedHtml(u(o)?.mem, podAsk(o).memReq, podAsk(o).memLim, fmtMem),
         cls: (o) => askedCls(u(o)?.mem, podAsk(o).memReq, podAsk(o).memLim) },
     ];
     const pct = (used: number, total: number) => (total ? ` · ${Math.round((used / total) * 100)}%` : "");
+    // Сортировка узлов — по доле занятого, а не по гигабайтам: колонка и красится по доле, и
+    // «больше всего занято» для узла значит «ближе к пределу», а не «больше байт» (из отчёта).
+    const share = (used: number | undefined, total: number) => (used === undefined ? -1 : total ? used / total : 0);
     const hot = (used: number, total: number) => (total && used / total > 0.85 ? "bad" : total && used / total > 0.7 ? "warn" : "");
     // live view of a node: a bar of the share used and a sparkline of the last samples
     const live = (o: Obj, text: string, used: number, total: number, series: number[]) => {
@@ -996,9 +1001,9 @@ export function mountK8s(root: HTMLElement) {
     const cpuText = (o: Obj) => (u(o) ? `${Math.round(u(o)!.cpu_m)}m${pct(u(o)!.cpu_m, cpuT(o))}` : "");
     const memText = (o: Obj) => (u(o) ? `${fmtMem(u(o)!.mem)}${pct(u(o)!.mem, memT(o))}` : "");
     return [
-      { h: "CPU", v: cpuText, sort: (o) => -(u(o)?.cpu_m ?? -1), cls: (o) => (u(o) ? hot(u(o)!.cpu_m, cpuT(o)) : ""),
+      { h: "CPU", v: cpuText, sort: (o) => share(u(o)?.cpu_m, cpuT(o)), first: "desc", cls: (o) => (u(o) ? hot(u(o)!.cpu_m, cpuT(o)) : ""),
         html: (o) => (u(o) ? live(o, cpuText(o), u(o)!.cpu_m, cpuT(o), trend.get(o.metadata.name)?.cpu ?? []) : "") },
-      { h: "RAM", v: memText, sort: (o) => -(u(o)?.mem ?? -1), cls: (o) => (u(o) ? hot(u(o)!.mem, memT(o)) : ""),
+      { h: "RAM", v: memText, sort: (o) => share(u(o)?.mem, memT(o)), first: "desc", cls: (o) => (u(o) ? hot(u(o)!.mem, memT(o)) : ""),
         html: (o) => (u(o) ? live(o, memText(o), u(o)!.mem, memT(o), trend.get(o.metadata.name)?.mem ?? []) : "") },
     ];
   };
@@ -1019,13 +1024,17 @@ export function mountK8s(root: HTMLElement) {
     ).join("");
   }
 
+  /** Колонки таблицы: свои у вида плюс метрики перед «Возрастом». */
+  function columns(): Col[] {
+    const base = kind.namespaced && currentNs() ? kind.cols.filter((c) => c !== ns) : kind.cols;
+    const mc = metricCols();
+    return mc.length ? [...base.slice(0, -1), ...mc, base[base.length - 1]] : base;
+  }
+
   function render() {
     histBar.hidden = kind.source !== "history";
     diagBar.hidden = kind.source !== "issues" && kind.source !== "checks";
-    const base = kind.namespaced && currentNs() ? kind.cols.filter((c) => c !== ns) : kind.cols;
-    // metrics go right before the age column
-    const mc = metricCols();
-    const cols = mc.length ? [...base.slice(0, -1), ...mc, base[base.length - 1]] : base;
+    const cols = columns();
     if (sortCol >= cols.length) sortCol = 0;
     // deleting, logs and shell make sense for real objects only, not for diagnostics, Helm or recorded events
     const pickable = !kind.source && !isReadonly();
@@ -1142,7 +1151,7 @@ export function mountK8s(root: HTMLElement) {
     const th = el.closest("th");
     if (!th || th.classList.contains("pick")) return;
     const i = Number(th.dataset.i);
-    sortDir = i === sortCol ? -sortDir : 1;
+    sortDir = i === sortCol ? -sortDir : (columns()[i]?.first === "desc" ? -1 : 1);
     sortCol = i;
     render();
   };
