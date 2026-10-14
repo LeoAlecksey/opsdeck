@@ -412,6 +412,40 @@ fn progress_check(app: &AppHandle, stage: &str, done: u64, total: u64) {
 const DL_PARTS: u64 = 4;
 const DL_MIN_SPLIT: u64 = 64 * 1024 * 1024;
 
+/// Что уже лежит в .part: по каждой части — сколько байт дошло до диска. Обрыв загрузки (сеть,
+/// выход из приложения) больше не стоит всей модели: при следующем запуске части продолжаются
+/// с того места, где остановились.
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug, Default)]
+struct DlState {
+    url: String,
+    total: u64,
+    /// по части: начало, конец (включительно) и сколько от начала уже записано
+    parts: Vec<(u64, u64, u64)>,
+}
+
+fn state_path(part: &Path) -> PathBuf {
+    part.with_extension("part.state")
+}
+
+/// Сохранённое состояние, если оно про этот же файл и совпадает по размеру.
+fn load_state(part: &Path, url: &str, total: u64) -> Option<DlState> {
+    let st: DlState = serde_json::from_str(&fs::read_to_string(state_path(part)).ok()?).ok()?;
+    let same_file = st.url == url && st.total == total && fs::metadata(part).ok()?.len() == total;
+    // диапазоны должны быть те же: иначе это состояние от другого числа соединений
+    let sane = st.parts.iter().all(|(a, b, d)| b >= a && *d <= b - a + 1);
+    (same_file && sane && !st.parts.is_empty()).then_some(st)
+}
+
+fn save_state(part: &Path, st: &DlState) {
+    if let Ok(text) = serde_json::to_string(st) {
+        let _ = fs::write(state_path(part), text);
+    }
+}
+
+fn drop_state(part: &Path) {
+    let _ = fs::remove_file(state_path(part));
+}
+
 /// Границы диапазонов (включительно) для `Range: bytes=a-b`. Последняя часть забирает остаток.
 fn ranges(total: u64, parts: u64) -> Vec<(u64, u64)> {
     if total == 0 || parts <= 1 {
@@ -467,61 +501,120 @@ async fn download_parts(
     url: &str,
     part: &Path,
     total: u64,
+    parts: u64,
     cancel: &std::sync::atomic::AtomicBool,
     on_progress: &(dyn Fn(u64) + Send + Sync),
 ) -> Result<(), String> {
-    let f = fs::File::create(part).map_err(err)?;
-    f.set_len(total).map_err(err)?;
-    drop(f);
-    let done = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
+    // продолжаем прежний .part, если он про этот же файл; иначе начинаем заново
+    let resumed = load_state(part, url, total).filter(|st| st.parts.len() as u64 == parts.min(total.max(1)));
+    if resumed.is_none() {
+        let f = fs::File::create(part).map_err(err)?;
+        f.set_len(total).map_err(err)?;
+        drop(f);
+        drop_state(part);
+    }
+    let plan: Vec<(u64, u64, u64)> = resumed
+        .map(|st| st.parts)
+        .filter(|p| p.len() as u64 == parts.min(total.max(1)))
+        .unwrap_or_else(|| ranges(total, parts).into_iter().map(|(a, b)| (a, b, 0)).collect());
+    let already: u64 = plan.iter().map(|(.., d)| *d).sum();
+
+    // по части: сколько записано (для интерфейса) и сколько из этого доведено до диска (для докачки)
+    let live: Vec<_> = plan.iter().map(|(.., d)| std::sync::Arc::new(std::sync::atomic::AtomicU64::new(*d))).collect();
+    let safe: Vec<_> = live.iter().map(|d| std::sync::Arc::new(std::sync::atomic::AtomicU64::new(d.load(std::sync::atomic::Ordering::Relaxed)))).collect();
+    let sum = |xs: &[std::sync::Arc<std::sync::atomic::AtomicU64>]| xs.iter().map(|x| x.load(std::sync::atomic::Ordering::Relaxed)).sum::<u64>();
+    let snapshot = |xs: &[std::sync::Arc<std::sync::atomic::AtomicU64>]| DlState {
+        url: url.to_string(),
+        total,
+        parts: plan.iter().zip(xs).map(|((a, b, _), d)| (*a, *b, d.load(std::sync::atomic::Ordering::Relaxed))).collect(),
+    };
+
     let mut set = tokio::task::JoinSet::new();
-    for (from, to) in ranges(total, DL_PARTS) {
-        let (client, url, path, done) = (client.clone(), url.to_string(), part.to_path_buf(), done.clone());
+    for (i, &(from, to, done_before)) in plan.iter().enumerate() {
+        if from + done_before > to {
+            continue; // эта часть уже целиком скачана в прошлый раз
+        }
+        let (client, url, path) = (client.clone(), url.to_string(), part.to_path_buf());
+        let (live, safe) = (live[i].clone(), safe[i].clone());
         set.spawn(async move {
-            let mut resp = client.get(&url).header(reqwest::header::RANGE, format!("bytes={from}-{to}")).send().await.map_err(|e| format!("загрузка {url}: {e}"))?;
+            let start = from + done_before;
+            let mut resp = client.get(&url).header(reqwest::header::RANGE, format!("bytes={start}-{to}")).send().await.map_err(|e| format!("загрузка {url}: {e}"))?;
             if !resp.status().is_success() {
                 return Err(format!("загрузка {url}: {}", resp.status()));
             }
             let mut f = fs::OpenOptions::new().write(true).open(&path).map_err(err)?;
-            let mut at = from;
-            while let Some(chunk) = resp.chunk().await.map_err(|e| format!("загрузка прервалась: {e}"))? {
+            let mut at = start;
+            let mut unsynced = 0u64;
+            // в состояние для докачки попадает только то, что уже на диске: иначе после жёсткого
+            // обрыва мы считали бы скачанным хвост, оставшийся в кэше
+            let publish = |f: &mut fs::File, at: u64| {
+                let _ = f.sync_data();
+                safe.store(at - from, std::sync::atomic::Ordering::Relaxed);
+            };
+            loop {
+                let chunk = match resp.chunk().await {
+                    Ok(Some(c)) => c,
+                    Ok(None) => break,
+                    // обрыв: то, что успели записать, остаётся для следующей попытки
+                    Err(e) => {
+                        publish(&mut f, at);
+                        return Err(format!("загрузка прервалась: {e}"));
+                    }
+                };
                 write_at(&mut f, at, &chunk)?;
                 at += chunk.len() as u64;
-                done.fetch_add(chunk.len() as u64, std::sync::atomic::Ordering::Relaxed);
+                unsynced += chunk.len() as u64;
+                live.store(at - from, std::sync::atomic::Ordering::Relaxed);
+                if unsynced >= 2 * 1024 * 1024 {
+                    publish(&mut f, at);
+                    unsynced = 0;
+                }
             }
-            f.flush().map_err(err)
+            publish(&mut f, at);
+            if at <= to {
+                return Err(format!("соединение закрылось на {at} из {}", to + 1));
+            }
+            Ok(())
         });
     }
-    // прогресс и отмена, пока части качаются
+    // прогресс, состояние для докачки и отмена, пока части качаются
+    let mut saved = Instant::now();
     loop {
         if cancel.load(std::sync::atomic::Ordering::Relaxed) {
             set.shutdown().await;
-            let _ = fs::remove_file(part);
+            save_state(part, &snapshot(&safe));
             return Err("установка отменена".into());
         }
-        match tokio::time::timeout(Duration::from_millis(250), set.join_next()).await {
-            Err(_) => on_progress(done.load(std::sync::atomic::Ordering::Relaxed)),
-            Ok(None) => break,
-            Ok(Some(res)) => match res {
-                Err(e) => {
-                    set.shutdown().await;
-                    let _ = fs::remove_file(part);
-                    return Err(format!("загрузка прервалась: {e}"));
-                }
-                Ok(Err(e)) => {
-                    set.shutdown().await;
-                    let _ = fs::remove_file(part);
-                    return Err(e);
-                }
-                Ok(Ok(())) => on_progress(done.load(std::sync::atomic::Ordering::Relaxed)),
-            },
+        let step = tokio::time::timeout(Duration::from_millis(250), set.join_next()).await;
+        let all_done = matches!(step, Ok(None));
+        if let Ok(Some(res)) = step {
+            let failed = match res {
+                Err(e) => Some(format!("загрузка прервалась: {e}")),
+                Ok(Err(e)) => Some(e),
+                Ok(Ok(())) => None,
+            };
+            if let Some(e) = failed {
+                set.shutdown().await;
+                // то, что скачано, остаётся: следующая попытка продолжит с этого места
+                save_state(part, &snapshot(&safe));
+                return Err(e);
+            }
+        }
+        on_progress(already.min(total).max(sum(&live)));
+        if saved.elapsed() > Duration::from_secs(2) {
+            save_state(part, &snapshot(&safe));
+            saved = Instant::now();
+        }
+        if all_done {
+            break;
         }
     }
-    let got = done.load(std::sync::atomic::Ordering::Relaxed);
+    let got = sum(&live);
     if got != total {
-        let _ = fs::remove_file(part);
+        save_state(part, &snapshot(&safe));
         return Err(format!("скачано {got} из {total} байт — соединение оборвалось"));
     }
+    drop_state(part);
     on_progress(total);
     Ok(())
 }
@@ -575,9 +668,12 @@ async fn download(app: &AppHandle, url: &str, dest: &Path, sha256: Option<&str>,
     let probe = client.get(url).header(reqwest::header::RANGE, "bytes=0-0").send().await.map_err(|e| format!("загрузка {url}: {e}"))?;
     let whole = range_total(probe.status().as_u16(), probe.headers().get(reqwest::header::CONTENT_RANGE).and_then(|v| v.to_str().ok()));
     drop(probe);
-    if let Some(total) = whole.filter(|t| *t >= DL_MIN_SPLIT) {
+    // Сервер умеет Range — идём этим путём всегда: крупный файл в несколько соединений, мелкий в
+    // одно, и в обоих случаях обрыв можно докачать (состояние лежит рядом с .part).
+    if let Some(total) = whole {
         let part = dest.with_extension("part");
-        download_parts(&client, url, &part, total, cancel, &|done| progress(app, stage, done, total)).await?;
+        let parts = if total >= DL_MIN_SPLIT { DL_PARTS } else { 1 };
+        download_parts(&client, url, &part, total, parts, cancel, &|done| progress(app, stage, done, total)).await?;
         if let Some(expected) = sha256 {
             let got = sha_of(&part, cancel, &|done| progress_check(app, stage, done, total))?;
             if !got.eq_ignore_ascii_case(expected) {
@@ -1118,7 +1214,7 @@ mod tests {
         let seen = std::sync::Mutex::new(Vec::<u64>::new());
         let client = reqwest::Client::new();
         let url = format!("http://127.0.0.1:{port}/model.gguf");
-        tauri::async_runtime::block_on(download_parts(&client, &url, &part, body.len() as u64, &cancel, &|done| {
+        tauri::async_runtime::block_on(download_parts(&client, &url, &part, body.len() as u64, 4, &cancel, &|done| {
             seen.lock().unwrap().push(done)
         }))
         .unwrap();
@@ -1130,6 +1226,80 @@ mod tests {
         assert_eq!(got.len(), body.len());
         assert_eq!(sha_of(&part, &cancel, &|_| {}).unwrap(), expected, "файл собран не так, как отдавал сервер");
         assert_eq!(*seen.lock().unwrap().last().unwrap(), body.len() as u64, "в конце прогресс — весь размер");
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// Обрыв не стоит всей модели: при следующей попытке части продолжаются с того места, где
+    /// остановились, и собранный файл совпадает с отданным сервером.
+    #[test]
+    fn an_interrupted_download_resumes_where_it_stopped() {
+        use std::io::{Read, Write};
+        let body: Vec<u8> = (0..200_000u32).flat_map(|i| i.to_le_bytes()).collect();
+        let expected = {
+            let mut h = Sha256::new();
+            h.update(&body);
+            format!("{:x}", h.finalize())
+        };
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let asked: std::sync::Arc<std::sync::Mutex<Vec<(u64, u64)>>> = Default::default();
+        // первая попытка: каждая часть отдаёт только четверть своего диапазона и обрывается
+        let srv = {
+            let (body, asked) = (body.clone(), asked.clone());
+            std::thread::spawn(move || {
+                let mut round = 0;
+                for _ in 0..8 {
+                    let Ok((mut s, _)) = listener.accept() else { return };
+                    let mut buf = [0u8; 2048];
+                    let n = s.read(&mut buf).unwrap_or(0);
+                    let req = String::from_utf8_lossy(&buf[..n]).to_string();
+                    let r = req.lines().find(|l| l.to_ascii_lowercase().starts_with("range:")).and_then(|l| l.split('=').nth(1).map(str::trim).map(str::to_string)).unwrap();
+                    let (a, b) = r.split_once('-').unwrap();
+                    let (from, to) = (a.parse::<u64>().unwrap(), b.parse::<u64>().unwrap());
+                    asked.lock().unwrap().push((from, to));
+                    round += 1;
+                    let cut = if round <= 4 { (to - from + 1) / 4 } else { to - from + 1 };
+                    let slice = &body[from as usize..(from + cut) as usize];
+                    // длину объявляем полную, а отдаём кусок и закрываем: для клиента это обрыв
+                    let head = format!(
+                        "HTTP/1.1 206 Partial Content\r\nContent-Length: {}\r\nContent-Range: bytes {from}-{to}/{}\r\nConnection: close\r\n\r\n",
+                        to - from + 1,
+                        body.len()
+                    );
+                    let _ = s.write_all(head.as_bytes()).and_then(|_| s.write_all(slice));
+                }
+            })
+        };
+
+        let dir = std::env::temp_dir().join(format!("opsdeck-resume-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let part = dir.join("model.part");
+        let cancel = std::sync::atomic::AtomicBool::new(false);
+        let client = reqwest::Client::new();
+        let url = format!("http://127.0.0.1:{port}/model.gguf");
+        let total = body.len() as u64;
+
+        // первая попытка обрывается, но состояние остаётся
+        let first = tauri::async_runtime::block_on(download_parts(&client, &url, &part, total, 4, &cancel, &|_| {}));
+        assert!(first.is_err(), "сервер оборвал отдачу — загрузка должна была не дойти");
+        let st = load_state(&part, &url, total).expect("состояние докачки не сохранилось");
+        let got_before: u64 = st.parts.iter().map(|(.., d)| *d).sum();
+        assert!(got_before > 0 && got_before < total, "скачано {got_before} из {total}");
+
+        // вторая попытка: спрашиваются только остатки
+        asked.lock().unwrap().clear();
+        tauri::async_runtime::block_on(download_parts(&client, &url, &part, total, 4, &cancel, &|_| {})).unwrap();
+        srv.join().unwrap();
+        let second = asked.lock().unwrap().clone();
+        assert_eq!(second.len(), 4);
+        let again: u64 = second.iter().map(|(a, b)| b - a + 1).sum();
+        assert_eq!(again, total - got_before, "докачивается ровно остаток, а не файл заново");
+
+        let mut got = Vec::new();
+        fs::File::open(&part).unwrap().read_to_end(&mut got).unwrap();
+        assert_eq!(got.len(), body.len());
+        assert_eq!(sha_of(&part, &cancel, &|_| {}).unwrap(), expected, "после докачки файл собран верно");
+        assert!(load_state(&part, &url, total).is_none(), "состояние убирается, когда файл дошёл целиком");
         fs::remove_dir_all(&dir).unwrap();
     }
 
