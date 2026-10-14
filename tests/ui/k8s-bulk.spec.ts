@@ -69,6 +69,50 @@ test.describe("kubernetes: multiselect and row actions", () => {
     expect(String(call.args.text).length).toBeGreaterThan(0);
   });
 
+  // Пробел отмечает строку под курсором — как клик по галочке (#79)
+  test("space picks the row under the keyboard cursor", async ({ app, page }) => {
+    await open(app, page);
+    await page.locator(".k8s-main .table-wrap").click({ position: { x: 5, y: 5 } });
+    await page.keyboard.press("ArrowDown");
+    await expect(rows(page).nth(0)).toHaveClass(/cur/);
+    await page.keyboard.press(" ");
+    await expect(rows(page).nth(0)).toHaveClass(/picked/);
+    await expect(page.locator(".pick-bar .pick-n")).toContainText("1");
+    await page.keyboard.press("ArrowDown");
+    await page.keyboard.press(" ");
+    await expect(page.locator(".pick-bar .pick-n")).toContainText("2");
+    await page.keyboard.press(" ");
+    await expect(page.locator(".pick-bar .pick-n")).toContainText("1");
+  });
+
+  // гистограмма над логами: сколько строк когда и сколько ошибок (#73)
+  test("the log histogram shows the span, marks errors and filters by a click", async ({ app, page }) => {
+    await open(app, page);
+    await rows(page).first().click();
+    await page.locator(".drawer-tabs button", { hasText: "Логи" }).click();
+    // метки времени просим всегда, даже когда в строках их не показываем
+    expect((await app.called("k8s_logs_start")).args).toMatchObject({ req: { timestamps: true } });
+    const hist = page.locator(".log-hist");
+    await expect(hist).toBeVisible();
+    await expect(hist.locator(".lh-note")).toContainText("строк 5");
+    await expect(hist.locator(".lh-note")).toContainText("ошибок 1");
+    // строка ERROR попала в столбик и покрашена красным
+    const err = hist.locator(".lh-bar", { has: page.locator(".lh-err") });
+    await expect(err).toHaveCount(1);
+    await expect(err).toHaveAttribute("title", /ошибок 1/);
+
+    // клик по столбику оставляет окно времени, повторный снимает
+    await err.click();
+    await expect(hist.locator(".lh-note")).toContainText("окно");
+    await expect(hist.locator(".lh-bar.active")).toHaveCount(1);
+    await err.click();
+    await expect(hist.locator(".lh-note")).toContainText("строк 5");
+
+    // график выключается галочкой
+    await page.locator(".logs-bar .lh").uncheck();
+    await expect(hist).toBeHidden();
+  });
+
   test("a shell on a node asks for the image and runs kubectl debug", async ({ app, page }) => {
     await open(app, page, "Nodes");
     await rows(page).first().click();

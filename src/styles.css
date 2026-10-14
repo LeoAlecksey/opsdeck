@@ -261,6 +261,26 @@ table.res tbody tr:hover { background: var(--panel); }
 table.res tbody tr.sel { background: var(--panel-2); }
 td.ok { color: #98d982; }
 td.warn { color: #e6c07b; }
+/* k8s: строка под курсором клавиатуры (#79) */
+.k8s-main tbody tr.cur td:first-child { box-shadow: inset 2px 0 0 #61afef; }
+.k8s-main tbody tr.cur { background: var(--hover); }
+/* k8s: плашки namespace (#79) */
+.ns-tabs { display: flex; gap: 4px; overflow: auto hidden; max-width: 42%; }
+.ns-tab { display: inline-flex; align-items: center; gap: 4px; padding: 2px 4px 2px 8px; border: 1px solid var(--line); border-radius: 6px; font-size: 12px; white-space: nowrap; cursor: pointer; }
+.ns-tab:hover { background: var(--hover); }
+.ns-tab.active { border-color: #61afef; color: #61afef; }
+.ns-tab .x { border: 0; background: none; color: inherit; opacity: .5; cursor: pointer; padding: 0 2px; }
+.ns-tab .x:hover { opacity: 1; }
+/* Логи пода: гистограмма по времени (#73) */
+.log-hist { padding: 4px 8px 2px; border-bottom: 1px solid var(--line); }
+.lh-bars { display: flex; align-items: flex-end; gap: 1px; height: 46px; }
+.lh-bar { flex: 1; min-width: 0; min-height: 2px; padding: 0; border: 0; border-radius: 1px 1px 0 0; background: #4b6a8f; display: flex; flex-direction: column; justify-content: flex-end; cursor: pointer; }
+.lh-bar:hover { background: #61afef; }
+.lh-bar.empty { background: #2a3550; }
+.lh-bar.active { outline: 1px solid #61afef; background: #61afef; }
+.lh-err { background: var(--danger); width: 100%; }
+.lh-warn { background: #e6c07b; width: 100%; }
+.lh-note { font-size: 11px; padding-top: 2px; }
 /* Yandex Cloud: вкладки и свёрнутые группы (сети, группы безопасности) */
 .yc-body { overflow: auto; flex: 1; }
 .yc-group { border-bottom: 1px solid var(--line); }

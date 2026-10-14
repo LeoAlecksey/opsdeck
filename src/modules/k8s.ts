@@ -10,6 +10,7 @@ import { ask, esc, toast } from "./ui";
 import { age, detailsHtml, jsonPath, statusClass } from "./k8s-details";
 import { decodeSecret } from "./secretval";
 import { findProblems, isSystemNs, issueForAi, runChecks, type Finding, type Issue, type Snapshot } from "./k8s-issues";
+import { bucketTitle, buckets, parseLogLine, type Bucket, type Level } from "./loghist";
 import { registerProvider } from "./palette";
 import { matches, parseSelector, type Term } from "./labelsel";
 import type { OpenTerminalDetail } from "./terminal";
@@ -222,7 +223,7 @@ const KINDS: KindDef[] = [
 
 // ---------- log view: buffer + text/pod filter over an xterm ----------
 
-type LogLine = { pod?: string; text: string };
+type LogLine = { pod?: string; text: string; time?: number; level?: Level };
 const LOG_CAP = 50000;
 const stripAnsi = (s: string) => s.replace(/\x1b\[[0-9;]*m/g, "");
 
@@ -231,17 +232,21 @@ class LogView {
   private text = "";
   private pod = "";
   constructor(readonly term: Terminal) {}
+  /** Окно времени: клик по столбику гистограммы оставляет только его строки (#73). */
+  private range: [number, number] | null = null;
   private match = (l: LogLine) =>
-    (!this.pod || l.pod === this.pod) && (!this.text || stripAnsi(l.text).toLowerCase().includes(this.text));
+    (!this.pod || l.pod === this.pod) && (!this.text || stripAnsi(l.text).toLowerCase().includes(this.text))
+    && (!this.range || (l.time !== undefined && l.time >= this.range[0] && l.time <= this.range[1]));
   add(ls: LogLine[]) {
     this.lines.push(...ls);
     if (this.lines.length > LOG_CAP) this.lines.splice(0, this.lines.length - LOG_CAP);
     const shown = ls.filter(this.match);
     if (shown.length) this.term.write(shown.map((l) => l.text).join("\n") + "\n");
   }
-  setFilter(text: string, pod = this.pod) {
+  setFilter(text: string, pod = this.pod, range: [number, number] | null = this.range) {
     this.text = text.trim().toLowerCase();
     this.pod = pod;
+    this.range = range;
     this.term.reset();
     const shown = this.lines.filter(this.match);
     // write in chunks so a big buffer doesn't freeze the UI
@@ -249,7 +254,23 @@ class LogView {
   }
   clear() {
     this.lines = [];
+    this.range = null;
     this.term.reset();
+  }
+  /** Строки, попавшие в текущий фильтр — из них строится гистограмма. */
+  shown(): LogLine[] {
+    return this.lines.filter(this.match);
+  }
+  /** Все строки без фильтра по времени: гистограмма показывает весь буфер, даже когда выбрано окно. */
+  timeline(): LogLine[] {
+    const keep = this.range;
+    this.range = null;
+    const all = this.lines.filter(this.match);
+    this.range = keep;
+    return all;
+  }
+  get window(): [number, number] | null {
+    return this.range;
   }
   /** Every visible line, without colors — for saving to a file. */
   all() {
@@ -340,6 +361,7 @@ export function mountK8s(root: HTMLElement) {
         <span class="ctx-title muted">выберите контекст</span>
         <span class="ro-badge" title="Изменения в этом контексте запрещены">${icon("lock", 14)} только чтение</span>
         <select class="ns-select" title="Namespace"></select>
+        <div class="ns-tabs" title="Namespace, с которыми работаете: клик — переключиться, × — убрать"></div>
         <input class="filter" placeholder="фильтр…" spellcheck="false" />
         <input class="lfilter" placeholder="метки: app=api, env in (prod)" spellcheck="false" title="Фильтр по меткам, как kubectl -l: app=api · tier!=db · env in (prod,stage) · env notin (dev) · canary (есть ключ) · !canary (нет ключа); условия через запятую" />
         <span class="spacer"></span>
@@ -402,7 +424,7 @@ export function mountK8s(root: HTMLElement) {
     </dialog>`;
 
   const $ = <T extends HTMLElement = HTMLElement>(s: string) => root.querySelector<T>(s)!;
-  const ctxList = $(".ctx-list"), kindList = $(".kind-list"), nsSel = $<HTMLSelectElement>(".ns-select");
+  const ctxList = $(".ctx-list"), kindList = $(".kind-list"), nsSel = $<HTMLSelectElement>(".ns-select"), nsTabsEl = $(".ns-tabs");
   const lfilterIn = $<HTMLInputElement>(".lfilter");
   const histBar = $(".hist-bar");
   const diagBar = $(".diag-bar"), diagSys = $<HTMLInputElement>(".diag-sys");
@@ -601,7 +623,59 @@ export function mountK8s(root: HTMLElement) {
     if (saved && !names.includes(saved) && saved !== "") nsSel.add(new Option(saved, saved));
     nsSel.add(new Option("Другой…", "__other"));
     nsSel.value = saved ?? (names.length > 1 ? "" : ctx!.namespace);
+    loadNsTabs();
+    pinNs(nsSel.value);
   }
+
+  // ----- namespace: плашки тех, с которыми работают (#79) -----
+  const MAX_NS_TABS = 8;
+  let nsTabs: string[] = [];
+  const nsTabsKey = () => `nstabs:${ctx!.file}|${ctx!.context}`;
+
+  function loadNsTabs() {
+    try { nsTabs = JSON.parse(store.get(nsTabsKey()) ?? "[]"); } catch { nsTabs = []; }
+    if (!Array.isArray(nsTabs)) nsTabs = [];
+    drawNsTabs();
+  }
+  function drawNsTabs() {
+    nsTabsEl.innerHTML = nsTabs
+      .map((n) => `<span class="ns-tab${n === nsSel.value ? " active" : ""}" data-ns="${esc(n)}">${esc(n)}<button class="x" data-ns-close="${esc(n)}" title="Убрать">×</button></span>`)
+      .join("");
+  }
+  /** Выбранный namespace становится плашкой: между ними потом переключаются одним кликом. */
+  function pinNs(n: string) {
+    if (!n || !ctx) return;
+    if (!nsTabs.includes(n)) {
+      nsTabs.push(n);
+      if (nsTabs.length > MAX_NS_TABS) nsTabs.shift();
+      store.set(nsTabsKey(), JSON.stringify(nsTabs));
+    }
+    drawNsTabs();
+  }
+
+  function applyNs() {
+    store.set(`ns:${ctx!.file}|${ctx!.context}`, nsSel.value);
+    pinNs(nsSel.value);
+    drawNsTabs();
+    closeDrawer();
+    startWatch();
+    loadMetrics();
+  }
+
+  nsTabsEl.addEventListener("click", (e) => {
+    const close = (e.target as HTMLElement).closest<HTMLElement>("[data-ns-close]")?.dataset.nsClose;
+    if (close !== undefined) {
+      nsTabs = nsTabs.filter((x) => x !== close);
+      store.set(nsTabsKey(), JSON.stringify(nsTabs));
+      drawNsTabs();
+      return;
+    }
+    const n = (e.target as HTMLElement).closest<HTMLElement>("[data-ns]")?.dataset.ns;
+    if (n === undefined || n === nsSel.value) return;
+    if (![...nsSel.options].some((o) => o.value === n)) nsSel.add(new Option(n, n), nsSel.options.length - 1);
+    nsSel.value = n;
+    applyNs();
+  });
 
   nsSel.onchange = async () => {
     if (nsSel.value === "__other") {
@@ -609,10 +683,7 @@ export function mountK8s(root: HTMLElement) {
       if (v) { if (![...nsSel.options].some((o) => o.value === v)) nsSel.add(new Option(v, v), nsSel.options.length - 1); nsSel.value = v; }
       else nsSel.value = "";
     }
-    store.set(`ns:${ctx!.file}|${ctx!.context}`, nsSel.value);
-    closeDrawer();
-    startWatch();
-    loadMetrics();
+    applyNs();
   };
 
   // ----- kinds -----
@@ -652,6 +723,7 @@ export function mountK8s(root: HTMLElement) {
       }
       const b = document.createElement("button");
       b.className = "kind-item";
+      b.dataset.kind = k.id;
       b.classList.toggle("active", k === kind);
       b.textContent = k.label;
       b.onclick = () => selectKind(k);
@@ -994,6 +1066,7 @@ export function mountK8s(root: HTMLElement) {
     }).join("");
     // ticks only apply to what is on screen: a filtered-out row keeps its tick but is not shown
     const shownKeys = new Set(rows.map((r) => keyOf(r.o)));
+    if (cursor) tbody.querySelector(`tr[data-key="${CSS.escape(cursor)}"]`)?.classList.add("cur");
     const all = tbody.closest("table")!.querySelector<HTMLInputElement>(".pick-all");
     if (all) all.checked = rows.length > 0 && rows.every((r) => picked.has(keyOf(r.o)));
     for (const k of [...picked]) if (!items.some((o) => keyOf(o) === k)) picked.delete(k);
@@ -1096,6 +1169,66 @@ export function mountK8s(root: HTMLElement) {
     }
     openDrawer(o);
   };
+  // ----- клавиатура: без мыши (#79) -----
+  /** Строка под курсором: ↑/↓ двигают, Enter открывает, Пробел отмечает. */
+  let cursor: string | null = null;
+  const rowKeys = () => [...tbody.querySelectorAll<HTMLElement>("tr[data-key]")].map((r) => r.dataset.key!);
+
+  function setCursor(key: string | null, scroll = true) {
+    cursor = key;
+    tbody.querySelectorAll("tr").forEach((r) => r.classList.toggle("cur", !!key && r.dataset.key === key));
+    if (scroll && key) tbody.querySelector(`tr[data-key="${CSS.escape(key)}"]`)?.scrollIntoView({ block: "nearest" });
+  }
+  function moveCursor(delta: number) {
+    const keys = rowKeys();
+    if (!keys.length) return;
+    const at = keys.indexOf(cursor ?? selected ?? "");
+    setCursor(keys[Math.min(keys.length - 1, Math.max(0, at < 0 ? (delta > 0 ? 0 : keys.length - 1) : at + delta))]);
+  }
+  const atCursor = () => items.find((x) => keyOf(x) === cursor);
+
+  document.addEventListener("keydown", (e) => {
+    if (root.hidden || e.ctrlKey || e.metaKey) return;
+    const kinds = () => [...kindList.querySelectorAll<HTMLElement>(".kind-item")];
+    // Alt+↑/↓ — предыдущий или следующий раздел слева; работает и когда курсор в поле фильтра
+    if (e.altKey && (e.key === "ArrowUp" || e.key === "ArrowDown")) {
+      const all = kinds();
+      const at = all.findIndex((b) => b.classList.contains("active"));
+      const next = all[Math.min(all.length - 1, Math.max(0, (at < 0 ? 0 : at) + (e.key === "ArrowDown" ? 1 : -1)))];
+      if (!next) return;
+      e.preventDefault();
+      next.click();
+      next.scrollIntoView({ block: "nearest" });
+      return;
+    }
+    if (e.altKey || e.isComposing) return;
+    // в полях ввода и в терминале стрелки и пробел принадлежат им
+    if ((e.target as HTMLElement | null)?.closest("input, textarea, select, .xterm, .cm-editor, dialog")) return;
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      moveCursor(e.key === "ArrowDown" ? 1 : -1);
+      return;
+    }
+    if (e.key === "Enter") {
+      const o = atCursor();
+      if (!o) return;
+      e.preventDefault();
+      openDrawer(o);
+      return;
+    }
+    if (e.key === " ") {
+      const o = atCursor();
+      const box = cursor ? tbody.querySelector<HTMLInputElement>(`tr[data-key="${CSS.escape(cursor)}"] .pick-one`) : null;
+      if (!o || !box) return;
+      e.preventDefault();
+      const k = keyOf(o);
+      if (picked.has(k)) picked.delete(k); else picked.add(k);
+      box.checked = picked.has(k);
+      box.closest("tr")!.classList.toggle("picked", picked.has(k));
+      syncPickBar();
+    }
+  });
+
   filterIn.oninput = render;
   lfilterIn.oninput = render;
   lfilterIn.onblur = () => { if (lfilterIn.classList.contains("bad")) toast(t(lfilterIn.dataset.err ?? ""), "err"); };
@@ -1437,6 +1570,55 @@ export function mountK8s(root: HTMLElement) {
     await load();
   }
 
+  /** Гистограмма над логами (#73): столбики по времени, красным — ошибки. Клик оставляет окно. */
+  const HIST_HTML = `<div class="log-hist" hidden><div class="lh-bars"></div><div class="lh-note muted"></div></div>`;
+
+  function mountHist(view: LogView, redrawFilter: () => void) {
+    const box = drawerBody.querySelector<HTMLElement>(".log-hist")!;
+    const bars = box.querySelector<HTMLElement>(".lh-bars")!;
+    const note = box.querySelector<HTMLElement>(".lh-note")!;
+    const fmt = (ms: number) => new Date(ms).toLocaleTimeString(locale(), { hour12: false });
+    let shown: Bucket[] = [];
+    let timer = 0;
+
+    const draw = () => {
+      shown = buckets(view.timeline(), 60);
+      box.hidden = shown.length === 0;
+      if (!shown.length) return;
+      const max = Math.max(...shown.map((b) => b.error + b.warn + b.info));
+      const win = view.window;
+      bars.innerHTML = shown.map((b, i) => {
+        const n = b.error + b.warn + b.info;
+        const h = Math.round((n / max) * 100);
+        const part = (c: number) => (n ? (c / n) * h : 0);
+        const active = win && b.from >= win[0] && b.to <= win[1];
+        // доли рисуем только когда они есть: пустой span сбивал бы и вид, и поиск по разметке
+        const seg = (cls: string, c: number) => (c ? `<span class="${cls}" style="height:${part(c)}%"></span>` : "");
+        return `<button class="lh-bar${active ? " active" : ""}${n ? "" : " empty"}" data-b="${i}" title="${esc(bucketTitle(b, fmt))}" style="height:${h}%">
+          ${seg("lh-err", b.error)}${seg("lh-warn", b.warn)}</button>`;
+      }).join("");
+      const total = shown.reduce((x, b) => x + b.error + b.warn + b.info, 0);
+      const errs = shown.reduce((x, b) => x + b.error, 0);
+      note.textContent = win
+        ? `${t("окно")}: ${fmt(win[0])}–${fmt(win[1])} · ${t("клик по столбику снимет")}`
+        : `${fmt(shown[0].from)}–${fmt(shown.at(-1)!.to + 1)} · ${t("строк")} ${total}${errs ? `, ${t("ошибок")} ${errs}` : ""}`;
+    };
+
+    bars.onclick = (e) => {
+      const i = Number((e.target as HTMLElement).closest<HTMLElement>("[data-b]")?.dataset.b);
+      const b = shown[i];
+      if (!b) return;
+      const win = view.window;
+      const same = win && b.from >= win[0] && b.to <= win[1];
+      view.setFilter(drawerBody.querySelector<HTMLInputElement>(".lf")!.value, undefined, same ? null : [b.from, b.to]);
+      redrawFilter();
+      draw();
+    };
+    // перерисовка не чаще раза в полсекунды: строки идут потоком
+    const schedule = () => { if (!timer) timer = window.setTimeout(() => { timer = 0; draw(); }, 500); };
+    return { draw, schedule, stop: () => clearTimeout(timer) };
+  }
+
   function showLogs(o: Obj) {
     const containers: string[] = [...(o.spec.initContainers ?? []), ...o.spec.containers].map((c: Obj) => c.name);
     drawerBody.innerHTML = `<div class="logs-pane">
@@ -1445,6 +1627,7 @@ export function mountK8s(root: HTMLElement) {
         <select class="lt"><option value="100">100 строк</option><option value="500" selected>500 строк</option><option value="2000">2000 строк</option><option value="10000">10000 строк</option></select>
         <label class="muted"><input type="checkbox" class="lp" /> previous</label>
         <label class="muted"><input type="checkbox" class="lts" /> время</label>
+        <label class="muted" title="График: сколько строк было в каждом отрезке времени, красным — ошибки"><input type="checkbox" class="lh" checked /> график</label>
         <input class="lf" placeholder="фильтр…" spellcheck="false" />
         <span class="spacer"></span>
         <span class="lstate muted"></span>
@@ -1452,6 +1635,7 @@ export function mountK8s(root: HTMLElement) {
         <button class="ghost" data-l="ai" title="Отправить выделение (или последние 150 строк) в AI-панель">⇢ в AI</button>
         <button class="ghost" data-l="clear">Очистить</button>
       </div>
+      ${HIST_HTML}
       <div class="logs-term"></div></div>`;
     const q = <T extends HTMLElement>(s: string) => drawerBody.querySelector<T>(s)!;
     const term = new Terminal({ fontFamily: "'JetBrains Mono', 'Fira Code', monospace", fontSize: 12, scrollback: 50000,
@@ -1467,23 +1651,40 @@ export function mountK8s(root: HTMLElement) {
     let unlisten: UnlistenFn[] = [];
     const state = q(".lstate");
     const view = new LogView(term);
+    const hist = mountHist(view, () => fit.fit());
     const stop = () => { invoke("k8s_logs_stop", { id }); unlisten.forEach((u) => u()); unlisten = []; };
     let ft = 0;
-    q<HTMLInputElement>(".lf").oninput = () => { clearTimeout(ft); ft = window.setTimeout(() => view.setFilter(q<HTMLInputElement>(".lf").value), 150); };
+    q<HTMLInputElement>(".lf").oninput = () => { clearTimeout(ft); ft = window.setTimeout(() => { view.setFilter(q<HTMLInputElement>(".lf").value); hist.draw(); }, 150); };
+    q<HTMLInputElement>(".lh").onchange = () => {
+      const on = q<HTMLInputElement>(".lh").checked;
+      q(".log-hist").hidden = !on;
+      if (on) hist.draw();
+      // график скрыли — его окно времени снимаем, иначе часть строк пропала бы без видимой причины
+      else if (view.window) view.setFilter(q<HTMLInputElement>(".lf").value, undefined, null);
+    };
 
     const start = async () => {
       stop();
       view.clear();
       state.textContent = "подключение…";
       unlisten = [
-        await listen<string[]>(`k8s-log-${id}`, (e) => { view.add(e.payload.map((text) => ({ text }))); state.textContent = "● live"; }),
-        await listen<string | null>(`k8s-log-end-${id}`, (e) => { state.textContent = e.payload ? `ошибка: ${e.payload}` : "поток завершён"; }),
+        await listen<string[]>(`k8s-log-${id}`, (e) => {
+          // метки времени просим всегда — на них держится график; в строках их видно по галочке «время»
+          const withTs = q<HTMLInputElement>(".lts").checked;
+          view.add(e.payload.map((raw) => {
+            const p = parseLogLine(raw);
+            return { text: withTs ? raw : p.text, time: p.time, level: p.level };
+          }));
+          state.textContent = "● live";
+          hist.schedule();
+        }),
+        await listen<string | null>(`k8s-log-end-${id}`, (e) => { state.textContent = e.payload ? `ошибка: ${e.payload}` : "поток завершён"; hist.draw(); }),
       ];
       try {
         await invoke("k8s_logs_start", { ctx: ref(), id, req: {
           namespace: o.metadata.namespace, pod: o.metadata.name, container: q<HTMLSelectElement>(".lc").value,
           tail: Number(q<HTMLSelectElement>(".lt").value), previous: q<HTMLInputElement>(".lp").checked,
-          timestamps: q<HTMLInputElement>(".lts").checked } });
+          timestamps: true } });
       } catch (e) {
         state.textContent = "";
         term.write(`\x1b[31m${String(e)}\x1b[0m\n`);
@@ -1496,7 +1697,7 @@ export function mountK8s(root: HTMLElement) {
       if (text) window.dispatchEvent(new CustomEvent("send-to-ai", { detail: `Логи пода ${o.metadata.namespace}/${o.metadata.name} (${ctx!.context}):\n${text}` }));
     };
     q<HTMLElement>("[data-l=save]").onclick = () => saveLogs(`${o.metadata.name}-${q<HTMLSelectElement>(".lc").value}`, view);
-    drawerCleanup = () => { stop(); ro.disconnect(); term.dispose(); };
+    drawerCleanup = () => { stop(); hist.stop(); ro.disconnect(); term.dispose(); };
     requestAnimationFrame(() => { fit.fit(); start(); });
   }
 

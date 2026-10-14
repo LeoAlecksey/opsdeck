@@ -69,7 +69,10 @@ export const HELP_EN: Record<string, { title: string; html: string }> = {
         <li>Buttons on the right of the panel: Shell, Port-forward, Scale, Restart, Delete; for Helm — Rollback/Uninstall, for Argo CD — Refresh/Sync.</li>
         <li>Pods and nodes have CPU/RAM columns (needs metrics-server).</li>
         <li>A pod stuck in <b>Terminating</b> (its node is offline): Delete explains why and offers <b>Force delete</b>.</li>
-      </ul>
+      
+      <li><b>Several namespaces</b> — the ones you pick become chips next to the list: click to switch, × to remove. They are remembered per context, eight at a time.</li>
+      <li><b>From the keyboard</b>: ${kbd("↑")} / ${kbd("↓")} — row, ${kbd("Enter")} — details, ${kbd("Space")} — mark for bulk actions, ${kbd("Alt+↑")} / ${kbd("Alt+↓")} — previous and next kind on the left. ${kbd("Ctrl+Shift+1")}…${kbd("Ctrl+Shift+9")} switch modules (9 is the last in the column).</li>
+      <li><b>A chart above the logs</b> — how many lines were in each slice of time, errors in red, warnings in yellow. A click on a bar keeps only its lines, a second click clears it. The “chart” tick hides it altogether.</li></ul>
       <h4>Tips</h4>
       <ul><li>Put 🔒 on prod — the backend itself blocks changes, a stray click breaks nothing.</li>
       <li>Deleting always asks you to type the object's name.</li></ul>`,
