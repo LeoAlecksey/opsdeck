@@ -23,6 +23,7 @@
   window.__demoEmit = emit;
   window.__demoListeners = handlers;
   window.__calls = [];
+  const uploaded = {}; // папка на хосте -> что в неё загрузили через sftp_put
   const fixedKeys = new Set(); // ключи, которым починили права через ssh_key_fix_perms
 
   // ---- Kubernetes ----
@@ -314,9 +315,10 @@ lint:
         "/var/log": [["syslog", 0, "Oct 13 18:10", "-rw-r-----"]],
       };
       const path = a.path && a.path.trim() ? a.path : "/srv";
-      const l = dirs[path];
+      const l = dirs[path] && [...dirs[path], ...(uploaded[path] || []).map((n) => [n, 0, "Oct 13 18:10", "-rw-r--r--"])];
       if (!l) throw `Couldn't stat remote file: No such file or directory`;
-      return { path, entries: l.map(([name, dir, modified, perms, target]) => ({ name, dir: !!dir, link: !!target, size: dir ? 0 : 1048576, modified, perms, target: target || "" })) };
+      const at = { "Oct 13 17:00": 1760367600, "Oct 13 18:00": 1760371200, "Apr 4 2024": 1712178000, "Oct 12 17:00": 1760281200, "Oct 13 18:10": 1760371800 };
+      return { path, entries: l.map(([name, dir, modified, perms, target]) => ({ name, dir: !!dir, link: !!target, size: dir ? 0 : 1048576, modified, modified_at: at[modified] || 0, perms, target: target || "" })) };
     },
     // ---- Yandex Cloud: демо-каталог (документационные адреса) ----
     kb_info: { tools: ["kubectl", "helm", "docker", "systemd", "terraform", "git", "clickhouse", "kafka", "redis", "vault", "promql"], lines: 257, path: "/home/demo/.config/opsdeck/knowledge.md", own: false },
@@ -344,7 +346,11 @@ lint:
     yc_billing: { supported: true, accounts: [{ id: "dn2", name: "основной", balance: "12 430.55", currency: "RUB", active: true }] },
     web_share_ready: true,
     sftp_get: (a) => a.remote.length,
-    sftp_put: (a) => a.local.length,
+    // загруженное появляется в листинге папки: интерфейс потом его выделяет
+    sftp_put: (a) => {
+      for (const p of a.local) (uploaded[a.remoteDir] ||= []).push(String(p).split("/").pop());
+      return a.local.length;
+    },
     sftp_between: (a) => a.paths.length,
     sftp_mkdir: null, sftp_rename: null, sftp_delete: null,
     code_git_log: commits, code_git_branches: branches, fs_git_status: { root: proj, branch: "feature/monitoring", files: { "main.tf": "M", "helm/values-prod.yaml": "M", "outputs.tf": "A" } },
@@ -409,7 +415,12 @@ lint:
       if (cmd === "k8s_save_text") return `/home/demo/${args.name}`;
       if (cmd === "db_tree") return dbTree(args.path);
       if (cmd === "note_read") return noteText[args.path] ?? `# ${args.path.split("/").pop().replace(/\.md$/, "")}\n\n${L("Заметка.", "A note.")}\n`;
-      if (cmd === "fs_list") { const l = files[args.path]; if (!l) throw "not a dir"; return l.map(([n, d]) => ({ name: n, dir: !!d, link: false, size: d ? 0 : 1200 })); }
+      if (cmd === "fs_list") {
+        const l = files[args.path];
+        if (!l) throw "not a dir";
+        // время изменения: у своей машины оно приходит числом (секунды эпохи)
+        return l.map(([n, d], i) => ({ name: n, dir: !!d, link: false, size: d ? 0 : 1200, modified: 1760000000 - i * 86400 }));
+      }
       if (cmd === "code_search") {
         const q = String(args.query).toLowerCase();
         const corpus = { "main.tf": mainTf, ".gitlab-ci.yml": gitlabCi, "README.md": "# infra\n\nterraform и helm для shop\n" };

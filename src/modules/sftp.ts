@@ -1,4 +1,4 @@
-import { t } from "../i18n";
+import { locale, t } from "../i18n";
 import { icon } from "./icons";
 import { invoke } from "@tauri-apps/api/core";
 import { ask, esc, toast } from "./ui";
@@ -6,8 +6,10 @@ import { helpBtn } from "./help";
 import { natCmp } from "./natsort";
 import { fmtSize, joinPath } from "./paths";
 
-/** Запись удалённой папки (sftp.rs) и локальной (fs_list) — локальная даты не отдаёт. */
-type Entry = { name: string; dir: boolean; link?: boolean; size: number; modified?: string; perms?: string; target?: string };
+/** Запись удалённой папки (sftp.rs) и локальной (fs_list): `modified` — как показал sftp,
+ *  `modified_at` и `modified` (число) — секунды эпохи, по ним сортируем и показываем дату. */
+type Entry = { name: string; dir: boolean; link?: boolean; size: number; modified?: string | number; modified_at?: number; perms?: string; target?: string };
+type Sort = { col: "name" | "size" | "date"; dir: 1 | -1 };
 type Listing = { path: string; entries: Entry[] };
 type SshHost = { id: string; name: string; group: string; host: string; user: string };
 type ConfigHost = { alias: string; group: string; hostname: string; user: string };
@@ -25,7 +27,9 @@ export function mountSftp(root: HTMLElement) {
         <input class="fx2-path mono" spellcheck="false" placeholder="/" />
         <button class="icon" data-a="refresh" title="Обновить">${icon("refresh", 16)}</button>
       </div>
-      <div class="fx2-body"><table class="fx2-list"><tbody></tbody></table></div>
+      <div class="fx2-body"><table class="fx2-list">
+        <thead><tr><th data-s="name">Имя</th><th data-s="size" class="fx2-s">Размер</th><th data-s="date" class="fx2-d">Изменён</th></tr></thead>
+        <tbody></tbody></table></div>
       <div class="fx2-foot row">
         <button class="ghost" data-a="mkdir">${icon("plus", 14)} Папка</button>
         <button class="ghost" data-a="ren">Переименовать</button>
@@ -51,12 +55,12 @@ export function mountSftp(root: HTMLElement) {
     </div>`;
 
   type Side = {
-    el: HTMLElement; target: string; path: string; entries: Entry[]; sel: Set<string>;
+    el: HTMLElement; target: string; path: string; entries: Entry[]; sel: Set<string>; sort: Sort;
     host: HTMLSelectElement; pathEl: HTMLInputElement; body: HTMLElement; status: HTMLElement;
   };
 
   const make = (el: HTMLElement): Side => ({
-    el, target: LOCAL, path: "", entries: [], sel: new Set(),
+    el, target: LOCAL, path: "", entries: [], sel: new Set(), sort: { col: "name", dir: 1 },
     host: el.querySelector<HTMLSelectElement>(".fx2-host")!,
     pathEl: el.querySelector<HTMLInputElement>(".fx2-path")!,
     body: el.querySelector<HTMLElement>(".fx2-body")!,
@@ -81,7 +85,7 @@ export function mountSftp(root: HTMLElement) {
     }
   }
 
-  async function load(s: Side) {
+  async function load(s: Side, select: string[] = []) {
     s.sel.clear();
     s.status.textContent = "…";
     try {
@@ -96,22 +100,42 @@ export function mountSftp(root: HTMLElement) {
       s.entries = [];
       s.status.textContent = String(e);
     }
+    for (const n of select) if (s.entries.some((e) => e.name === n)) s.sel.add(n);
     draw(s);
+    if (s.sel.size) {
+      const first = s.body.querySelector<HTMLElement>("tr.sel");
+      first?.scrollIntoView({ block: "nearest" });
+    }
+  }
+
+  /** Время записи: у хоста приходит строкой и числом, у своей машины — только числом. */
+  const when = (e: Entry) => (typeof e.modified_at === "number" && e.modified_at ? e.modified_at : typeof e.modified === "number" ? e.modified : 0);
+  const dateFmt = new Intl.DateTimeFormat(locale(), { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
+  const dateText = (e: Entry) => {
+    const t = when(e);
+    if (t) return dateFmt.format(new Date(t * 1000));
+    return typeof e.modified === "string" ? e.modified : "";
+  };
+
+  /** Порядок строк: папки всегда сверху, дальше — по выбранной колонке. */
+  function sorted(s: Side): Entry[] {
+    const by = (a: Entry, b: Entry) =>
+      s.sort.col === "size" ? a.size - b.size : s.sort.col === "date" ? when(a) - when(b) : natCmp(a.name, b.name);
+    return [...s.entries].sort((a, b) => Number(b.dir) - Number(a.dir) || by(a, b) * s.sort.dir || natCmp(a.name, b.name));
   }
 
   function draw(s: Side) {
-    // даты и права приходят только от хоста: у своей машины эти колонки пустые, их и не рисуем
-    const withDate = s.entries.some((e) => e.modified);
-    const withPerms = s.entries.some((e) => e.perms);
-    const cols = 2 + (withDate ? 1 : 0) + (withPerms ? 1 : 0);
-    const rows = s.entries.map((e) => `
+    const rows = sorted(s).map((e) => `
       <tr data-name="${esc(e.name)}" class="${s.sel.has(e.name) ? "sel" : ""}${e.dir ? " dir" : ""}">
         <td class="fx2-n">${e.dir ? icon("folder", 14) : ""}${esc(e.name)}${e.link && e.target ? `<span class="muted"> → ${esc(e.target)}</span>` : ""}</td>
         <td class="fx2-s mono">${e.dir ? "" : fmtSize(e.size)}</td>
-        ${withDate ? `<td class="fx2-d muted">${esc(e.modified ?? "")}</td>` : ""}
-        ${withPerms ? `<td class="fx2-p muted mono">${esc(e.perms ?? "")}</td>` : ""}
+        <td class="fx2-d muted">${esc(dateText(e))}</td>
       </tr>`).join("");
-    s.body.querySelector("tbody")!.innerHTML = `<tr data-name=".." class="dir up"><td colspan="${cols}">↑ ..</td></tr>${rows}`;
+    s.body.querySelector("tbody")!.innerHTML = `<tr data-name=".." class="dir up"><td colspan="3">↑ ..</td></tr>${rows}`;
+    for (const th of s.body.querySelectorAll<HTMLElement>("th[data-s]")) {
+      th.classList.toggle("asc", th.dataset.s === s.sort.col && s.sort.dir > 0);
+      th.classList.toggle("desc", th.dataset.s === s.sort.col && s.sort.dir < 0);
+    }
   }
 
   /** Только классы выделения: перерисовка таблицы на клике съедала двойной клик. */
@@ -128,6 +152,14 @@ export function mountSftp(root: HTMLElement) {
       try { localStorage.setItem(KEY(s.el.dataset.side!), s.target); } catch { /* ignore */ }
       load(s);
     };
+    // Клик по шапке — порядок строк; дата и размер сначала по убыванию: обычно ищут свежее и крупное
+    s.body.addEventListener("click", (e) => {
+      const th = (e.target as HTMLElement).closest<HTMLElement>("th[data-s]");
+      if (!th) return;
+      const col = th.dataset.s as Sort["col"];
+      s.sort = s.sort.col === col ? { col, dir: s.sort.dir === 1 ? -1 : 1 } : { col, dir: col === "name" ? 1 : -1 };
+      draw(s);
+    });
     s.el.querySelector<HTMLElement>("[data-a=refresh]")!.onclick = () => load(s);
     s.el.querySelector<HTMLElement>("[data-a=up]")!.onclick = () => { s.path = joinPath(s.path, ".."); load(s); };
     s.pathEl.onchange = () => { s.path = s.pathEl.value.trim(); load(s); };
@@ -201,10 +233,11 @@ export function mountSftp(root: HTMLElement) {
           ? await invoke<number>("sftp_get", { target: from.target, remote: paths, localDir: to.path })
           : await invoke<number>("sftp_between", { fromTarget: from.target, paths, toTarget: to.target, toDir: to.path });
       toast(`Скопировано: ${n}`);
-      load(to);
+      // перенесённое выделено в панели-приёмнике: сразу видно, что приехало и куда
+      await load(to, names);
     } catch (e) {
       toast(String(e), "err");
-      load(to);
+      await load(to);
     }
   }
 

@@ -55,7 +55,8 @@ test.describe("files on hosts (#78)", () => {
 
     // хост → хост: оба соединения ведёт OpsDeck
     await pane(page, "a").locator(".fx2-host").selectOption("alias:monitoring");
-    await expect(rows(page, "a")).toHaveCount(3);
+    // 4, а не 3: загруженный выше notes.md теперь лежит в этой же папке
+    await expect(rows(page, "a")).toHaveCount(4);
     await row(page, "a", "dump 1.sql").click();
     await page.locator("[data-a=to-b]").click();
     expect((await app.called("sftp_between")).args).toEqual({ fromTarget: "alias:monitoring", paths: ["/srv/dump 1.sql"], toTarget: "id:h1", toDir: "/srv" });
@@ -81,6 +82,46 @@ test.describe("files on hosts (#78)", () => {
     expect((await app.called("sftp_put")).args).toEqual({ target: "id:h1", local: ["~/notes.md"], remoteDir: "/srv" });
     await expect(page.locator(".fx2-ghost")).toHaveCount(0);
     await expect(pane(page, "b")).not.toHaveClass(/drop/);
+  });
+
+  // дата и сортировка по колонкам (из пожеланий)
+  test("a date column for both sides, folders first, and sorting by header clicks", async ({ app, page }) => {
+    // своя машина: дату отдаёт числом, показываем её по-человечески
+    await expect(row(page, "a", "notes.md").locator(".fx2-d")).not.toBeEmpty();
+    await expect(pane(page, "a").locator("thead th").nth(2)).toHaveText("Изменён");
+
+    await pane(page, "b").locator(".fx2-host").selectOption("id:h1");
+    await expect(rows(page, "b")).toHaveCount(3);
+    const names = () => rows(page, "b").locator(".fx2-n").allTextContents();
+    // по имени: папка сверху, дальше по алфавиту
+    expect((await names()).map((x) => x.trim())).toEqual(["releases", "current → releases/7", "dump 1.sql"]);
+
+    // по дате: первый клик — сначала свежие, и папка всё равно сверху
+    await pane(page, "b").locator('thead th[data-s="date"]').click();
+    expect((await names()).map((x) => x.trim())).toEqual(["releases", "current → releases/7", "dump 1.sql"]);
+    await expect(pane(page, "b").locator('thead th[data-s="date"]')).toHaveClass(/desc/);
+    await pane(page, "b").locator('thead th[data-s="date"]').click();
+    expect((await names()).map((x) => x.trim())).toEqual(["releases", "dump 1.sql", "current → releases/7"]);
+    await expect(pane(page, "b").locator('thead th[data-s="date"]')).toHaveClass(/asc/);
+  });
+
+  // после переноса видно, что именно приехало
+  test("what was copied is selected in the receiving pane", async ({ app, page }) => {
+    await pane(page, "b").locator(".fx2-host").selectOption("id:h1");
+    await expect(rows(page, "b")).toHaveCount(3);
+    await row(page, "b", "dump 1.sql").click();
+    await row(page, "b", "releases").click({ modifiers: ["Control"] });
+    await page.locator("[data-a=to-a]").click();
+    await app.called("sftp_get");
+    // этих имён в левой панели не появилось — выделять нечего, и панель не придумывает
+    await expect(pane(page, "a").locator("tbody tr.sel")).toHaveCount(0);
+
+    // загрузка на хост: файл появился в папке и сразу выделен
+    await row(page, "a", "notes.md").click();
+    await page.locator("[data-a=to-b]").click();
+    await app.called("sftp_put");
+    await expect(row(page, "b", "notes.md")).toHaveClass(/sel/);
+    await expect(pane(page, "b").locator("tbody tr.sel")).toHaveCount(1);
   });
 
   test("both panes local: nothing is sent, the hint says where to copy instead", async ({ app, page }) => {

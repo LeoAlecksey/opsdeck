@@ -17,6 +17,8 @@ pub struct Entry {
     dir: bool,
     link: bool,
     size: u64,
+    /// время последнего изменения, секунды эпохи (0 — неизвестно): показывается в «Файлах на хостах»
+    modified: u64,
 }
 
 pub(crate) fn expand(path: &str) -> PathBuf {
@@ -99,7 +101,12 @@ pub async fn fs_list(path: String, hidden: bool) -> Result<Vec<Entry>, String> {
                 }
                 let link = e.file_type().map(|t| t.is_symlink()).unwrap_or(false);
                 let meta = std::fs::metadata(e.path()).ok(); // follows symlinks
-                Some(Entry { dir: meta.as_ref().is_some_and(|m| m.is_dir()), size: meta.map_or(0, |m| m.len()), link, name })
+                let modified = meta
+                    .as_ref()
+                    .and_then(|m| m.modified().ok())
+                    .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                    .map_or(0, |d| d.as_secs());
+                Some(Entry { dir: meta.as_ref().is_some_and(|m| m.is_dir()), size: meta.map_or(0, |m| m.len()), link, name, modified })
             })
             .take(MAX_ENTRIES)
             .collect();

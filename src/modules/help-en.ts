@@ -170,6 +170,8 @@ export const HELP_EN: Record<string, { title: string; html: string }> = {
       <h4>How to use it</h4>
       <ul><li>The module is enabled with a tick in the ⊞ menu at the bottom of the left column.</li>
       <li>At the top of a pane — <b>where to look</b> (this machine, an SSH profile, a host from ~/.ssh/config); the path can be typed in, ↑ goes up, a double click on a folder enters it.</li>
+      <li>A click on a column header changes the order: by name, size or modification date; folders always come first. For date and size the first click puts the newest and the largest on top.</li>
+      <li>After a copy, what was transferred is selected in the receiving pane — you see at once what arrived.</li>
       <li>A click selects, ${kbd("Ctrl")}+click adds to the selection. At the bottom — create a folder, rename, delete (a folder goes with its contents).</li>
       <li><b>Host → host</b> goes through <code>scp -3</code>: OpsDeck runs both connections, so the hosts don't need to see each other and the keys stay with you. If a host has a non-standard port, its own key or a jump host, scp cannot split the options between the ends — download the files to yourself first, then upload them.</li></ul>
       <h4>Login</h4>

@@ -19,6 +19,8 @@ pub struct Entry {
     pub size: u64,
     /// как показал sftp: «Oct 13 18:00» или «Apr  4  2024»
     pub modified: String,
+    /// то же время числом (секунды эпохи, 0 — не разобрали): по нему сортируется столбец даты
+    pub modified_at: i64,
     pub perms: String,
     /// куда ведёт символическая ссылка (пусто, если это не ссылка)
     pub target: String,
@@ -52,6 +54,34 @@ fn sftp_args(dest: &[String]) -> Vec<String> {
         }
     }
     out
+}
+
+/// Дата из `ls` в sftp: «Oct 13 18:00» (свежие файлы, год не пишется) или «Apr  4  2024».
+/// LC_ALL=C мы задаём сами, поэтому месяцы всегда английские. Год для свежих файлов — текущий,
+/// а если так получается будущее, значит это конец прошлого года.
+fn ls_time(text: &str, now: chrono::DateTime<chrono::Local>) -> i64 {
+    use chrono::{Datelike, NaiveDate, TimeZone};
+    const MONTHS: [&str; 12] = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
+    let f: Vec<&str> = text.split_whitespace().collect();
+    if f.len() != 3 {
+        return 0;
+    }
+    let Some(month) = MONTHS.iter().position(|m| f[0].to_lowercase().starts_with(m)) else { return 0 };
+    let Ok(day) = f[1].parse::<u32>() else { return 0 };
+    let (year, hm) = match f[2].split_once(':') {
+        Some((h, m)) => (now.year(), (h.parse::<u32>().unwrap_or(0), m.parse::<u32>().unwrap_or(0))),
+        None => (f[2].parse::<i32>().unwrap_or(0), (0, 0)),
+    };
+    let make = |y: i32| {
+        NaiveDate::from_ymd_opt(y, month as u32 + 1, day)
+            .and_then(|d| d.and_hms_opt(hm.0, hm.1, 0))
+            .and_then(|dt| now.timezone().from_local_datetime(&dt).single())
+            .map(|dt| dt.timestamp())
+            .unwrap_or(0)
+    };
+    let t = make(year);
+    // «в будущем» бывает у файлов конца декабря, когда на дворе январь
+    if f[2].contains(':') && t > now.timestamp() + 86_400 { make(year - 1) } else { t }
 }
 
 /// Одна строка `ls -lan` из sftp → запись. Первые пять полей и дата из трёх полей разбираются по
@@ -95,6 +125,7 @@ fn parse_ls_line(line: &str) -> Option<Entry> {
         dir: perms.starts_with('d'),
         link: perms.starts_with('l'),
         size: f[4].parse().unwrap_or(0),
+        modified_at: ls_time(&f[5..8].join(" "), chrono::Local::now()),
         modified: f[5..8].join(" "),
         perms: perms.to_string(),
         name: name.to_string(),
@@ -300,7 +331,8 @@ mod tests {
         assert_eq!(e.len(), 3, "«.» и «..» пропускаются");
         assert_eq!(
             e[0],
-            Entry { name: "dump 1.sql".into(), dir: false, link: false, size: 1048576, modified: "Apr 4 2024".into(), perms: "-rw-r--r--".into(), target: String::new() },
+            Entry { name: "dump 1.sql".into(), dir: false, link: false, size: 1048576, modified: "Apr 4 2024".into(),
+                modified_at: ls_time("Apr 4 2024", chrono::Local::now()), perms: "-rw-r--r--".into(), target: String::new() },
             "пробел в имени не ломает разбор"
         );
         assert_eq!(e[1].name, "current");
@@ -310,6 +342,23 @@ mod tests {
         assert!(parse_ls_line("sftp> ls -lan").is_none());
         assert!(parse_ls_line("").is_none());
         assert!(parse_ls_line("Connected to h.").is_none());
+    }
+
+    /// Дату из листинга нужно не только показать, но и сортировать по ней: свежим файлам sftp
+    /// не пишет год, старым — не пишет время.
+    #[test]
+    fn the_listing_date_becomes_a_number() {
+        use chrono::TimeZone;
+        let now = chrono::Local.with_ymd_and_hms(2026, 10, 14, 12, 0, 0).unwrap();
+        let at = |s: &str| ls_time(s, now);
+        let day = |y, m, d, hh, mm| chrono::Local.with_ymd_and_hms(y, m, d, hh, mm, 0).unwrap().timestamp();
+        assert_eq!(at("Oct 13 18:00"), day(2026, 10, 13, 18, 0), "свежий файл — текущий год");
+        assert_eq!(at("Apr 4 2024"), day(2024, 4, 4, 0, 0), "старый файл — год вместо времени");
+        // декабрьский файл, когда на дворе январь: это прошлый год, а не будущее
+        let jan = chrono::Local.with_ymd_and_hms(2026, 1, 5, 12, 0, 0).unwrap();
+        assert_eq!(ls_time("Dec 28 23:10", jan), day(2025, 12, 28, 23, 10));
+        assert_eq!(at("какая-то строка"), 0);
+        assert_eq!(at(""), 0);
     }
 
     #[test]
