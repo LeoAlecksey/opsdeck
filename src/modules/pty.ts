@@ -140,7 +140,7 @@ export class PtyTerminal {
       e.stopPropagation();
       termFontStep(e.deltaY < 0 ? 1 : -1);
     }, { passive: false, capture: true });
-    this.term.onData((data) => invoke("pty_write", { id: this.id, data }));
+    this.term.onData((data) => this.send(data));
     this.term.attachCustomKeyEventHandler((e) => {
       // → / End accept the grey suggestion
       if (this.sugg.key(e)) { e.preventDefault(); return false; }
@@ -207,7 +207,15 @@ export class PtyTerminal {
   }
 
   private safeFit() {
-    if (this.host.offsetParent !== null && this.host.clientWidth > 0) this.fit.fit();
+    // dispose() мог случиться, пока в очереди висел вызов ResizeObserver: у выброшенного терминала
+    // рендерера уже нет, и чтение его размеров падало — в журнале это сотни одинаковых ошибок
+    // «this._renderer.value.dimensions» (WebKit). Нулевая высота — та же история: мерить нечего.
+    if (this.disposed || this.host.offsetParent === null || this.host.clientWidth < 2 || this.host.clientHeight < 2) return;
+    try {
+      this.fit.fit();
+    } catch {
+      /* рендерер ещё не готов (или уже выброшен) — размеры поправятся следующим вызовом */
+    }
   }
 
   resize() {
@@ -218,7 +226,10 @@ export class PtyTerminal {
   }
 
   send(text: string) {
-    return invoke("pty_write", { id: this.id, data: text });
+    // процесс мог уже закончиться: «no such pty» — не ошибка интерфейса, писать её в журнал незачем
+    return invoke("pty_write", { id: this.id, data: text }).catch((e) => {
+      if (!String(e).includes("no such pty")) throw e;
+    });
   }
 
   dispose() {

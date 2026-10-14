@@ -115,6 +115,44 @@ describe("OpsDeck (real app)", () => {
     assert.ok(!(await out()).includes("�"), await out());
   });
 
+  // Журнал пользователя: сотни «this._renderer.value.dimensions» — fit() по очереди ResizeObserver
+  // доходил до уже выброшенного терминала. В Chromium это не воспроизводится (там иная очередь),
+  // поэтому проверка здесь — на настоящем WebKitGTK.
+  it("panes and tabs can be closed and the window resized without xterm errors", async () => {
+    await (await view("terminal")).click();
+    await until(async () => (await termText()).trim().length > 0, "a shell prompt", 30_000);
+    await b.execute(() => {
+      window.__errs = [];
+      window.addEventListener("error", (e) => window.__errs.push(String(e.message)));
+    });
+    const size = await b.getWindowSize();
+    const panes = () => b.execute(() => document.querySelectorAll(".term-host:not([hidden]) .pane").length);
+
+    await (await b.$("[data-act=split-r]")).click();
+    await until(async () => (await panes()) === 2, "a second pane");
+    await (await b.$("[data-act=split-d]")).click();
+    await until(async () => (await panes()) === 3, "a third pane");
+    await b.setWindowSize(Math.max(900, size.width - 220), Math.max(650, size.height - 160));
+    await pause(400);
+    // закрытие панелей: dispose терминала при живых наблюдателях размера
+    await b.keys(["Control", "Shift", "w"]);
+    await b.keys(["Control", "Shift"]);
+    await until(async () => (await panes()) === 2, "a pane to close");
+    await b.setWindowSize(size.width, size.height);
+    await pause(400);
+    await b.keys(["Control", "Shift", "w"]);
+    await b.keys(["Control", "Shift"]);
+    await until(async () => (await panes()) === 1, "the last split pane to close");
+    // уход с раздела и возврат: панели скрываются, наблюдатели срабатывают на нулевом размере
+    await (await view("settings")).click();
+    await pause(300);
+    await (await view("terminal")).click();
+    await pause(500);
+
+    const errs = await b.execute(() => window.__errs ?? []);
+    assert.deepEqual(errs.filter((e) => /dimensions|renderer|_core/.test(e)), [], `xterm errors:\n${errs.join("\n")}`);
+  });
+
   it("settings show this version", async () => {
     await (await view("settings")).click();
     const version = (await import("../../package.json", { with: { type: "json" } })).default.version;

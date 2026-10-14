@@ -1643,15 +1643,26 @@ export function mountK8s(root: HTMLElement) {
     const fit = new FitAddon();
     term.loadAddon(fit);
     term.open(q(".logs-term"));
-    // the drawer may be redrawn under us (details arriving, another tab): the observer must not read a gone node
-    const ro = new ResizeObserver(() => { const el = drawerBody.querySelector<HTMLElement>(".logs-term"); if (el?.clientWidth) fit.fit(); });
+    // Панель могли перерисовать или закрыть, а вызов ResizeObserver уже стоял в очереди: у
+    // выброшенного терминала нет рендерера, и fit() падал на чтении его размеров (журнал, WebKit).
+    let gone = false;
+    const safeFit = () => {
+      const el = drawerBody.querySelector<HTMLElement>(".logs-term");
+      if (gone || !el?.clientWidth || !el.clientHeight) return;
+      try {
+        fit.fit();
+      } catch {
+        /* рендерер ещё не готов — размеры поправятся следующим вызовом */
+      }
+    };
+    const ro = new ResizeObserver(safeFit);
     ro.observe(q(".logs-term"));
 
     const id = `log${Date.now()}`;
     let unlisten: UnlistenFn[] = [];
     const state = q(".lstate");
     const view = new LogView(term);
-    const hist = mountHist(view, () => fit.fit());
+    const hist = mountHist(view, safeFit);
     const stop = () => { invoke("k8s_logs_stop", { id }); unlisten.forEach((u) => u()); unlisten = []; };
     let ft = 0;
     q<HTMLInputElement>(".lf").oninput = () => { clearTimeout(ft); ft = window.setTimeout(() => { view.setFilter(q<HTMLInputElement>(".lf").value); hist.draw(); }, 150); };
@@ -1697,8 +1708,8 @@ export function mountK8s(root: HTMLElement) {
       if (text) window.dispatchEvent(new CustomEvent("send-to-ai", { detail: `Логи пода ${o.metadata.namespace}/${o.metadata.name} (${ctx!.context}):\n${text}` }));
     };
     q<HTMLElement>("[data-l=save]").onclick = () => saveLogs(`${o.metadata.name}-${q<HTMLSelectElement>(".lc").value}`, view);
-    drawerCleanup = () => { stop(); hist.stop(); ro.disconnect(); term.dispose(); };
-    requestAnimationFrame(() => { fit.fit(); start(); });
+    drawerCleanup = () => { gone = true; stop(); hist.stop(); ro.disconnect(); term.dispose(); };
+    requestAnimationFrame(() => { safeFit(); start(); });
   }
 
   /** Saves what the log view shows (filter included) to a file the user picks (#75). */
@@ -1735,8 +1746,19 @@ export function mountK8s(root: HTMLElement) {
     const fit = new FitAddon();
     term.loadAddon(fit);
     term.open(q(".logs-term"));
-    // the drawer may be redrawn under us (details arriving, another tab): the observer must not read a gone node
-    const ro = new ResizeObserver(() => { const el = drawerBody.querySelector<HTMLElement>(".logs-term"); if (el?.clientWidth) fit.fit(); });
+    // Панель могли перерисовать или закрыть, а вызов ResizeObserver уже стоял в очереди: у
+    // выброшенного терминала нет рендерера, и fit() падал на чтении его размеров (журнал, WebKit).
+    let gone = false;
+    const safeFit = () => {
+      const el = drawerBody.querySelector<HTMLElement>(".logs-term");
+      if (gone || !el?.clientWidth || !el.clientHeight) return;
+      try {
+        fit.fit();
+      } catch {
+        /* рендерер ещё не готов — размеры поправятся следующим вызовом */
+      }
+    };
+    const ro = new ResizeObserver(safeFit);
     ro.observe(q(".logs-term"));
 
     const id = `wlog${Date.now()}`;
@@ -1791,8 +1813,8 @@ export function mountK8s(root: HTMLElement) {
       if (text) window.dispatchEvent(new CustomEvent("send-to-ai", { detail: `Логи ${kind.label} ${o.metadata.namespace}/${o.metadata.name}, все поды (${ctx!.context}):\n${text}` }));
     };
     q<HTMLElement>("[data-l=save]").onclick = () => saveLogs(o.metadata.name, view);
-    drawerCleanup = () => { stop(); ro.disconnect(); term.dispose(); };
-    requestAnimationFrame(() => { fit.fit(); start(); });
+    drawerCleanup = () => { gone = true; stop(); ro.disconnect(); term.dispose(); };
+    requestAnimationFrame(() => { safeFit(); start(); });
   }
 
   // ----- actions -----
