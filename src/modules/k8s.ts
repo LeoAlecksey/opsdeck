@@ -434,6 +434,13 @@ export function mountK8s(root: HTMLElement) {
   /** Rows ticked for a bulk action (#71), by keyOf; cleared when the kind, context or namespace changes. */
   const picked = new Set<string>();
   const filterIn = $<HTMLInputElement>(".filter"), errBox = $(".k8s-err"), thead = $("thead"), tbody = $("tbody");
+  /** Когда таблицу последний раз удалось обновить: об этом пишем, если связь прервалась. */
+  let lastOk = 0;
+  const seenAt = () => (lastOk ? ` — ${t("данные на")} ${new Date(lastOk).toLocaleTimeString(locale())}` : "");
+  function setStale(on: boolean) {
+    if (!on) lastOk = Date.now();
+    tbody.closest(".table-wrap")?.classList.toggle("stale", on);
+  }
   const drawer = $(".drawer"), drawerBody = $(".drawer-body"), countEl = $(".count"), autoCb = $<HTMLInputElement>(".auto-cb");
 
   let contexts: CtxInfo[] = [];
@@ -803,17 +810,20 @@ export function mountK8s(root: HTMLElement) {
       const m = e.payload;
       if (m.type === "error") {
         errBox.hidden = false;
+        // пока связи нет, в таблице висит прежний снимок: без этого правку в кластере легко принять
+        // за откат — на самом деле просто не обновилось (из отчёта)
+        setStale(true);
         if (m.retrying) {
           errBox.classList.add("reconnecting");
           errBox.classList.remove("err");
           root.classList.add("loading");
-          errBox.innerHTML = `<span>Нестабильное соединение с кластером, повторное подключение… <span class="muted">(${esc(m.message ?? "")})</span></span> <button class="ghost" data-act="watch-retry" style="margin-left:8px;padding:2px 8px;font-size:11.5px">Повторить</button>`;
+          errBox.innerHTML = `<span>${esc(t("Связь с кластером прервалась, переподключаемся"))}${esc(seenAt())} <span class="muted">(${esc(m.message ?? "")})</span></span> <button class="ghost" data-act="watch-retry" style="margin-left:8px;padding:2px 8px;font-size:11.5px">Повторить</button>`;
           const btn = errBox.querySelector<HTMLButtonElement>("[data-act=watch-retry]");
           if (btn) btn.onclick = () => startWatch();
         } else {
           errBox.classList.remove("reconnecting");
           errBox.classList.add("err");
-          errBox.textContent = m.message ?? "ошибка watch";
+          errBox.textContent = `${m.message ?? t("ошибка watch")}${seenAt()}`;
           root.classList.remove("loading");
           render();
         }
@@ -823,6 +833,7 @@ export function mountK8s(root: HTMLElement) {
       errBox.classList.remove("reconnecting");
       errBox.classList.add("err");
       errBox.textContent = "";
+      setStale(false);
       if (m.type === "reset") { items = m.items ?? []; root.classList.remove("loading"); }
       if (m.type === "apply") {
         const byUid = new Map(items.map((o) => [o.metadata.uid, o]));
@@ -852,11 +863,14 @@ export function mountK8s(root: HTMLElement) {
       if (seq !== loadSeq) return;
       items = list;
       errBox.hidden = true;
+      setStale(false);
       render();
     } catch (e) {
       if (seq !== loadSeq) return;
       errBox.hidden = false;
-      errBox.textContent = String(e);
+      // список не обновился — на экране прежний снимок, и это должно быть видно
+      errBox.textContent = `${e}${seenAt()}`;
+      setStale(true);
       render();
     } finally {
       loading = false;
@@ -1553,15 +1567,23 @@ export function mountK8s(root: HTMLElement) {
 
   async function showYaml(o: Obj) {
     drawerBody.innerHTML = `<div class="yaml-pane"><textarea spellcheck="false" class="yaml">загрузка…</textarea>
-      <div class="yaml-actions"><span class="err yaml-err"></span><span class="spacer"></span>
+      <div class="yaml-actions"><span class="err yaml-err"></span><span class="muted yaml-info"></span><span class="spacer"></span>
       <button class="ghost" data-y="reload">Перечитать</button><button class="primary" data-y="apply" ${isReadonly() ? "disabled title=\"Контекст в режиме только чтения\"" : ""}>Применить</button></div></div>`;
     const ta = drawerBody.querySelector<HTMLTextAreaElement>("textarea")!;
     const errEl = drawerBody.querySelector<HTMLElement>(".yaml-err")!;
+    const info = drawerBody.querySelector<HTMLElement>(".yaml-info")!;
+    const read = async () => {
+      ta.value = await invoke<string>("k8s_get_yaml", { ctx: ref(), kind: kind.id, namespace: o.metadata.namespace ?? null, name: o.metadata.name });
+      info.textContent = `${t("прочитано в")} ${new Date().toLocaleTimeString(locale())}`;
+    };
     const load = async () => {
       errEl.textContent = "";
       try {
-        ta.value = await invoke<string>("k8s_get_yaml", { ctx: ref(), kind: kind.id, namespace: o.metadata.namespace ?? null, name: o.metadata.name });
-      } catch (e) { errEl.textContent = String(e); }
+        await read();
+      } catch (e) {
+        errEl.textContent = `${t("не удалось прочитать")}: ${e}`;
+        info.textContent = "";
+      }
     };
     ta.addEventListener("keydown", (e) => {
       if (e.key === "Tab") { e.preventDefault(); ta.setRangeText("  ", ta.selectionStart, ta.selectionEnd, "end"); }
@@ -1572,9 +1594,21 @@ export function mountK8s(root: HTMLElement) {
       try {
         await invoke("k8s_apply_yaml", { ctx: ref(), kind: kind.id, namespace: o.metadata.namespace ?? null, yaml: ta.value });
         toast("Применено");
-        await load();
+        errEl.textContent = "";
+        // перечитываем, чтобы видеть, что в кластере на самом деле; если связь оборвалась — говорим
+        // об этом прямо, иначе прежний текст на экране выглядит как откат изменений (из отчёта)
+        try {
+          await read();
+        } catch (err) {
+          errEl.textContent = `${t("Применено, но перечитать не удалось")}: ${err} — ${t("связь с кластером нестабильна, на экране прежний текст")}`;
+          info.textContent = "";
+          toast(t("Применено, но проверить не удалось: связь с кластером прервалась"), "err");
+        }
         refresh();
-      } catch (e) { errEl.textContent = String(e); }
+      } catch (e) {
+        errEl.textContent = `${t("Не применилось")}: ${e}`;
+        toast(`${t("Не применилось")}: ${e}`, "err");
+      }
     };
     await load();
   }

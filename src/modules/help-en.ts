@@ -70,6 +70,7 @@ export const HELP_EN: Record<string, { title: string; html: string }> = {
         <li>Pods and nodes have CPU/RAM columns (needs metrics-server).</li>
         <li>A pod stuck in <b>Terminating</b> (its node is offline): Delete explains why and offers <b>Force delete</b>.</li>
       
+      <li><b>If the connection to the cluster drops</b>, the table dims and a line at the top gives the reason and the time the data is from: an old snapshot on screen is easy to mistake for your changes being rolled back. In YAML, after “Apply” the object is read back, and if that fails it says so instead of silently showing the old text.</li>
       <li><b>Sorting</b> — click a column header. For load (CPU, RAM) and age the first click puts the largest on top, and the arrow in the header shows the direction. On nodes these columns sort by the share of capacity rather than by gigabytes: a node at 100% matters more than one with more bytes used but room to spare.</li>
       <li><b>Several namespaces</b> — the ones you pick become chips next to the list: click to switch, × to remove. They are remembered per context, eight at a time.</li>
       <li><b>From the keyboard</b>: ${kbd("↑")} / ${kbd("↓")} — row, ${kbd("Enter")} — details, ${kbd("Space")} — mark for bulk actions, ${kbd("Alt+↑")} / ${kbd("Alt+↓")} — previous and next kind on the left. ${kbd("Ctrl+Shift+1")}…${kbd("Ctrl+Shift+9")} switch modules (9 is the last in the column).</li>

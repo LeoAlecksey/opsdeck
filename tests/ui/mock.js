@@ -404,6 +404,7 @@ lint:
       }
       if (cmd === "k8s_logs_start") { setTimeout(() => emit(`k8s-log-${args.id}`, logLines), 40); return null; }
       if (cmd === "k8s_logs_stop") return null;
+      if (cmd === "k8s_get_yaml") return `apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: ${args.name}\n  namespace: ${args.namespace ?? "shop"}\ndata:\n  replicas: "3"\n`;
       if (cmd === "k8s_save_text") return `/home/demo/${args.name}`;
       if (cmd === "db_tree") return dbTree(args.path);
       if (cmd === "note_read") return noteText[args.path] ?? `# ${args.path.split("/").pop().replace(/\.md$/, "")}\n\n${L("Заметка.", "A note.")}\n`;

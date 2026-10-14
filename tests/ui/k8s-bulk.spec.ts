@@ -85,6 +85,42 @@ test.describe("kubernetes: multiselect and row actions", () => {
     await expect(page.locator(".pick-bar .pick-n")).toContainText("1");
   });
 
+  // из отчёта: правку в кластере принимали за откат, хотя просто оборвалась связь
+  test("a broken connection is shown: the list is dimmed and says when the data is from", async ({ app, page }) => {
+    await open(app, page);
+    const wrap = page.locator(".k8s-main .table-wrap");
+    await expect(wrap).not.toHaveClass(/stale/);
+    const id = ((await app.called("k8s_watch_start")).args as any).id;
+
+    await app.emit(`k8s-watch-${id}`, { type: "error", message: "таймаут запроса к API (20 с)", retrying: true });
+    await expect(page.locator(".k8s-err")).toContainText("Связь с кластером прервалась");
+    await expect(page.locator(".k8s-err")).toContainText("данные на");
+    await expect(wrap).toHaveClass(/stale/);
+
+    // связь вернулась — список снова живой
+    await app.emit(`k8s-watch-${id}`, { type: "reset", items: [] });
+    await expect(page.locator(".k8s-err")).toBeHidden();
+    await expect(wrap).not.toHaveClass(/stale/);
+  });
+
+  test("apply says plainly when the re-read failed, instead of showing the old text silently", async ({ app, page }) => {
+    await open(app, page);
+    await rows(page).first().click();
+    await page.locator(".drawer-tabs button", { hasText: "YAML" }).click();
+    await expect(page.locator(".yaml-pane textarea")).toHaveValue(/kind:/);
+    await expect(page.locator(".yaml-info")).toContainText("прочитано в");
+
+    // применилось, а перечитать не вышло: связь оборвалась
+    await app.override("k8s_get_yaml", null);
+    await page.evaluate(() => { (window as any).__DEMO_OVERRIDES.k8s_get_yaml = () => { throw "таймаут запроса к API (20 с)"; }; });
+    await page.locator("[data-y=apply]").click();
+    await page.locator("dialog.ask button[value=ok]").click();
+    await app.called("k8s_apply_yaml");
+    await expect(page.locator(".yaml-err")).toContainText("Применено, но перечитать не удалось");
+    await expect(page.locator(".yaml-err")).toContainText("на экране прежний текст");
+    await expect(page.locator(".toast").last()).toContainText("связь с кластером прервалась");
+  });
+
   // гистограмма над логами: сколько строк когда и сколько ошибок (#73)
   test("the log histogram shows the span, marks errors and filters by a click", async ({ app, page }) => {
     await open(app, page);

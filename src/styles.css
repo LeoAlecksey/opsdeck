@@ -261,6 +261,9 @@ table.res tbody tr:hover { background: var(--panel); }
 table.res tbody tr.sel { background: var(--panel-2); }
 td.ok { color: #98d982; }
 td.warn { color: #e6c07b; }
+/* k8s: данные на экране устарели — связь с кластером прервалась */
+.table-wrap.stale { opacity: .5; }
+.yaml-info { font-size: 11.5px; }
 /* k8s: строка под курсором клавиатуры (#79) */
 .k8s-main tbody tr.cur td:first-child { box-shadow: inset 2px 0 0 var(--accent); }
 .k8s-main tbody tr.cur { background: var(--panel-2); }
