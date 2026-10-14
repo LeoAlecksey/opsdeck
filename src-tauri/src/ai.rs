@@ -1182,11 +1182,11 @@ mod tests {
             let body = body.clone();
             let served = served.clone();
             std::thread::spawn(move || {
-                for _ in 0..4 {
+                let mut served_n = 0;
+                while served_n < 4 {
                     let Ok((mut s, _)) = listener.accept() else { return };
-                    let mut buf = [0u8; 2048];
-                    let n = s.read(&mut buf).unwrap_or(0);
-                    let req = String::from_utf8_lossy(&buf[..n]).to_string();
+                    let Some(req) = read_request(&mut s) else { continue };
+                    served_n += 1;
                     let range = req
                         .lines()
                         .find(|l| l.to_ascii_lowercase().starts_with("range:"))
@@ -1229,6 +1229,25 @@ mod tests {
         fs::remove_dir_all(&dir).unwrap();
     }
 
+    /// Запрос целиком: один read может принести половину заголовков, а пустое соединение (клиент
+    /// открыл и закрыл) запросом не считается.
+    #[cfg(test)]
+    fn read_request(s: &mut std::net::TcpStream) -> Option<String> {
+        use std::io::Read;
+        let mut req = String::new();
+        let mut buf = [0u8; 1024];
+        loop {
+            match s.read(&mut buf) {
+                Ok(0) | Err(_) => break,
+                Ok(n) => req.push_str(&String::from_utf8_lossy(&buf[..n])),
+            }
+            if req.contains("\r\n\r\n") {
+                break;
+            }
+        }
+        (!req.trim().is_empty()).then_some(req)
+    }
+
     /// Обрыв не стоит всей модели: при следующей попытке части продолжаются с того места, где
     /// остановились, и собранный файл совпадает с отданным сервером.
     #[test]
@@ -1248,11 +1267,9 @@ mod tests {
             let (body, asked) = (body.clone(), asked.clone());
             std::thread::spawn(move || {
                 let mut round = 0;
-                for _ in 0..8 {
+                while round < 8 {
                     let Ok((mut s, _)) = listener.accept() else { return };
-                    let mut buf = [0u8; 2048];
-                    let n = s.read(&mut buf).unwrap_or(0);
-                    let req = String::from_utf8_lossy(&buf[..n]).to_string();
+                    let Some(req) = read_request(&mut s) else { continue };
                     let r = req.lines().find(|l| l.to_ascii_lowercase().starts_with("range:")).and_then(|l| l.split('=').nth(1).map(str::trim).map(str::to_string)).unwrap();
                     let (a, b) = r.split_once('-').unwrap();
                     let (from, to) = (a.parse::<u64>().unwrap(), b.parse::<u64>().unwrap());
