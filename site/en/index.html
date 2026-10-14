@@ -3,14 +3,120 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="google-site-verification" content="cknvYyARy4cgVtKZoS14W9AitFT1oyCq935yXwtR8Fw">
   <title>OpsDeck — a DevOps engineer's workspace in one window</title>
   <meta name="description" content="A free open-source desktop app for DevOps: a terminal with local AI, Kubernetes, SSH, databases, an IDE with git, alerts, notes with tasks and KeePass in one window. Linux, Windows, macOS.">
   <meta property="og:title" content="OpsDeck — a DevOps engineer's workspace in one window">
   <meta property="og:description" content="Terminal with AI, Kubernetes, SSH, databases, IDE, alerts, notes and KeePass — in one free app.">
-  <meta property="og:image" content="../img/en/terminal.jpg">
+  <link rel="canonical" href="https://leoalecksey.github.io/opsdeck/en/">
+  <link rel="alternate" hreflang="en" href="https://leoalecksey.github.io/opsdeck/en/">
+  <link rel="alternate" hreflang="ru" href="https://leoalecksey.github.io/opsdeck/">
+  <link rel="alternate" hreflang="x-default" href="https://leoalecksey.github.io/opsdeck/en/">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="OpsDeck">
+  <meta property="og:url" content="https://leoalecksey.github.io/opsdeck/en/">
+  <meta property="og:locale" content="en_US">
+  <meta property="og:image" content="https://leoalecksey.github.io/opsdeck/assets/og-en.jpg">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="OpsDeck — a DevOps engineer's workspace in one window">
+  <meta name="twitter:description" content="A free open-source desktop app for DevOps: a terminal with local AI, Kubernetes, SSH, databases, an IDE with git, alerts, notes with tasks and KeePass in one window. Linux, Windows, macOS.">
+  <meta name="twitter:image" content="https://leoalecksey.github.io/opsdeck/assets/og-en.jpg">
+  <script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  "name": "OpsDeck",
+  "applicationCategory": "DeveloperApplication",
+  "operatingSystem": "Linux, Windows, macOS",
+  "description": "A free open-source desktop app for DevOps: a terminal with local AI, Kubernetes, SSH, databases, an IDE with git, alerts, notes with tasks and KeePass in one window. Linux, Windows, macOS.",
+  "url": "https://leoalecksey.github.io/opsdeck/en/",
+  "image": "https://leoalecksey.github.io/opsdeck/assets/og-en.jpg",
+  "downloadUrl": "https://github.com/LeoAlecksey/opsdeck/releases/latest",
+  "codeRepository": "https://github.com/LeoAlecksey/opsdeck",
+  "inLanguage": "en",
+  "offers": {
+    "@type": "Offer",
+    "price": "0",
+    "priceCurrency": "USD"
+  },
+  "author": {
+    "@type": "Person",
+    "name": "LeoAlecksey",
+    "url": "https://github.com/LeoAlecksey"
+  }
+}
+  </script>
+  <meta name="theme-color" content="#0f1117">
   <link rel="icon" href="../assets/icon.png">
-  <link rel="alternate" hreflang="ru" href="../">
+  <link rel="apple-touch-icon" href="../assets/icon.png">
   <link rel="stylesheet" href="../assets/style.css">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
+  "inLanguage": "en",
+  "mainEntity": [
+    {
+      "@type": "Question",
+      "name": "Is it free? Where does my data go?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "It is free, the code is open under the MIT license. Settings live in ~/.config/opsdeck/, passwords in the system password store (keyring), and the KeePass database is opened read-only. The built-in AI runs on your computer. Data leaves it only if you connect an external AI server yourself (OpsDeck warns you) or run a cloud tool such as Claude Code in the AI panel."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Which systems does it run on?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Linux with glibc 2.35+ (Ubuntu 22.04+, Debian 12+, Fedora 36+), Windows 10/11, macOS 10.13+ on Intel and 11+ on Apple Silicon."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "How do updates work? What if a new version breaks?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "OpsDeck checks GitHub Releases itself: ⚙ shows ↑, and “Update and restart” downloads the update and verifies its signature. If a new version gets in the way, go back to any previous one in ⚙ → Updates → “Other versions”."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "macOS says the app is damaged",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "It isn't — that's how macOS marks downloaded apps without a paid Apple signature. Drag OpsDeck to Applications and run xattr -cr /Applications/OpsDeck.app. If you then see “cannot verify the developer” — System Settings → Privacy & Security → “Open Anyway”."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "How do I move OpsDeck to another computer?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "⚙ → “Moving to another computer” → “Export…”: tick what to take — settings and interface, SSH, web panels, databases, MikroTik, snippets, kubeconfig, the notes folder. On the new computer — “Import…” with that archive. Passwords are not in the archive (they live in the OS keyring); enter them again."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "The local AI is slow",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Big models take a few seconds on the CPU. Turn on ⚙ → Local AI → Acceleration → “GPU (Vulkan)” or pick a smaller model. Integrated Intel or AMD graphics work too."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "How can I suggest an idea or contribute?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Open an issue. Pull requests go to the dev branch — see CONTRIBUTING.md."
+      }
+    }
+  ]
+}
+</script>
 </head>
 <body>
 <header class="top">
