@@ -31,6 +31,14 @@
 - kubectl -n <ns> get deploy <name> -o yaml | kubectl neat — манифест без служебных полей
 - kubectl auth can-i --list -n <ns> — что разрешено текущему контексту
 - kubectl config get-contexts — контексты kubeconfig
+- kubectl -n <ns> get pods --field-selector status.phase!=Running — всё, что не работает
+- kubectl -n <ns> debug <pod> -it --image=nicolaka/netshoot --target=<container> — временный контейнер с сетевыми утилитами рядом
+- kubectl -n <ns> cp <pod>:<path> <local> — забрать файл из пода
+- kubectl -n <ns> get pod <pod> -o jsonpath='{.status.containerStatuses[*].lastState.terminated.exitCode}' — код выхода прошлого запуска
+- kubectl -n <ns> set image deploy/<name> <container>=<image> — поменять образ
+- kubectl -n <ns> annotate deploy/<name> kubectl.kubernetes.io/restart-at="$(date -Is)" --overwrite — пометить раскатку
+- kubectl api-resources --verbs=list --namespaced -o name — какие ресурсы вообще есть в кластере
+- kubectl -n <ns> get all,ing,pvc -o wide — всё основное одним списком
 
 # helm
 алиасы: хелм, чарт, chart, релиз, release, values
@@ -55,6 +63,11 @@
 - docker compose up -d --build — поднять стек из compose-файла
 - docker compose logs -f --tail 200 <service> — логи сервиса стека
 - docker compose ps — состояние сервисов стека
+- docker run --rm -it --network container:<name> nicolaka/netshoot — сеть чужого контейнера глазами утилит
+- docker cp <name>:<path> <local> — забрать файл из контейнера
+- docker builder prune -f --filter until=72h — почистить кэш сборки старше трёх суток
+- docker image prune -a -f --filter until=168h — удалить неиспользуемые образы старше недели
+- docker events --since 1h --filter type=container — что происходило с контейнерами за час
 
 # systemd
 алиасы: systemctl, journalctl, сервис, служба, service, демон, юнит, unit, автозапуск
@@ -69,6 +82,11 @@
 - journalctl -u <unit> -f — следить за логом
 - journalctl -u <unit> --since '1 hour ago' -p err — только ошибки за час
 - journalctl -b -1 -p err --no-pager — ошибки предыдущей загрузки
+- systemctl edit <unit> — переопределение юнита (drop-in), не трогая пакетный файл
+- systemctl daemon-reload — перечитать юниты после правок
+- systemd-analyze blame | head -20 — что дольше всего стартует
+- journalctl --disk-usage и journalctl --vacuum-size=500M — сколько занимает журнал и как ужать
+- journalctl -f -u <unit> -o cat — лог без служебных префиксов
 
 # terraform
 алиасы: терраформ, tofu, опентофу, план, plan, state, стейт, инфраструктура как код
@@ -96,6 +114,12 @@
 - git restore --source=HEAD --staged --worktree <file> — вернуть файл как в HEAD
 - git blame -L <from>,<to> <file> — кто менял строки
 - git bisect start <bad> <good> — поиск коммита, который сломал
+- git log --oneline -S'<текст>' -- <file> — когда появилась или пропала строка
+- git reflog -20 — куда уходила ветка: вернуть «потерянное» состояние
+- git rebase --onto <new-base> <old-base> <branch> — перенести ветку на другую основу
+- git cherry-pick -x <hash> — перенести коммит с пометкой об источнике
+- git worktree add ../<dir> <branch> — вторая рабочая копия той же истории
+- git grep -n '<текст>' $(git rev-list --all | head -50) — поиск по истории
 
 # ssh
 алиасы: ssh, scp, sftp, туннель, tunnel, ключ, key, jump, бастион, bastion
@@ -108,6 +132,10 @@
 - scp -3 <host1>:<path> <host2>:<path> — копирование между хостами через себя
 - sftp -b - <host> — пакетный режим: get, put, ls, mkdir из stdin
 - ssh-keygen -t ed25519 -C '<комментарий>' — новый ключ
+- ssh -o ControlMaster=auto -o ControlPath=~/.ssh/cm-%r@%h:%p -o ControlPersist=5m <host> — общее соединение для следующих команд (кроме Windows)
+- ssh -N -D 1080 <host> — SOCKS-прокси через хост
+- ssh -o ProxyCommand='ssh -W %h:%p <bastion>' <host> — то же, что -J, для старых клиентов
+- ssh-keygen -F <host> и ssh-keygen -R <host> — найти и убрать запись из known_hosts
 
 # jq и yq
 алиасы: jq, yq, json, yaml, фильтр, парсить
@@ -155,6 +183,11 @@
 - ip r get <ip> — через какой маршрут пойдёт пакет
 - nft list ruleset — правила файрвола (nftables)
 - iptables -L -n -v --line-numbers — правила файрвола (iptables)
+- tcpdump -ni any port <port> -c 50 -w /tmp/dump.pcap — снять пакеты в файл
+- ss -s — сводка по сокетам: сколько соединений в каком состоянии
+- conntrack -S — переполнение таблицы соединений (видно по insert_failed и drop)
+- getent hosts <name> — как имя разрешает сама система (с учётом /etc/hosts и nsswitch)
+- curl -sS --resolve <name>:443:<ip> https://<name>/ -o /dev/null -w '%{http_code}\n' — проверить конкретный адрес, минуя DNS
 
 # процессы и нагрузка
 алиасы: процесс, process, нагрузка, load, память, memory, cpu, oom, top, ps
@@ -185,6 +218,10 @@
 - psql -c 'select * from pg_stat_replication' — состояние репликации
 - pg_dump -h <host> -U <user> -Fc -f <file>.dump <db> — дамп базы
 - psql -c "explain (analyze, buffers) <запрос>" — план запроса с фактами
+- psql -c "select pid, state, wait_event_type, wait_event, left(query,60) from pg_stat_activity where wait_event is not null" — кто чего ждёт
+- psql -c 'select schemaname, relname, n_dead_tup, last_autovacuum from pg_stat_user_tables order by n_dead_tup desc limit 20' — мёртвые строки и когда был автовакуум
+- psql -c "select count(*), state from pg_stat_activity group by 2" — сколько соединений и в каком состоянии
+- psql -c 'select name, setting from pg_settings where name in (\'max_connections\',\'shared_buffers\',\'work_mem\')' — ключевые настройки
 
 # mysql
 алиасы: mysql, mariadb, mysqldump, innodb
@@ -220,3 +257,81 @@
 - openssl x509 -in <file>.crt -noout -enddate — до какого числа действует
 - openssl req -new -newkey rsa:2048 -nodes -keyout <name>.key -out <name>.csr -subj '/CN=<host>' — ключ и запрос
 - openssl verify -untrusted <chain>.pem <cert>.pem — проверить цепочку
+
+# clickhouse
+алиасы: clickhouse, кликхаус, ch, mergetree, партиция, партиции, parts, мутация
+- clickhouse-client -h <host> -q "select 1" — проверить соединение
+- clickhouse-client -q "select query_id, user, elapsed, formatReadableSize(memory_usage) mem, left(query,80) from system.processes order by elapsed desc" — что выполняется сейчас
+- clickhouse-client -q "kill query where query_id='<id>'" — остановить запрос
+- clickhouse-client -q "select database, table, formatReadableSize(sum(bytes_on_disk)) size, sum(rows) rows from system.parts where active group by 1,2 order by sum(bytes_on_disk) desc limit 20" — крупные таблицы
+- clickhouse-client -q "select table, partition, count() parts from system.parts where active group by 1,2 having parts > 50 order by parts desc" — партиции с множеством кусков (мерджи не успевают)
+- clickhouse-client -q "select * from system.mutations where not is_done" — незавершённые мутации
+- clickhouse-client -q "select * from system.replicas where is_readonly or absolute_delay > 60" — отставшие или readonly реплики
+- clickhouse-client -q "select * from system.replication_queue order by create_time limit 20" — очередь репликации
+- clickhouse-client -q "select event_time, query_duration_ms, read_rows, left(query,100) from system.query_log where type='QueryFinish' and event_date=today() order by query_duration_ms desc limit 20" — самые долгие запросы за сегодня
+- clickhouse-client -q "select event_time, exception from system.query_log where type='ExceptionWhileProcessing' and event_date=today() order by event_time desc limit 20" — последние ошибки запросов
+- clickhouse-client -q "select metric, value from system.asynchronous_metrics where metric like '%Memory%'" — память сервера
+- clickhouse-client -q "optimize table <db>.<table> partition '<p>' final" — слить куски партиции (тяжёлая операция)
+- clickhouse-client -q "system sync replica <db>.<table>" — дождаться догона реплики
+
+# kafka
+алиасы: kafka, кафка, топик, topic, consumer, продюсер, producer, лаг, lag, offset, партиция
+- kafka-topics.sh --bootstrap-server <host>:9092 --list — список топиков
+- kafka-topics.sh --bootstrap-server <host>:9092 --describe --topic <topic> — партиции, реплики, ISR
+- kafka-topics.sh --bootstrap-server <host>:9092 --describe --under-replicated-partitions — партиции без полного набора реплик
+- kafka-consumer-groups.sh --bootstrap-server <host>:9092 --describe --group <group> — лаг по партициям
+- kafka-consumer-groups.sh --bootstrap-server <host>:9092 --list — группы потребителей
+- kafka-consumer-groups.sh --bootstrap-server <host>:9092 --group <group> --topic <topic> --reset-offsets --to-datetime <YYYY-MM-DDTHH:MM:SS.000> --execute — сдвинуть смещения группы (только при остановленных потребителях)
+- kafka-console-consumer.sh --bootstrap-server <host>:9092 --topic <topic> --from-beginning --max-messages 10 — посмотреть сообщения
+- kafka-console-producer.sh --bootstrap-server <host>:9092 --topic <topic> — отправить сообщения со stdin
+- kafka-run-class.sh kafka.tools.GetOffsetShell --bootstrap-server <host>:9092 --topic <topic> — последние смещения партиций
+- kafka-configs.sh --bootstrap-server <host>:9092 --entity-type topics --entity-name <topic> --describe — настройки топика (retention, cleanup.policy)
+- kafka-log-dirs.sh --bootstrap-server <host>:9092 --describe --topic-list <topic> — сколько занимает топик на брокерах
+
+# redis
+алиасы: redis, редис, кэш, cache, ключи, keys, sentinel, валкей, valkey
+- redis-cli -h <host> -p 6379 ping — живой ли сервер
+- redis-cli -h <host> info memory — память: used_memory_human, maxmemory, политика вытеснения
+- redis-cli -h <host> info replication — роль, подключённые реплики, отставание
+- redis-cli -h <host> info keyspace — сколько ключей по базам
+- redis-cli -h <host> --scan --pattern '<prefix>:*' | head -50 — перебрать ключи без блокировки (не keys *)
+- redis-cli -h <host> --bigkeys — самые крупные ключи по типам
+- redis-cli -h <host> --memkeys — ключи по занимаемой памяти
+- redis-cli -h <host> --latency — задержка ответа
+- redis-cli -h <host> slowlog get 20 — последние медленные команды
+- redis-cli -h <host> client list | head -20 — подключённые клиенты
+- redis-cli -h <host> ttl <key> — сколько ключу жить (-1 без срока, -2 нет ключа)
+- redis-cli -h <host> monitor — поток команд (тяжело для нагруженного сервера, ненадолго)
+
+# vault
+алиасы: vault, волт, секрет, секреты, secret, kv, token, политика, policy, unseal
+- vault status — распечатан ли, версия, кластер
+- vault login -method=<userpass|oidc|token> — вход
+- vault kv list <mount>/<path> — что лежит в разделе
+- vault kv get -format=json <mount>/<path> — секрет целиком
+- vault kv get -field=<key> <mount>/<path> — одно поле (удобно в скриптах)
+- vault kv put <mount>/<path> <key>=<value> — записать (создаёт новую версию)
+- vault kv metadata get <mount>/<path> — версии секрета
+- vault kv rollback -version=<n> <mount>/<path> — вернуть прежнюю версию
+- vault token lookup — чей токен, какие политики, сколько осталось
+- vault token renew — продлить токен
+- vault policy read <name> — текст политики
+- vault read <mount>/creds/<role> — динамические учётные данные (база, облако)
+- vault lease revoke -prefix <mount>/creds/<role> — отозвать выданное
+- vault audit list — включённые журналы аудита
+
+# promql
+алиасы: promql, prometheus, прометей, метрика, метрики, алерт, alert, запрос к метрикам, rate, irate
+- rate(http_requests_total{job="<job>"}[5m]) — запросов в секунду за 5 минут
+- sum by (status) (rate(http_requests_total[5m])) — то же с разбивкой по коду ответа
+- sum(rate(http_requests_total{status=~"5.."}[5m])) / sum(rate(http_requests_total[5m])) — доля пятисотых
+- histogram_quantile(0.95, sum by (le) (rate(http_request_duration_seconds_bucket[5m]))) — 95-я перцентиль времени ответа
+- 100 * (1 - avg by (instance) (rate(node_cpu_seconds_total{mode="idle"}[5m]))) — загрузка CPU в процентах
+- node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes — доля свободной памяти
+- predict_linear(node_filesystem_avail_bytes{mountpoint="/"}[6h], 24*3600) < 0 — место на диске кончится за сутки
+- increase(kube_pod_container_status_restarts_total[1h]) > 0 — поды, которые перезапускались за час
+- sum by (namespace) (kube_pod_container_resource_requests{resource="cpu"}) — запрошенные ядра по неймспейсам
+- up{job="<job>"} == 0 — цели, которые не отвечают
+- changes(process_start_time_seconds[1h]) > 0 — процессы, перезапускавшиеся за час
+- topk(10, sum by (pod) (rate(container_cpu_usage_seconds_total[5m]))) — самые прожорливые поды
+- curl -sG <prometheus>/api/v1/query --data-urlencode 'query=<выражение>' | jq . — выполнить запрос из терминала

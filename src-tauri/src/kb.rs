@@ -201,7 +201,8 @@ mod tests {
     #[test]
     fn the_bundled_base_parses_and_every_topic_has_aliases() {
         let t = parse(BUNDLED);
-        assert!(t.len() >= 15, "тем в базе: {}", t.len());
+        assert!(t.len() >= 23, "тем в базе: {}", t.len());
+        assert!(t.iter().map(|x| x.lines.len()).sum::<usize>() >= 250, "команд в базе мало");
         for topic in &t {
             assert!(!topic.aliases.is_empty(), "{}: нет алиасов", topic.tool);
             assert!(topic.lines.iter().all(|l| l.contains(" — ")), "{}: строка без описания", topic.tool);
@@ -231,6 +232,12 @@ mod tests {
         assert_eq!(tools("какие порты слушает хост")[0], "сеть и dns");
         assert_eq!(tools("когда истекает сертификат сайта")[0], "сертификаты");
         assert_eq!(tools("что ещё не отправлено в удалённую ветку")[0], "git");
+        // темы, добавленные по просьбе пользователя
+        assert_eq!(tools("лаг консьюмер-группы в кафке")[0], "kafka");
+        assert_eq!(tools("какие ключи занимают память в redis")[0], "redis");
+        assert_eq!(tools("достать секрет из vault")[0], "vault");
+        assert_eq!(tools("доля пятисотых в prometheus")[0], "promql");
+        assert_eq!(tools("незавершённые мутации в clickhouse")[0], "clickhouse");
         // ничего похожего — подсказка не растёт
         assert!(pick(&t, "напиши стихотворение про осень", 3).is_empty());
     }

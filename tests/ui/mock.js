@@ -319,7 +319,7 @@ lint:
       return { path, entries: l.map(([name, dir, modified, perms, target]) => ({ name, dir: !!dir, link: !!target, size: dir ? 0 : 1048576, modified, perms, target: target || "" })) };
     },
     // ---- Yandex Cloud: демо-каталог (документационные адреса) ----
-    kb_info: { tools: ["kubectl", "helm", "docker", "systemd", "terraform", "git"], lines: 94, path: "/home/demo/.config/opsdeck/knowledge.md", own: false },
+    kb_info: { tools: ["kubectl", "helm", "docker", "systemd", "terraform", "git", "clickhouse", "kafka", "redis", "vault", "promql"], lines: 257, path: "/home/demo/.config/opsdeck/knowledge.md", own: false },
     kb_open: null,
     yc_status: { found: true, version: "yandex-cloud/0.142.0", profile: "default", profiles: ["default", "work"], cloud_id: "b1g1", folder_id: "b1gf1", error: "" },
     yc_clouds: [{ id: "b1g1", name: "shop", parent: "org1", description: "" }],
