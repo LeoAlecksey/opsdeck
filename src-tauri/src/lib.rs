@@ -54,7 +54,8 @@ fn main_window(app: &tauri::App) -> tauri::Result<()> {
 }
 
 pub fn run() {
-    #[cfg(target_os = "macos")]
+    // PATH сеанса рабочего стола беднее того, что в терминале: ярлык не читает ~/.bashrc
+    #[cfg(unix)]
     process::fix_macos_path();
 
     tauri::Builder::default()
@@ -282,6 +283,7 @@ pub fn run() {
             kb::kb_info,
             kb::kb_open,
             yc::yc_status,
+            yc::yc_set_path,
             yc::yc_use_profile,
             yc::yc_clouds,
             yc::yc_folders,

@@ -67,7 +67,7 @@ test.describe("Yandex Cloud", () => {
 
 // раздел монтируется один раз, поэтому «нет CLI» ставим до запуска приложения
 test.describe("Yandex Cloud without the CLI", () => {
-  test.use({ demo: { overrides: { yc_status: { found: false, version: "", profile: "", profiles: [], cloud_id: "", folder_id: "", error: "yc не найден в PATH — установите Yandex Cloud CLI и выполните «yc init»" } } } });
+  test.use({ demo: { overrides: { yc_status: { found: false, version: "", profile: "", profiles: [], cloud_id: "", folder_id: "", bin: "yc", error: "yc не найден — установите Yandex Cloud CLI и выполните «yc init» или укажите путь к файлу кнопкой ниже" } } } });
 
   test("the section explains what to install and asks the cloud for nothing", async ({ app, page }) => {
     await app.view("yc");
@@ -75,5 +75,12 @@ test.describe("Yandex Cloud without the CLI", () => {
     await expect(page.locator(".yc-body")).toContainText("не хранит ни токенов");
     expect(await app.calls("yc_clouds")).toHaveLength(0);
     expect(await app.calls("yc_instances")).toHaveLength(0);
+
+    // CLI есть, но лежит не там, где её ищут (приложение из меню не читает ~/.bashrc): путь вручную
+    await expect(page.locator(".yc-nobin")).toBeVisible();
+    await page.locator("[data-a=yc-path]").click();
+    await page.locator("dialog.ask input").fill("~/yandex-cloud/bin/yc");
+    await page.locator("dialog.ask button[value=ok]").click();
+    expect((await app.called("yc_set_path")).args).toEqual({ path: "~/yandex-cloud/bin/yc" });
   });
 });

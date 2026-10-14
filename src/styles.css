@@ -283,6 +283,7 @@ td.warn { color: #e6c07b; }
 .lh-note { font-size: 11px; padding-top: 2px; }
 /* Yandex Cloud: вкладки и свёрнутые группы (сети, группы безопасности) */
 .page.yc { overflow: hidden; }
+.yc-nobin { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 12px; }
 /* таблицы раздела: имя занимает свободное место, служебные колонки — по содержимому */
 .yc-body table.res td:first-child, .yc-body table.res th:first-child { width: 40%; }
 .yc-body .table-wrap { overflow: visible; }

@@ -17,14 +17,58 @@ fn check(id: &str) -> Result<&str, String> {
     valid(id).then_some(id).ok_or_else(|| format!("недопустимый идентификатор: {id}"))
 }
 
+/// Где искать CLI, если её нет в PATH: официальный установщик кладёт её в ~/yandex-cloud/bin и
+/// дописывает PATH в ~/.bashrc, а приложение из меню этот файл не читает (из отчёта).
+fn yc_candidates(home: &std::path::Path, windows: bool) -> Vec<std::path::PathBuf> {
+    let name = if windows { "yc.exe" } else { "yc" };
+    let mut out: Vec<std::path::PathBuf> = ["yandex-cloud/bin", ".local/bin", "bin", ".yandex-cloud/bin"]
+        .iter()
+        .map(|d| home.join(d).join(name))
+        .collect();
+    if windows {
+        out.push(home.join("AppData/Local/Programs/Yandex.Cloud/bin").join(name));
+    } else {
+        out.extend(["/usr/local/bin", "/usr/bin", "/opt/yandex-cloud/bin", "/snap/bin"].iter().map(|d| std::path::Path::new(d).join(name)));
+    }
+    out
+}
+
+/// Первый существующий исполняемый файл из списка.
+fn pick_bin(candidates: &[std::path::PathBuf], ok: impl Fn(&std::path::Path) -> bool) -> Option<std::path::PathBuf> {
+    candidates.iter().find(|p| ok(p)).cloned()
+}
+
+/// Сохранённый пользователем путь к CLI (когда она лежит где-то ещё).
+const BIN_FILE: &str = "yc.json";
+
+#[derive(serde::Serialize, serde::Deserialize, Default)]
+struct YcBin {
+    path: String,
+}
+
+/// Чем запускать: сохранённый путь, затем PATH, затем привычные места установки.
+fn yc_bin() -> std::path::PathBuf {
+    let saved: YcBin = crate::store::load_json(BIN_FILE).unwrap_or_default();
+    if !saved.path.is_empty() && crate::store::is_executable(std::path::Path::new(&saved.path)) {
+        return saved.path.into();
+    }
+    let name = if cfg!(windows) { "yc.exe" } else { "yc" };
+    let in_path = std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default())
+        .map(|d| d.join(name))
+        .find(|p| crate::store::is_executable(p));
+    in_path
+        .or_else(|| pick_bin(&yc_candidates(&dirs::home_dir().unwrap_or_default(), cfg!(windows)), crate::store::is_executable))
+        .unwrap_or_else(|| name.into())
+}
+
 /// `yc` с аргументами; stdout как есть (для `--format json` — JSON).
 fn yc(args: &[&str]) -> Result<String, String> {
-    let mut cmd = Command::new("yc");
+    let mut cmd = Command::new(yc_bin());
     cmd.args(args).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
     process::no_console(&mut cmd);
     let out = cmd.output().map_err(|e| {
         if e.kind() == std::io::ErrorKind::NotFound {
-            "yc не найден в PATH — установите Yandex Cloud CLI и выполните «yc init»".to_string()
+            "yc не найден — установите Yandex Cloud CLI и выполните «yc init» или укажите путь к файлу кнопкой ниже".to_string()
         } else {
             format!("не удалось запустить yc: {e}")
         }
@@ -60,6 +104,27 @@ fn explain(stderr: &str) -> String {
     line.chars().take(300).collect()
 }
 
+/// Указать путь к CLI руками (например, если она лежит не в обычном месте).
+#[tauri::command]
+pub async fn yc_set_path(path: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let p = crate::editor::expand(path.trim());
+        if !crate::store::is_executable(&p) {
+            return Err(format!("это не исполняемый файл: {}", p.display()));
+        }
+        let mut cmd = Command::new(&p);
+        cmd.arg("version").stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
+        process::no_console(&mut cmd);
+        let out = cmd.output().map_err(|e| format!("не удалось запустить {}: {e}", p.display()))?;
+        if !out.status.success() {
+            return Err(format!("{} не отвечает на «version»", p.display()));
+        }
+        crate::store::save_json(BIN_FILE, &YcBin { path: p.to_string_lossy().into_owned() })
+    })
+    .await
+    .map_err(crate::store::err)?
+}
+
 #[derive(Serialize, Default)]
 pub struct Status {
     /// `yc` есть в PATH
@@ -72,6 +137,8 @@ pub struct Status {
     pub folder_id: String,
     /// что не так (нет CLI, нет входа)
     pub error: String,
+    /// чем запускаем — видно, если путь указан руками или найден не в PATH
+    pub bin: String,
 }
 
 /// Строки `yc config profile list`: «default ACTIVE» у активного.
@@ -97,7 +164,7 @@ fn parse_profiles(text: &str) -> (Vec<String>, String) {
 #[tauri::command]
 pub async fn yc_status() -> Status {
     tauri::async_runtime::spawn_blocking(|| {
-        let mut s = Status::default();
+        let mut s = Status { bin: yc_bin().to_string_lossy().into_owned(), ..Default::default() };
         match yc(&["version"]) {
             Ok(v) => {
                 s.found = true;
@@ -560,6 +627,26 @@ mod tests {
         assert_eq!(parse_billing(&b)[0], BillingAccount { id: "dn2".into(), name: "основной".into(), balance: "1234.56".into(), currency: "RUB".into(), active: true });
     }
 
+
+    /// Приложение из меню не читает ~/.bashrc, куда установщик дописывает PATH: ищем CLI и в
+    /// привычных местах, иначе раздел говорит «yc не найден», хотя в терминале она работает.
+    #[test]
+    fn the_cli_is_found_where_the_installer_puts_it() {
+        let home = std::path::Path::new("/home/u");
+        let c = yc_candidates(home, false);
+        assert_eq!(c[0], home.join("yandex-cloud/bin/yc"), "официальный установщик кладёт сюда");
+        assert!(c.contains(&home.join(".local/bin/yc")));
+        assert!(c.contains(&std::path::PathBuf::from("/usr/local/bin/yc")));
+        assert!(c.contains(&std::path::PathBuf::from("/snap/bin/yc")));
+        // на Windows ищем .exe и в Program Files пользователя
+        let w = yc_candidates(std::path::Path::new("C:/Users/u"), true);
+        assert!(w.iter().all(|p| p.ends_with("yc.exe")));
+        assert!(w.iter().any(|p| p.to_string_lossy().contains("Yandex.Cloud")));
+        // берётся первый существующий
+        let found = pick_bin(&c, |p| p == home.join(".local/bin/yc"));
+        assert_eq!(found, Some(home.join(".local/bin/yc")));
+        assert_eq!(pick_bin(&c, |_| false), None);
+    }
 
     #[test]
     fn only_safe_identifiers_reach_the_cli() {

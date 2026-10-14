@@ -5,7 +5,7 @@ import { helpBtn } from "./help";
 import { natCmp } from "./natsort";
 import { fmtSize } from "./paths";
 
-type Status = { found: boolean; version: string; profile: string; profiles: string[]; cloud_id: string; folder_id: string; error: string };
+type Status = { found: boolean; version: string; profile: string; profiles: string[]; cloud_id: string; folder_id: string; error: string; bin: string };
 type Named = { id: string; name: string; parent: string; description: string };
 type Instance = {
   id: string; name: string; status: string; zone: string; platform: string; cores: number; memory: number;
@@ -53,6 +53,10 @@ export function mountYc(root: HTMLElement) {
         </div>
       </div>
       <p class="yc-err err" hidden></p>
+      <p class="yc-nobin" hidden>
+        <button class="ghost" data-a="yc-path">Указать путь к yc…</button>
+        <span class="muted">Приложение, запущенное из меню, не читает ~/.bashrc, куда установщик дописывает PATH.</span>
+      </p>
       <div class="tabbar yc-tabs">${TABS.map(([id, t], n) => `<button data-t="${id}" class="${n === 0 ? "active" : ""}">${t}</button>`).join("")}</div>
       <div class="yc-body"></div>
     </div>`;
@@ -79,8 +83,9 @@ export function mountYc(root: HTMLElement) {
     errEl.textContent = s.error;
     profileEl.innerHTML = opts(s.profiles.map((p) => ({ id: p, name: p })), s.profile);
     profileEl.hidden = s.profiles.length < 2;
+    $(".yc-nobin").hidden = s.found;
     if (!s.found) {
-      body.innerHTML = `<p class="pad muted">Нужен Yandex Cloud CLI: установите <code>yc</code> и выполните <code>yc init</code> в терминале. OpsDeck работает его профилями и не хранит ни токенов, ни ключей.</p>`;
+      body.innerHTML = `<p class="muted">Нужен Yandex Cloud CLI: установите <code>yc</code> и выполните <code>yc init</code> в терминале. OpsDeck работает его профилями и не хранит ни токенов, ни ключей.</p>`;
       return;
     }
     const clouds = await invoke<Named[]>("yc_clouds").catch((e) => { fail(e); return [] as Named[]; });
@@ -235,6 +240,16 @@ export function mountYc(root: HTMLElement) {
     } catch (e) { fail(e); }
   };
   $("[data-a=refresh]").onclick = () => draw();
+  // CLI лежит не там, где её ищут: путь можно указать руками, он проверяется запуском «yc version»
+  $("[data-a=yc-path]").onclick = async () => {
+    const path = await ask("Путь к yc", "Полный путь к исполняемому файлу Yandex Cloud CLI", { input: "", placeholder: "~/yandex-cloud/bin/yc", ok: "Проверить и сохранить" });
+    if (!path) return;
+    try {
+      await invoke("yc_set_path", { path });
+      toast("Путь сохранён");
+      await init();
+    } catch (e) { toast(String(e), "err"); }
+  };
 
   init();
 }

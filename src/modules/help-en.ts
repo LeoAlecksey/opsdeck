@@ -151,7 +151,7 @@ export const HELP_EN: Record<string, { title: string; html: string }> = {
       <p>The cloud at a glance: instances, networks, security groups, public addresses, service accounts with their roles, and billing accounts. OpsDeck works through the cloud's own <code>yc</code> CLI and its profiles (<code>yc init</code>), so it <b>stores no tokens and no service-account keys</b> — everything comes from your own login.</p>
       <h4>What you need</h4>
       <ul><li>The module is enabled with a tick in the ⊞ menu at the bottom of the left column.</li>
-      <li><code>yc</code> in PATH and <code>yc init</code> done. With several profiles a list appears at the top — switching changes the CLI's own active profile.</li>
+      <li><code>yc</code> with <code>yc init</code> done. OpsDeck looks for it in PATH and where the installer puts it (<code>~/yandex-cloud/bin</code>, <code>~/.local/bin</code>, <code>/usr/local/bin</code>, <code>/snap/bin</code>): an app started from the menu does not read <code>~/.bashrc</code>, where the installer appends to PATH. If it lives somewhere else — the “Set the path to yc…” button under the header. With several profiles a list appears at the top — switching changes the CLI's own active profile.</li>
       <li>Pick the <b>cloud</b> and the <b>folder</b> at the top; everything below is shown for that folder.</li></ul>
       <h4>What's where</h4>
       <ul><li><b>Instances</b> — status, zone, configuration (platform, vCPU with core fraction, memory, “preemptible”) and addresses. Start, stop and restart ask for confirmation: these are real machines. <b>SSH</b> opens a terminal tab with the public address, or the internal one when there is none.</li>
