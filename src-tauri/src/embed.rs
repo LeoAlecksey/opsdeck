@@ -23,9 +23,7 @@ pub struct Rect {
 static ZOOM: std::sync::Mutex<Vec<(String, f64)>> = std::sync::Mutex::new(Vec::new());
 
 fn apply_zoom(wv: &tauri::Webview, id: &str, zoom: Option<f64>) -> Result<(), String> {
-    let Some(z) = zoom.map(|z| z.clamp(0.3, 3.0)) else {
-        return Ok(());
-    };
+    let Some(z) = zoom.map(|z| z.clamp(0.3, 3.0)) else { return Ok(()) };
     let mut last = ZOOM.lock().unwrap();
     match last.iter_mut().find(|(i, _)| i == id) {
         Some((_, v)) if (*v - z).abs() < 0.001 => return Ok(()),
@@ -54,11 +52,7 @@ mod gtk_layer {
 
     /// Main window: vbox > [main webview]  →  vbox > overlay > [main webview, fixed (on top)].
     pub fn install(vbox: &gtk::Box) -> Result<(), String> {
-        let main = vbox
-            .children()
-            .into_iter()
-            .last()
-            .ok_or("main webview not found")?;
+        let main = vbox.children().into_iter().last().ok_or("main webview not found")?;
         vbox.remove(&main);
         let overlay = gtk::Overlay::new();
         overlay.add(&main);
@@ -81,20 +75,10 @@ mod gtk_layer {
 
     pub fn place(wv: &webkit2gtk::WebView, r: super::Rect) {
         LAYER.with(|l| {
-            let Some(fixed) = l.borrow().clone() else {
-                return;
-            };
-            let (x, y, w, h) = (
-                r.x.round() as i32,
-                r.y.round() as i32,
-                r.w.round().max(1.0) as i32,
-                r.h.round().max(1.0) as i32,
-            );
+            let Some(fixed) = l.borrow().clone() else { return };
+            let (x, y, w, h) = (r.x.round() as i32, r.y.round() as i32, r.w.round().max(1.0) as i32, r.h.round().max(1.0) as i32);
             if wv.parent().as_ref() != Some(fixed.upcast_ref::<gtk::Widget>()) {
-                if let Some(parent) = wv
-                    .parent()
-                    .and_then(|p| p.downcast::<gtk::Container>().ok())
-                {
+                if let Some(parent) = wv.parent().and_then(|p| p.downcast::<gtk::Container>().ok()) {
                     parent.remove(wv);
                 }
                 fixed.put(wv, x, y);
@@ -139,18 +123,27 @@ pub fn install(app: &AppHandle) {
 /// sign is checked by tests on every OS, not only on a Mac.
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 fn mac_y(parent_height: f64, y: f64, h: f64, flipped: bool) -> f64 {
-    if flipped {
-        y
-    } else {
-        parent_height - y - h
-    }
+    if flipped { y } else { parent_height - y - h }
+}
+
+/// Высота рабочей области окна на macOS: `contentLayoutRect` — окно без системного заголовка,
+/// а frame родителя его включает. Координаты панели приходят из HTML, где заголовка нет, поэтому
+/// по полной высоте панель уезжала вверх ровно на заголовок и накрывала полосу вкладок (#68).
+/// Окна у вью может не быть (панель ещё не в иерархии) — тогда остаётся высота родителя.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn mac_parent_height(content_top: Option<f64>, superview_height: f64) -> f64 {
+    content_top.filter(|h| *h > 0.0).unwrap_or(superview_height)
+}
+
+/// Верх рабочей области в координатах окна: `origin.y + height` (AppKit считает y снизу).
+#[cfg(target_os = "macos")]
+fn content_top(rect: objc2_foundation::NSRect) -> f64 {
+    rect.origin.y + rect.size.height
 }
 
 fn place(wv: &tauri::Webview, r: Rect) -> Result<(), String> {
     #[cfg(target_os = "linux")]
-    return wv
-        .with_webview(move |pw| gtk_layer::place(&pw.inner(), r))
-        .map_err(|e| e.to_string());
+    return wv.with_webview(move |pw| gtk_layer::place(&pw.inner(), r)).map_err(|e| e.to_string());
     // macOS: the WKWebView frame is set directly in its superview's coordinates (by default AppKit
     // counts y from the bottom); via set_position the panel slid over the tab bar
     #[cfg(target_os = "macos")]
@@ -162,34 +155,19 @@ fn place(wv: &tauri::Webview, r: Rect) -> Result<(), String> {
             let view = unsafe { &*(pw.inner() as *const NSView) };
             view.setAutoresizingMask(NSAutoresizingMaskOptions::empty());
             let y = match unsafe { view.superview() } {
-                Some(sup) => {
-                    let h = view
-                        .window()
-                        .map(|w| {
-                            let r = w.contentLayoutRect();
-                            r.origin.y + r.size.height
-                        })
-                        .unwrap_or_else(|| sup.frame().size.height);
-                    mac_y(h, r.y, r.h, sup.isFlipped())
-                }
+                // contentLayoutRect: высота окна без системного заголовка — координаты из HTML
+                // приходят тоже без него, а frame родителя заголовок включает (#68, PR #89)
+                Some(sup) => mac_y(mac_parent_height(view.window().map(|w| content_top(w.contentLayoutRect())), sup.frame().size.height), r.y, r.h, sup.isFlipped()),
                 None => r.y,
             };
-            view.setFrame(NSRect {
-                origin: NSPoint { x: r.x, y },
-                size: NSSize {
-                    width: r.w,
-                    height: r.h,
-                },
-            });
+            view.setFrame(NSRect { origin: NSPoint { x: r.x, y }, size: NSSize { width: r.w, height: r.h } });
             view.setHidden(false);
         })
         .map_err(|e| e.to_string());
     #[cfg(not(any(target_os = "linux", target_os = "macos")))]
     {
-        wv.set_position(LogicalPosition::new(r.x, r.y))
-            .map_err(|e| e.to_string())?;
-        wv.set_size(LogicalSize::new(r.w, r.h))
-            .map_err(|e| e.to_string())?;
+        wv.set_position(LogicalPosition::new(r.x, r.y)).map_err(|e| e.to_string())?;
+        wv.set_size(LogicalSize::new(r.w, r.h)).map_err(|e| e.to_string())?;
         wv.show().map_err(|e| e.to_string())
     }
 }
@@ -227,17 +205,12 @@ pub async fn web_embed_show(
     }
     let url = target.unwrap_or(base);
     let window = app.get_window("main").ok_or("no main window")?;
-    let mut builder = tauri::webview::WebviewBuilder::new(label(&id), WebviewUrl::External(url))
-        .zoom_hotkeys_enabled(true);
+    let mut builder = tauri::webview::WebviewBuilder::new(label(&id), WebviewUrl::External(url)).zoom_hotkeys_enabled(true);
     if let Some(js) = script {
         builder = builder.initialization_script(&js);
     }
     let wv = window
-        .add_child(
-            builder,
-            LogicalPosition::new(rect.x, rect.y),
-            LogicalSize::new(rect.w, rect.h),
-        )
+        .add_child(builder, LogicalPosition::new(rect.x, rect.y), LogicalSize::new(rect.w, rect.h))
         .map_err(|e| e.to_string())?;
     forget_zoom(&id);
     apply_zoom(&wv, &id, zoom)?;
@@ -304,9 +277,21 @@ mod tests {
         // a flipped parent already counts from the top
         assert_eq!(mac_y(900.0, 40.0, 300.0, true), 40.0);
         // the tab bar on top stays free: a panel right under it does not reach the top of the window
-        assert!(
-            mac_y(900.0, 34.0, 866.0, false) == 0.0,
-            "a panel under a 34 pt tab bar ends at the window bottom"
-        );
+        assert!(mac_y(900.0, 34.0, 866.0, false) == 0.0, "a panel under a 34 pt tab bar ends at the window bottom");
+    }
+
+    /// #68: по полной высоте окна (с системным заголовком) панель уезжала вверх на эти самые
+    /// ~32 pt и накрывала полосу вкладок. Берём высоту без заголовка, а если окна нет — родителя.
+    #[test]
+    fn the_title_bar_is_not_counted_in_the_panel_height() {
+        use super::mac_parent_height;
+        // окно 900 pt, заголовок 32 pt: рабочая область 868 pt
+        assert_eq!(mac_parent_height(Some(868.0), 900.0), 868.0);
+        // окна нет или высота невменяемая — остаётся родитель
+        assert_eq!(mac_parent_height(None, 900.0), 900.0);
+        assert_eq!(mac_parent_height(Some(0.0), 900.0), 900.0);
+        // с учётом заголовка панель под полосой вкладок упирается в низ окна, а не уходит выше
+        let (tab_bar, panel) = (34.0, 834.0);
+        assert_eq!(mac_y(mac_parent_height(Some(868.0), 900.0), tab_bar, panel, false), 0.0);
     }
 }
