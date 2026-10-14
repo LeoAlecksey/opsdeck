@@ -363,7 +363,6 @@ export function mountK8s(root: HTMLElement) {
         <span class="ctx-title muted">выберите контекст</span>
         <span class="ro-badge" title="Изменения в этом контексте запрещены">${icon("lock", 14)} только чтение</span>
         <select class="ns-select" title="Namespace"></select>
-        <div class="ns-tabs" title="Namespace, с которыми работаете: клик — переключиться, × — убрать"></div>
         <input class="filter" placeholder="фильтр…" spellcheck="false" />
         <input class="lfilter" placeholder="метки: app=api, env in (prod)" spellcheck="false" title="Фильтр по меткам, как kubectl -l: app=api · tier!=db · env in (prod,stage) · env notin (dev) · canary (есть ключ) · !canary (нет ключа); условия через запятую" />
         <span class="spacer"></span>
@@ -373,6 +372,7 @@ export function mountK8s(root: HTMLElement) {
         <button data-act="shell" title="Терминал с KUBECONFIG этого контекста (kubectl, helm, k9s)">${icon("k8s", 16)} Терминал</button>
         ${helpBtn("k8s")}
       </div>
+      <div class="ns-tabs" title="Namespace, с которыми работаете: клик — переключиться, × — убрать"></div>
       <div class="k8s-err err" hidden></div>
       <div class="hist-bar" hidden>
         <span class="hist-state"></span>
