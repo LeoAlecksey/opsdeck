@@ -329,7 +329,11 @@ lint:
     yc_folders: [{ id: "b1gf1", name: "prod", parent: "b1g1", description: "боевой" }, { id: "b1gf2", name: "stage", parent: "b1g1", description: "" }],
     yc_instances: [
       { id: "fhm1", name: "app-1", status: "RUNNING", zone: "ru-central1-a", platform: "standard-v3", cores: 2, memory: 4294967296, core_fraction: 20, preemptible: true, internal_ip: "10.128.0.7", public_ip: "203.0.113.7", subnet_id: "e9b1" },
-      { id: "fhm2", name: "db-1", status: "STOPPED", zone: "ru-central1-b", platform: "standard-v2", cores: 4, memory: 8589934592, core_fraction: 100, preemptible: false, internal_ip: "10.128.1.3", public_ip: "", subnet_id: "e9b2" }],
+      { id: "fhm2", name: "db-1", status: "STOPPED", zone: "ru-central1-b", platform: "standard-v2", cores: 4, memory: 8589934592, core_fraction: 100, preemptible: false, internal_ip: "10.128.1.3", public_ip: "", subnet_id: "e9b2" },
+      { id: "fhm3", name: "api-2", status: "RUNNING", zone: "ru-central1-a", platform: "standard-v3", cores: 4, memory: 8589934592, core_fraction: 100, preemptible: false, internal_ip: "10.128.0.11", public_ip: "203.0.113.11", subnet_id: "e9b1" },
+      { id: "fhm4", name: "runner-ci", status: "RUNNING", zone: "ru-central1-b", platform: "standard-v3", cores: 8, memory: 17179869184, core_fraction: 100, preemptible: true, internal_ip: "10.128.1.9", public_ip: "", subnet_id: "e9b2" },
+      { id: "fhm5", name: "bastion", status: "RUNNING", zone: "ru-central1-a", platform: "standard-v2", cores: 2, memory: 2147483648, core_fraction: 20, preemptible: false, internal_ip: "10.128.0.2", public_ip: "203.0.113.2", subnet_id: "e9b1" },
+      { id: "fhm6", name: "stage-web", status: "PROVISIONING", zone: "ru-central1-d", platform: "standard-v3", cores: 2, memory: 4294967296, core_fraction: 100, preemptible: false, internal_ip: "10.128.3.7", public_ip: "", subnet_id: "e9b3" }],
     yc_instance_op: null, yc_use_profile: null,
     yc_networks: [{ id: "enp1", name: "default", parent: "b1gf1", description: "" }],
     yc_subnets: [{ id: "e9b1", name: "app-a", network_id: "enp1", zone: "ru-central1-a", cidrs: ["10.128.0.0/24"], route_table_id: "" },
