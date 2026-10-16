@@ -6,7 +6,7 @@ test.describe("Yandex Cloud", () => {
   test("instances show their state, configuration and addresses; SSH opens a tab", async ({ app, page }) => {
     expect((await app.called("yc_instances")).args).toEqual({ folderId: "b1gf1" });
     const rows = page.locator(".yc-body tbody tr");
-    await expect(rows).toHaveCount(2);
+    await expect(rows).toHaveCount(6);
     const app1 = rows.filter({ hasText: "app-1" });
     await expect(app1).toContainText("RUNNING");
     // доля ядра и «прерываемая» видны: за это и платят

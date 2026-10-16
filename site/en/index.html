@@ -138,7 +138,7 @@
 <div class="hero wrap">
   <div class="badge">Free · open source · MIT</div>
   <h1>A DevOps engineer's workspace <span>in one window</span></h1>
-  <p class="lead">A terminal with local AI, Kubernetes, SSH and host monitoring, databases, an IDE with git, alerts, notes with tasks, KeePass and MikroTik — together, and aware of each other. Turn on only the sections you need.</p>
+  <p class="lead">A terminal with local AI, Kubernetes, SSH and host monitoring, files between hosts, Yandex Cloud, databases, an IDE with git, alerts, notes with tasks, KeePass and MikroTik — together, and aware of each other. Turn on only the sections you need.</p>
   <div class="actions">
     <a class="btn primary" href="https://github.com/LeoAlecksey/opsdeck/releases/latest">Download</a>
     <a class="btn" href="https://github.com/LeoAlecksey/opsdeck">Source on GitHub</a>
@@ -209,6 +209,9 @@
           <tr><td>Tasks &amp; reminders</td><td>Tasks from notes by due date, calendar, notifications</td><td><span class="tag">checkbox</span></td></tr>
           <tr><td>MikroTik / WinBox</td><td>WinBox and SSH to routers in one click, import of the router list from WinBox</td><td><span class="tag">checkbox</span></td></tr>
           <tr><td>Host monitoring</td><td>A board of SSH hosts: CPU, load, RAM, disk, uptime</td><td><span class="tag">checkbox</span></td></tr>
+          <tr><td>Files on hosts</td><td>Two panes: this machine and a host over SSH, drag and drop, host → host transfer</td><td><span class="tag">checkbox</span></td></tr>
+          <tr><td>Yandex Cloud</td><td>Instances, networks, security groups, addresses, access and billing through the <code>yc</code> CLI</td><td><span class="tag">checkbox</span></td></tr>
+          <tr><td>Passbolt</td><td>Passwords from Passbolt 5.x for every section, read only</td><td><span class="tag">checkbox</span></td></tr>
         </tbody>
       </table>
     </div>
@@ -287,6 +290,11 @@
           <li>Shell, port-forward, scale, restart, Helm rollback, Argo CD sync — buttons on the right.</li>
           <li>🔒 on a context makes it read-only: changes are blocked by the app itself, a stray click breaks nothing.</li>
           <li>A label filter like <code>kubectl -l</code>: <code>app=api</code>, <code>env in (prod,stage)</code>, <code>!canary</code>. Node CPU and RAM refresh every 5 seconds — with a usage bar and a chart.</li>
+          <li><b>Problems and checks</b> — two tables at the top of the resource list: what is broken now (CrashLoopBackOff, OOMKilled, image won't pull, pod unschedulable, references to missing Secrets and ConfigMaps) and what is set up unsafely, each with a “how to fix”. Computed from what your kubeconfig can read.</li>
+          <li><b>Multiselect</b> and bulk delete with confirmation, action icons right in the row, an object's pods in their own tab, a shell on a node.</li>
+          <li><b>A chart above pod logs</b>: bars over time, errors in red, warnings in yellow; a click on a bar keeps only its lines. Logs save to a file with one button.</li>
+          <li><b>Several namespaces as chips</b> — switch with one click, remembered per context.</li>
+          <li>If the connection to the cluster drops, the table dims and says what time the data is from — an old snapshot is never passed off as fresh.</li>
         </ul>
         <div class="where"><b>Settings:</b> ⚙ → Kubernetes — whether to show contexts from the shared <code>~/.kube/config</code>. ⎈ Terminal in the section opens a shell with kubectl, helm and k9s in the selected context.</div>
       </div>
@@ -332,6 +340,36 @@
         <div class="where"><b>How to turn on:</b> the “Host monitoring” module in ⊞. The poll interval is at the top of the section.</div>
       </div>
       <img class="shot" src="../img/en/monitor.jpg" alt="Monitoring board of SSH hosts" loading="lazy" width="2160" height="1350">
+    </div>
+
+    <div class="feature" id="files">
+      <div class="text">
+        <h3>Files on hosts</h3>
+        <p>Two panes, like in MobaXterm: each side is either this machine or a host over SSH.</p>
+        <ul>
+          <li>Select files and <b>drag</b> them to the other pane, or press an arrow. What arrived is selected right away.</li>
+          <li>Double-click to enter a folder; create, rename, delete; sort by name, size or date — folders always first.</li>
+          <li><b>Host → host</b> goes through <code>scp -3</code>: OpsDeck runs both connections, so the hosts don't need to see each other and the keys stay with you.</li>
+          <li>Built on the system <code>sftp</code> and <code>scp</code> — your <code>~/.ssh/config</code>, ProxyJump and keys all apply.</li>
+        </ul>
+        <div class="where"><b>Key login only:</b> <code>sftp</code> reads a password from the terminal, and in batch mode there is nowhere to get it. If a host asks for a password — add a key (<code>ssh-copy-id</code>) or set one in the SSH profile.</div>
+      </div>
+      <img class="shot" src="../img/en/sftp.jpg" alt="Two file panes: this machine and a host" loading="lazy" width="2160" height="1350">
+    </div>
+
+    <div class="feature flip" id="yc">
+      <div class="text">
+        <h3>Yandex Cloud</h3>
+        <p>The cloud at a glance: instances, networks and access in one section, without switching to the browser console.</p>
+        <ul>
+          <li><b>Instances</b> — status, zone, configuration (platform, vCPU with core fraction, memory, “preemptible”) and addresses. Start, stop and restart ask for confirmation. <b>SSH</b> opens a terminal tab with the instance address.</li>
+          <li><b>Networks</b> — subnets grouped by network: zone, addresses, route table. <b>Security groups</b> — rules in plain words: direction, protocol, ports and where from.</li>
+          <li><b>Addresses</b> — public and internal; a reserved address that is not in use is marked, as it is billed.</li>
+          <li><b>Access</b> — service accounts and roles on the folder. <b>Billing</b> — billing accounts with their balance.</li>
+        </ul>
+        <div class="where"><b>How it connects:</b> through your own <code>yc</code> CLI and its profiles (<code>yc init</code>). OpsDeck <b>stores no tokens and no service-account keys</b> — everything comes from your login, with exactly the rights that profile has.</div>
+      </div>
+      <img class="shot" src="../img/en/yc.jpg" alt="Yandex Cloud instances with configuration and addresses" loading="lazy" width="2160" height="1350">
     </div>
 
     <div class="feature" id="code">
@@ -436,6 +474,11 @@
           <tr><td><kbd>→</kbd> / <kbd>Ctrl+→</kbd></td><td>Accept the whole suggestion / one word</td></tr>
           <tr><td><kbd>Ctrl+S</kbd>, <kbd>Ctrl+E</kbd></td><td>Save; in notes — switch editor and preview</td></tr>
           <tr><td><kbd>Ctrl+Enter</kbd></td><td>Run a database query; in git — commit</td></tr>
+          <tr><td><kbd>Ctrl+Shift+1…9</kbd></td><td>Go to a module by its place in the left column (9 — the last one)</td></tr>
+          <tr><td><kbd>↑</kbd> / <kbd>↓</kbd>, <kbd>Enter</kbd>, <kbd>Space</kbd></td><td>In Kubernetes tables: row, details, mark for bulk actions</td></tr>
+          <tr><td><kbd>Alt+↑</kbd> / <kbd>Alt+↓</kbd></td><td>Previous and next kind in the Kubernetes resource list</td></tr>
+          <tr><td><kbd>Ctrl+Shift+F</kbd></td><td>Search across all project files in the IDE</td></tr>
+          <tr><td><kbd>Ctrl+Z</kbd>, <kbd>Ctrl+Y</kbd>, <kbd>Ctrl+D</kbd>, <kbd>Ctrl+/</kbd></td><td>In the editor — undo, redo, next occurrence, comment (on any keyboard layout)</td></tr>
         </tbody>
       </table>
     </div>
