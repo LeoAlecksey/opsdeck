@@ -310,7 +310,8 @@ pub fn import_into(archive: &Path, parts: &[String], config: &Path, notes_dest: 
         if f.is_dir() {
             continue;
         }
-        let name = f.name().to_string();
+        // zip 9: имя внутри архива может быть и не UTF-8, поэтому это Result
+        let name = f.name().map_err(|e| e.to_string())?.to_string();
         let target = if name == UI {
             if want("settings") {
                 let mut s = String::new();

@@ -59,7 +59,7 @@ mongodb = { version = "3", default-features = false, features = ["compat-3-0-0",
 json5 = "1"
 # local AI: unpack the llama.cpp engine, verify downloads
 tar = "0.4"
-zip = { version = "4", default-features = false, features = ["deflate"] }
+zip = { version = "9", default-features = false, features = ["deflate"] }
 sha2 = "0.10"
 # secret-service (Linux), Keychain (macOS), Credential Manager (Windows)
 keyring = { version = "3", features = ["sync-secret-service", "crypto-rust", "vendored", "apple-native", "windows-native"] }
