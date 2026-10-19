@@ -28,6 +28,20 @@ pub enum Mode {
     Trusted,
 }
 
+/// Чем агенту думать. Встроенный движок крутит одну модель на всё приложение, поэтому выбор
+/// такой: та же «голова», что у остального ИИ в OpsDeck, или отдельный внешний сервер — его можно
+/// взять помощнее, не трогая настройки чата и подсказок в терминале.
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+#[serde(default)]
+pub struct ModelChoice {
+    /// «app» — как в ⚙ Настройки → Локальный ИИ; «server» — свой внешний сервер
+    pub source: String,
+    pub host: String,
+    pub port: String,
+    /// имя модели на том сервере (qwen2.5-coder:14b, llama3.3 …)
+    pub name: String,
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(default)]
 pub struct Policy {
@@ -51,6 +65,8 @@ pub struct Policy {
     pub extra_read: Vec<String>,
     /// свои запреты; сильнее всех остальных правил
     pub deny: Vec<String>,
+    /// чем агенту думать
+    pub model: ModelChoice,
 }
 
 impl Default for Policy {
@@ -66,6 +82,7 @@ impl Default for Policy {
             output_limit: 4000,
             extra_read: Vec::new(),
             deny: Vec::new(),
+            model: ModelChoice::default(),
         }
     }
 }
@@ -403,6 +420,12 @@ pub async fn agent_exec(target: String, command: String, approved: bool) -> Resu
         took_ms: run.took_ms,
     });
     Ok(run)
+}
+
+/// Чем агент будет думать с нынешними настройками.
+#[tauri::command]
+pub fn agent_brain() -> crate::ai::Brain {
+    crate::ai::agent_brain(&load_policy().model)
 }
 
 /// Что агент делал: последние записи журнала, новые первыми.

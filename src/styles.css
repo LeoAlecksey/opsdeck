@@ -1199,6 +1199,11 @@ body.no-select, body.no-select * { user-select: none; -webkit-user-select: none;
 .agent-try .row { flex-wrap: wrap; }
 .agent-try-cmd { flex: 1; min-width: 200px; font-family: ui-monospace, monospace; }
 .agent-try-out { margin: 10px 0 0; }
+.agent-brain-note { margin: 10px 0; }
+.agent-brain-note.ok { color: var(--accent); }
+.agent-brain-note.warn { color: #e3b341; }
+.agent-brain-note.err { color: var(--danger); }
+.agent-server { padding-left: 2px; border-left: 2px solid var(--border); margin-left: 2px; }
 .agent-try-out.ok { color: var(--accent); }
 .agent-try-out.warn { color: #e3b341; }
 .agent-try-out.err { color: var(--danger); }

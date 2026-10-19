@@ -10,9 +10,12 @@ import { esc, toast } from "./ui";
 import { natCmp } from "./natsort";
 
 type Mode = "off" | "read" | "ask" | "trusted";
+type ModelChoice = { source: "app" | "server" | ""; host: string; port: string; name: string };
+type Brain = { source: string; title: string; weak: boolean; problem: string };
 type Policy = {
   enabled: boolean; mode: Mode; hosts: Record<string, Mode>; allow_sudo: boolean; allow_local: boolean;
   max_steps: number; step_timeout_s: number; output_limit: number; extra_read: string[]; deny: string[];
+  model: ModelChoice;
 };
 type Verdict = { kind: "read" | "write" } | { kind: "forbidden"; reason: string };
 type Check = { verdict: Verdict; mode: Mode; allowed_now: boolean; needs_approval: boolean; why: string };
@@ -33,6 +36,13 @@ export function modeHint(mode: Mode): string {
     ask: "смотрит сам, каждое изменение показывает и ждёт кнопку",
     trusted: "меняет без вопросов — только для хостов, которые не жалко",
   }[mode];
+}
+
+/** Что написать про выбранную «голову» и каким тоном. */
+export function brainNote(b: Brain): { text: string; kind: "ok" | "warn" | "err" } {
+  if (b.problem) return { text: `${b.title} — ${b.problem}`, kind: "err" };
+  if (b.weak) return { text: `${b.title} — для многошагового расследования слабовата: будет путать флаги`, kind: "warn" };
+  return { text: b.title, kind: "ok" };
 }
 
 /** Строка про команду в проверке политики. */
@@ -81,6 +91,21 @@ export function mountAiAgent(root: HTMLElement) {
           <p class="muted">Уровень для отдельного хоста важнее общего.</p>
           <div class="agent-host-list"></div>
         </section>
+        <section class="agent-card agent-brain">
+          <h3>Чем думает агент</h3>
+          <label class="row">Модель <select data-a="model_source">
+            <option value="app">Как в настройках приложения</option>
+            <option value="server">Свой внешний сервер</option>
+          </select></label>
+          <div class="agent-server" hidden>
+            <label class="row">Адрес <input data-a="model_host" spellcheck="false" placeholder="ollama.example.com" /></label>
+            <label class="row">Порт <input data-a="model_port" spellcheck="false" placeholder="11434" /></label>
+            <label class="row">Модель <input data-a="model_name" spellcheck="false" placeholder="qwen2.5-coder:14b" /></label>
+            <p class="muted">Ключ берётся тот же, что в ⚙ Настройки → Локальный ИИ.</p>
+          </div>
+          <p class="agent-brain-note"></p>
+          <p class="muted">Встроенный движок держит одну модель на всё приложение, поэтому «как в настройках» — это та же модель, что у чата и подсказок. Чтобы дать агенту голову помощнее, не трогая остальное, укажите свой сервер.</p>
+        </section>
         <section class="agent-card agent-try">
           <h3>Проверить команду</h3>
           <p class="muted">Что будет, если агент предложит эту команду, — без её выполнения.</p>
@@ -123,6 +148,12 @@ export function mountAiAgent(root: HTMLElement) {
     num("output_limit").value = String(policy.output_limit);
     num("extra_read").value = list(policy.extra_read);
     num("deny").value = list(policy.deny);
+    const model = policy.model ?? { source: "app", host: "", port: "", name: "" };
+    $<HTMLSelectElement>("[data-a=model_source]").value = model.source === "server" ? "server" : "app";
+    $(".agent-server").hidden = model.source !== "server";
+    num("model_host").value = model.host;
+    num("model_port").value = model.port;
+    num("model_name").value = model.name;
     $(".agent-host-list").innerHTML = hosts.length
       ? hosts.map((h) => `<div class="agent-host"><span class="ah-name">${esc(h.name)}</span><span class="muted ah-addr">${esc(h.group ? h.group + " · " : "")}${esc(h.addr)}</span>
           <select data-host="${esc(h.key)}">${MODES.map(([id, t]) => `<option value="${id}"${policy!.hosts[h.key] === id ? " selected" : ""}>${esc(t)}</option>`).join("")}
@@ -151,9 +182,13 @@ export function mountAiAgent(root: HTMLElement) {
       policy[name] = Number(el.value) || policy[name];
     } else if (name === "extra_read" || name === "deny") {
       policy[name] = parseList(el.value);
+    } else if (name?.startsWith("model_")) {
+      const field = name.slice(6) as keyof ModelChoice;
+      policy.model = { ...(policy.model ?? { source: "app", host: "", port: "", name: "" }), [field]: el.value } as ModelChoice;
     } else return;
     draw();
     await save();
+    await showBrain();
   });
 
   $("[data-a=try]").onclick = async () => {
@@ -166,6 +201,15 @@ export function mountAiAgent(root: HTMLElement) {
     out.textContent = note.text;
     out.className = `agent-try-out ${note.kind}`;
   };
+
+  async function showBrain() {
+    const b = await invoke<Brain>("agent_brain").catch(() => null);
+    const el = $(".agent-brain-note");
+    if (!b) { el.textContent = ""; return; }
+    const note = brainNote(b);
+    el.textContent = note.text;
+    el.className = `agent-brain-note ${note.kind}`;
+  }
 
   async function loadLog() {
     const rows = await invoke<Audit[]>("agent_audit", { limit: 100 }).catch(() => []);
@@ -186,6 +230,6 @@ export function mountAiAgent(root: HTMLElement) {
     ]);
     tryHost.innerHTML = [`<option value="local">эта машина</option>`, ...hosts.map((h) => `<option value="${esc(h.key)}">${esc(h.name)}</option>`)].join("");
     draw();
-    await loadLog();
+    await Promise.all([showBrain(), loadLog()]);
   })();
 }

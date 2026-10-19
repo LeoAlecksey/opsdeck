@@ -343,6 +343,8 @@ export const HELP_EN: Record<string, { title: string; html: string }> = {
         <li><b>Change freely</b> — for throwaway environments.</li>
       </ul>
       <p>A host's level wins over the default one. The switch at the top wins over every level: while it is off, the agent does nothing.</p>
+      <h4>What the agent thinks with</h4>
+      <p>The built-in engine keeps one model for the whole app, so “as in the settings” is the same model the chat and the terminal hints use. The lightest one (1.5B) is too weak for a multi-step investigation — it confuses flags and loses the thread, and the section says so plainly. To give the agent a stronger head without touching the rest, pick “its own external server” and give the address, port and model name (Ollama, vLLM, LM Studio — anything OpenAI-compatible). The key is the one from ⚙ Settings → Local AI.</p>
       <h4>What never runs</h4>
       <p>Redirections and compound commands (<code>&gt;</code>, <code>;</code>, <code>&amp;&amp;</code>, backticks), interpreters (<code>sh</code>, <code>bash</code>, <code>python</code>, <code>awk</code>, <code>nc</code>) and the irreversible (<code>rm</code>, <code>dd</code>, <code>mkfs</code>, <code>reboot</code>, <code>passwd</code>). None of it passes at any level, "change freely" included: that is not a command the rules can reason about, it is running someone else's text. If you need it, type it in the terminal yourself.</p>
       <p><code>sudo</code> has its own checkbox, and under it even reading counts as a change. "Your own lists" add commands to the reading set and forbid ones allowed here; a ban wins over everything.</p>

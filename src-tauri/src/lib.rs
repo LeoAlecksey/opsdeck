@@ -304,6 +304,7 @@ pub fn run() {
             agent::agent_check,
             agent::agent_exec,
             agent::agent_audit,
+            agent::agent_brain,
             popout::popout_views,
             popout::window_popout,
             popout::window_focus_main,

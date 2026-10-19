@@ -1012,6 +1012,68 @@ pub fn provider_for(s: &Settings) -> AiProvider {
     AiProvider::Local
 }
 
+/// Самая лёгкая модель хороша для «подскажи команду», но для многошагового расследования
+/// слабовата: путает флаги и теряет нить. Об этом честно пишем в настройках агента.
+fn weak_model(id: &str) -> bool {
+    id == MODELS[0].id
+}
+
+/// Чем агент будет думать — то, что видит человек в настройках.
+#[derive(Serialize, PartialEq, Debug)]
+pub struct Brain {
+    /// «app» или «server»
+    pub source: String,
+    /// «Внешний сервер: qwen2.5-coder:14b» / «Встроенная — Средняя Qwen3.5 4B»
+    pub title: String,
+    /// слабовата для расследования
+    pub weak: bool,
+    /// чего не хватает, чтобы это заработало
+    pub problem: String,
+}
+
+/// Собственно решение, отдельно от чтения настроек: так его проверяет тест.
+fn brain_of(choice: &crate::agent::ModelChoice, app: &Settings, local_title: &str, local_id: &str, local_ready: bool) -> Brain {
+    if choice.source == "server" {
+        let base = remote_base(&choice.host, &choice.port);
+        let name = choice.name.trim();
+        return Brain {
+            source: "server".into(),
+            title: match (&base, name.is_empty()) {
+                (Some(b), false) => format!("Внешний сервер {b}: {name}"),
+                _ => "Внешний сервер".into(),
+            },
+            weak: false,
+            problem: match (base, name.is_empty()) {
+                (None, _) => "не указан адрес сервера".into(),
+                (Some(_), true) => "не указано имя модели".into(),
+                _ => String::new(),
+            },
+        };
+    }
+    match provider_for(app) {
+        AiProvider::Remote { base, model, .. } => Brain {
+            source: "app".into(),
+            title: format!("Как в настройках: внешний сервер {base}: {model}"),
+            weak: false,
+            problem: String::new(),
+        },
+        AiProvider::Local => Brain {
+            source: "app".into(),
+            title: format!("Как в настройках: встроенная модель — {local_title}"),
+            weak: weak_model(local_id),
+            problem: if local_ready { String::new() } else { "модель ещё не установлена (⚙ → Локальный ИИ)".into() },
+        },
+    }
+}
+
+pub fn agent_brain(choice: &crate::agent::ModelChoice) -> Brain {
+    let (title, id, ready) = match selected() {
+        Selected::Preset(m) => (m.title.to_string(), m.id.to_string(), preset_ready(m)),
+        Selected::Custom(p) => (format!("свой файл: {}", p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()), String::new(), p.is_file()),
+    };
+    brain_of(choice, &settings::load(), &title, &id, ready)
+}
+
 /// Системная инструкция: из plain-words запроса — одна shell-команда.
 const SYSTEM_PROMPT: &str = "Ты помощник DevOps-инженера в терминале. На запрос отвечай ровно одной командой shell (можно с | и &&), без пояснений, без markdown и без $ в начале. Если в контексте есть похожие команды пользователя — бери оттуда имена хостов, неймспейсов, контекстов и флаги. Не придумывай опасных команд (rm -rf /, удаление без запроса).";
 
@@ -1163,6 +1225,47 @@ pub(crate) fn clean_command(raw: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    /// Чем думает агент: подсказка в настройках должна быть честной, включая то, что лёгкая
+    /// модель для многошагового расследования слабовата.
+    #[test]
+    fn the_agent_brain_is_named_honestly() {
+        use super::{brain_of, MODELS};
+        use crate::agent::ModelChoice;
+        use crate::settings::Settings;
+        let app = Settings::default();
+        let light = &MODELS[0];
+        let mid = &MODELS[1];
+
+        // как в настройках, встроенная лёгкая: работает, но предупреждаем
+        let b = brain_of(&ModelChoice::default(), &app, light.title, light.id, true);
+        assert!(b.title.contains(light.title));
+        assert!(b.weak);
+        assert!(b.problem.is_empty());
+
+        // модель покрупнее и установлена — замечаний нет
+        let b = brain_of(&ModelChoice::default(), &app, mid.title, mid.id, true);
+        assert!(!b.weak && b.problem.is_empty());
+
+        // выбрана, но ещё не скачана
+        let b = brain_of(&ModelChoice::default(), &app, mid.title, mid.id, false);
+        assert!(b.problem.contains("не установлена"));
+
+        // внешний сервер приложения — его и возьмёт агент
+        let remote = Settings { ai_host: "ollama.example.com".into(), ai_port: "11434".into(), ai_model: "qwen2.5-coder:14b".into(), ..Settings::default() };
+        let b = brain_of(&ModelChoice::default(), &remote, light.title, light.id, true);
+        assert!(b.title.contains("qwen2.5-coder:14b"), "{}", b.title);
+        assert!(!b.weak, "у внешнего сервера своя модель, лёгкая встроенная тут ни при чём");
+
+        // свой сервер агента: без адреса или без имени модели он не заработает
+        let own = ModelChoice { source: "server".into(), host: "ai.example.com".into(), port: "11434".into(), name: "llama3.3".into() };
+        let b = brain_of(&own, &app, light.title, light.id, true);
+        assert!(b.title.contains("llama3.3") && b.problem.is_empty());
+        let b = brain_of(&ModelChoice { host: String::new(), ..own.clone() }, &app, light.title, light.id, true);
+        assert_eq!(b.problem, "не указан адрес сервера");
+        let b = brain_of(&ModelChoice { name: String::new(), ..own }, &app, light.title, light.id, true);
+        assert_eq!(b.problem, "не указано имя модели");
+    }
+
     /// Сборка файла из частей целиком: свой маленький сервер с поддержкой Range, четыре соединения,
     /// позиционная запись. Если бы диапазоны или смещения разъехались, sha256 это сразу покажет.
     #[test]

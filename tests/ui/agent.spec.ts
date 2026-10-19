@@ -57,6 +57,33 @@ test.describe("ИИ-агент: правила", () => {
     expect(await app.calls("agent_exec")).toHaveLength(0);
   });
 
+  test("модель агента: по умолчанию общая, и про слабую сказано прямо", async ({ app, page }) => {
+    const note = page.locator(".agent-brain-note");
+    await expect(note).toContainText("Как в настройках");
+    await expect(note).toContainText("слабовата");
+    await expect(note).toHaveClass(/warn/);
+    await expect(page.locator(".agent-server")).toBeHidden();
+  });
+
+  test("свой сервер для агента: поля появляются, и без них видно, чего не хватает", async ({ app, page }) => {
+    await page.locator("[data-a=model_source]").selectOption("server");
+    await expect(page.locator(".agent-server")).toBeVisible();
+    expect((await saved(app)).model).toMatchObject({ source: "server" });
+    await expect(page.locator(".agent-brain-note")).toContainText("не указан адрес сервера");
+    await expect(page.locator(".agent-brain-note")).toHaveClass(/err/);
+
+    await page.locator("[data-a=model_host]").fill("ollama.example.com");
+    await page.locator("[data-a=model_host]").dispatchEvent("change");
+    await expect(page.locator(".agent-brain-note")).toContainText("не указано имя модели");
+
+    await page.locator("[data-a=model_name]").fill("qwen2.5-coder:14b");
+    await page.locator("[data-a=model_name]").dispatchEvent("change");
+    const note = page.locator(".agent-brain-note");
+    await expect(note).toContainText("qwen2.5-coder:14b");
+    await expect(note).toHaveClass(/ok/);
+    expect((await saved(app)).model).toMatchObject({ source: "server", host: "ollama.example.com", name: "qwen2.5-coder:14b" });
+  });
+
   test("журнал показывает, что агент уже делал", async ({ page }) => {
     const rows = page.locator(".agent-log tbody tr");
     await expect(rows).toHaveCount(2);

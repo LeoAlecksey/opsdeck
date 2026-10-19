@@ -369,7 +369,7 @@ lint:
     ai_command: { command: "kubectl -n shop rollout restart deploy/worker && kubectl -n shop rollout status deploy/worker --timeout=120s", from_notes: ["kubectl -n shop rollout restart deploy/worker", "kubectl -n shop rollout status deploy/worker --timeout=120s"], elapsed_ms: 1840 },
     ports_listening: [], alerts_poll_now: [], kp_copy: null,
     popout_views: ["terminal", "k8s", "alerts", "net", "ssh", "monitor", "sftp", "yc", "code", "db", "notes", "tasks", "vault", "passbolt", "winbox", "agent"],
-    agent_policy: { enabled: false, mode: "read", hosts: {}, allow_sudo: false, allow_local: false, max_steps: 12, step_timeout_s: 20, output_limit: 4000, extra_read: [], deny: [] },
+    agent_policy: { enabled: false, mode: "read", hosts: {}, allow_sudo: false, allow_local: false, max_steps: 12, step_timeout_s: 20, output_limit: 4000, extra_read: [], deny: [], model: { source: "app", host: "", port: "", name: "" } },
     agent_policy_save: null,
     agent_audit: [
       { at: "2026-10-19 14:02:11", target: "id:h1", command: "journalctl -u nginx --since -1h", verdict: L("чтение", "reading"), approved: false, exit_code: 0, took_ms: 420 },
@@ -390,6 +390,19 @@ lint:
       window.__calls.push({ cmd, args });
       const ov = window.__DEMO_OVERRIDES?.[cmd];
       if (ov !== undefined) return typeof ov === "function" ? ov(args) : ov;
+      if (cmd === "agent_brain") {
+        const m = window.__demoPolicyModel || { source: "app" };
+        if (m.source === "server") {
+          return m.host && m.name
+            ? { source: "server", title: `${L("Внешний сервер", "External server")} http://${m.host}:${m.port || 11434}: ${m.name}`, weak: false, problem: "" }
+            : { source: "server", title: L("Внешний сервер", "External server"), weak: false, problem: m.host ? L("не указано имя модели", "no model name") : L("не указан адрес сервера", "no server address") };
+        }
+        return { source: "app", title: L("Как в настройках: встроенная модель — Лёгкая Qwen2.5-Coder 1.5B", "As in settings: built-in model — Light Qwen2.5-Coder 1.5B"), weak: true, problem: "" };
+      }
+      if (cmd === "agent_policy_save") {
+        window.__demoPolicyModel = args.policy?.model;
+        return null;
+      }
       if (cmd === "agent_check") {
         // разбор у настоящего бэкенда свой (agent.rs), здесь — ровно столько, чтобы проверить интерфейс
         const c = args.command;
