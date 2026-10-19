@@ -1194,6 +1194,8 @@ body.no-select, body.no-select * { user-select: none; -webkit-user-select: none;
 .agent-levels li b { color: var(--text); }
 .agent-levels li.now { background: var(--panel-2); color: var(--text); }
 .agent-levels li.now b { color: var(--accent); }
+.agent-rules .rule-count { display: inline-block; margin-top: 2px; font-size: 12px; }
+.agent-rules button.small { float: right; margin-top: 2px; padding: 2px 8px; font-size: 12px; }
 .agent-rules textarea { display: block; width: 100%; margin-top: 4px; min-height: 48px; font-family: ui-monospace, monospace; font-size: 12px; resize: vertical; }
 .agent .check.big { font-weight: 600; }
 .agent.off .agent-body { opacity: .55; }

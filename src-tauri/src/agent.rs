@@ -483,6 +483,42 @@ pub async fn agent_exec(target: String, command: String, approved: bool) -> Resu
     Ok(run)
 }
 
+/// Правила из файла: по правилу на строку (длинный список удобнее держать рядом с остальным
+/// конфигом, чем вбивать руками). Запятые тоже разделяют, «#» и то, что после него, отбрасывается.
+fn rules_from_text(text: &str) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for line in text.lines() {
+        let line = line.split('#').next().unwrap_or("");
+        for rule in line.split(',') {
+            let rule = rule.split_whitespace().collect::<Vec<_>>().join(" ");
+            if !rule.is_empty() && !out.contains(&rule) {
+                out.push(rule);
+            }
+        }
+    }
+    out.truncate(500);
+    out
+}
+
+/// Выбрать файл со списком правил и прочитать его.
+#[tauri::command]
+pub async fn agent_rules_file(app: tauri::AppHandle) -> Result<Option<Vec<String>>, String> {
+    use tauri_plugin_dialog::DialogExt;
+    let picked = tauri::async_runtime::spawn_blocking(move || {
+        app.dialog()
+            .file()
+            .set_title("Файл со списком правил")
+            .add_filter("Текст", &["txt", "list", "conf", "md"])
+            .blocking_pick_file()
+            .and_then(|f| f.into_path().ok())
+    })
+    .await
+    .map_err(crate::store::err)?;
+    let Some(path) = picked else { return Ok(None) };
+    let text = std::fs::read_to_string(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+    Ok(Some(rules_from_text(&text)))
+}
+
 /// Чем агент будет думать с нынешними настройками.
 #[tauri::command]
 pub fn agent_brain() -> crate::ai::Brain {
@@ -723,6 +759,23 @@ mod tests {
         assert!(allowed(&p, "local", &read, false).is_err());
         let p = Policy { allow_local: true, ..p };
         assert!(allowed(&p, "local", &read, false).is_ok());
+    }
+
+    /// Список из тридцати команд удобнее держать файлом рядом с конфигом, чем вбивать руками.
+    #[test]
+    fn rules_can_come_from_a_file() {
+        let text = "# что агенту можно только по кнопке\n\
+                    docker system prune\n\
+                    kubectl delete, kubectl drain   # опасное\n\
+                    \n\
+                    docker system prune\n\
+                    | bash\n";
+        assert_eq!(
+            rules_from_text(text),
+            ["docker system prune", "kubectl delete", "kubectl drain", "| bash"],
+            "комментарии и повторы отброшены, запятые разделяют так же, как строки"
+        );
+        assert!(rules_from_text("   \n# только комментарий\n").is_empty());
     }
 
     #[test]

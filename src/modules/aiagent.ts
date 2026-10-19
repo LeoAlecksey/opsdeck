@@ -54,7 +54,8 @@ export function checkNote(c: Check): { text: string; kind: "ok" | "warn" | "err"
 
 /** Правила содержат пробелы, поэтому разделитель — запятая или перевод строки, но не пробел. */
 export const parseRules = (s: string) => [...new Set(s.split(/[,\n]/).map((x) => x.trim().replace(/\s+/g, " ")).filter(Boolean))];
-const list = (xs: string[]) => xs.join("\n");
+/** Показываем так же, как удобно вставлять, — через запятую; перевод строки тоже понимаем. */
+const list = (xs: string[]) => xs.join(", ");
 
 export function mountAiAgent(root: HTMLElement) {
   root.innerHTML = `
@@ -84,12 +85,15 @@ export function mountAiAgent(root: HTMLElement) {
         <section class="agent-card agent-rules">
           <h3>Свои правила</h3>
           <label>Считать чтением <span class="muted">— выполнит сам даже там, где спросил бы</span>
-            <textarea data-a="extra_read" spellcheck="false" rows="2" placeholder="rabbitmqctl list_queues, pgbench --version"></textarea></label>
+            <textarea data-a="extra_read" spellcheck="false" rows="2" placeholder="rabbitmqctl list_queues, pgbench --version"></textarea><span class="muted rule-count" data-for="extra_read"></span>
+            <button class="ghost small" data-file="extra_read">Из файла…</button></label>
           <label>Спрашивать всегда <span class="muted">— покажет и дождётся кнопки, даже если это чтение</span>
-            <textarea data-a="always_ask" spellcheck="false" rows="2" placeholder="cat /etc/shadow, kubectl get secret"></textarea></label>
+            <textarea data-a="always_ask" spellcheck="false" rows="2" placeholder="cat /etc/shadow, kubectl get secret"></textarea><span class="muted rule-count" data-for="always_ask"></span>
+            <button class="ghost small" data-file="always_ask">Из файла…</button></label>
           <label>Запретить совсем <span class="muted">— не выполнит ни на каком уровне</span>
-            <textarea data-a="deny" spellcheck="false" rows="2" placeholder="docker system prune, | bash"></textarea></label>
-          <p class="muted">По одному правилу в строке или через запятую: пробел разделителем быть не может, правила сами из слов.</p>
+            <textarea data-a="deny" spellcheck="false" rows="2" placeholder="docker system prune, | bash"></textarea><span class="muted rule-count" data-for="deny"></span>
+            <button class="ghost small" data-file="deny">Из файла…</button></label>
+          <p class="muted">Правила разделяются запятой (или переводом строки) — пробел разделителем быть не может, правила сами из слов. Длинный список можно вставить целиком одной строкой.</p>
           <p class="muted">Правило — это слова команды по порядку. «docker system prune» поймает и «docker system prune -a --volumes», а «kubectl get secret» — и «kubectl -n shop get secret db -o yaml»: флаги сдвигают слова, но не меняют их порядок. Правило со знаком «|» или «&gt;» ищется в строке целиком — так записывается «| bash». Команду под sudo правило тоже ловит.</p>
           <p class="muted">Запрет сильнее «спрашивать всегда», тот сильнее «считать чтением», и ни одно правило не отменяет того, что запрещено всегда.</p>
         </section>
@@ -153,7 +157,9 @@ export function mountAiAgent(root: HTMLElement) {
     num("step_timeout_s").value = String(policy.step_timeout_s);
     num("output_limit").value = String(policy.output_limit);
     for (const name of ["extra_read", "always_ask", "deny"] as const) {
-      $<HTMLTextAreaElement>(`[data-a=${name}]`).value = list(policy[name] ?? []);
+      const rules = policy[name] ?? [];
+      $<HTMLTextAreaElement>(`[data-a=${name}]`).value = list(rules);
+      $(`.rule-count[data-for=${name}]`).textContent = rules.length ? `правил: ${rules.length}` : "";
     }
     for (const li of root.querySelectorAll<HTMLElement>(".agent-levels li")) li.classList.toggle("now", li.dataset.m === policy.mode);
     const model = policy.model ?? { source: "app", host: "", port: "", name: "" };
@@ -197,6 +203,19 @@ export function mountAiAgent(root: HTMLElement) {
     draw();
     await save();
     await showBrain();
+  });
+
+  // длинный список удобнее держать файлом: по правилу на строку, «#» — комментарий
+  root.addEventListener("click", async (e) => {
+    const name = (e.target as HTMLElement).closest<HTMLElement>("[data-file]")?.dataset.file as "extra_read" | "always_ask" | "deny" | undefined;
+    if (!name || !policy) return;
+    const rules = await invoke<string[] | null>("agent_rules_file").catch((x) => { toast(String(x), "err"); return null; });
+    if (!rules) return;
+    const before = policy[name]?.length ?? 0;
+    policy[name] = [...new Set([...(policy[name] ?? []), ...rules])];
+    draw();
+    await save();
+    toast(`Правил добавлено: ${policy[name].length - before}`);
   });
 
   $("[data-a=try]").onclick = async () => {

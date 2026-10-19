@@ -101,6 +101,17 @@ test.describe("ИИ-агент: правила", () => {
     expect((await saved(app)).model).toMatchObject({ source: "server", host: "ollama.example.com", name: "qwen2.5-coder:14b" });
   });
 
+  test("длинный список правил берётся из файла и дополняет уже введённое", async ({ app, page }) => {
+    await page.locator("[data-a=deny]").fill("rm -rf");
+    await page.locator("[data-a=deny]").dispatchEvent("change");
+    await page.locator("[data-file=deny]").click();
+    await expect(page.locator(".rule-count[data-for=deny]")).toHaveText("правил: 4");
+    expect((await saved(app)).deny).toEqual(["rm -rf", "docker system prune", "kubectl delete", "| bash"]);
+    // показываем через запятую — так же, как удобно вставлять
+    await expect(page.locator("[data-a=deny]")).toHaveValue("rm -rf, docker system prune, kubectl delete, | bash");
+    await expect(page.locator(".toast").last()).toContainText("Правил добавлено: 3");
+  });
+
   test("журнал показывает, что агент уже делал", async ({ page }) => {
     const rows = page.locator(".agent-log tbody tr");
     await expect(rows).toHaveCount(2);
