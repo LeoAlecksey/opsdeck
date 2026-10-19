@@ -47,6 +47,10 @@ p { margin: 0 0 14px; }
 .btn:hover { text-decoration: none; border-color: #3b4461; }
 .btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
 .btn.primary:hover { background: #98e6d8; }
+button.btn { font: inherit; cursor: pointer; }
+/* сбор ЮMoney: форма платёжного сервиса появляется на месте кнопки */
+.donate { margin-top: 12px; }
+.donate iframe { display: block; width: 330px; max-width: 100%; border: 0; border-radius: 12px; }
 
 /* hero */
 .hero { padding: 72px 0 40px; text-align: center; }

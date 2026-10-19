@@ -8,16 +8,19 @@ import { readFileSync } from "node:fs";
 
 // the only allowed values
 const DONATE = "https://yoomoney.ru/to/4100119645604976";
+// кнопка сбора на сайте: номер счёта тоже пинкуется, иначе его можно подменить так же, как кошелёк
+const FUND = "https://yoomoney.ru/quickpay/fundraise/button?billNumber=1KLU6SPLISU.261003";
 const TG = "https://t.me/sys_admin_expert";
 const ALLOWED_TG = new Set(["sys_admin_expert"]);
 const ALLOWED_YOOMONEY = new Set(["4100119645604976"]);
+const ALLOWED_FUNDRAISE = new Set(["1KLU6SPLISU.261003"]);
 
 // where they must stay
 const REQUIRED = {
   "src/modules/settings.ts": [DONATE, TG],
   "README.md": [DONATE, TG],
-  "site/index.html": [DONATE, TG],
-  "site/en/index.html": [TG],
+  "site/index.html": [DONATE, FUND, TG],
+  "site/en/index.html": [FUND, TG],
 };
 
 const SELF = "scripts/check-links.mjs";
@@ -31,7 +34,9 @@ const checks = [
   { re: /(?:t\.me|telegram\.me)\/(?:s\/)?([A-Za-z0-9_+]+)/gi, ok: (m) => ALLOWED_TG.has(m[1]), what: "ссылка Telegram" },
   // YooMoney: only the author's wallet
   { re: /yoomoney\.ru\/(?:to|quickpay[^\s"'<>)]*receiver=)\/?(\d+)/gi, ok: (m) => ALLOWED_YOOMONEY.has(m[1]), what: "кошелёк ЮMoney" },
-  { re: /yoomoney\.ru\/(?!to\/)[^\s"'<>)]+/gi, ok: () => false, what: "ссылка ЮMoney" },
+  // кнопка сбора: только счёт автора
+  { re: /yoomoney\.ru\/quickpay\/fundraise\/button\?billNumber=([\w.-]+)/gi, ok: (m) => ALLOWED_FUNDRAISE.has(m[1]), what: "сбор ЮMoney" },
+  { re: /yoomoney\.ru\/(?!to\/|quickpay\/fundraise\/button\?billNumber=)[^\s"'<>)]+/gi, ok: () => false, what: "ссылка ЮMoney" },
   // other donation / payment services: none are used by the project
   { re: /\b(?:boosty\.to|patreon\.com|donationalerts\.com|buymeacoffee\.com|ko-fi\.com|paypal\.me|paypal\.com\/donate|qiwi\.(?:com|me)|tinkoff\.ru\/(?:cf|rm)|cloudtips\.ru|sbp\.nspk\.ru|opencollective\.com|github\.com\/sponsors)\S*/gi, ok: () => false, what: "ссылка на оплату/донат" },
   // crypto wallets
@@ -61,7 +66,7 @@ for (const [f, needed] of Object.entries(REQUIRED)) {
 
 if (problems.length) {
   console.error("✗ Ссылки на донат/Telegram изменены или добавлены чужие:\n  " + problems.join("\n  "));
-  console.error(`\nРазрешены только ${DONATE} и ${TG}. Если меняет автор — поправьте scripts/check-links.mjs.`);
+  console.error(`\nРазрешены только ${DONATE}, ${FUND} и ${TG}. Если меняет автор — поправьте scripts/check-links.mjs.`);
   process.exit(1);
 }
 console.log(`✓ ссылки на донат и Telegram в порядке (${files.length} файлов)`);
