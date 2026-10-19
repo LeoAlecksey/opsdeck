@@ -10,7 +10,7 @@ import { registerProvider } from "./palette";
 import { hlPrefs, setHlPrefs } from "./highlight";
 import { addSnippet } from "./snippets";
 import { attachPathLinks, mountFiles } from "./files";
-import { ask, esc, overlay, toast } from "./ui";
+import { ask, copyText, esc, overlay, toast } from "./ui";
 import { t } from "../i18n";
 import { isWindows } from "./themes";
 import { AI_PROVIDERS, aiAgent, setAiAgent } from "./ai-agents";
@@ -549,8 +549,8 @@ export function mountTerminal(root: HTMLElement) {
       const act = (e.target as HTMLElement).closest<HTMLElement>("[data-b]")?.dataset.b;
       const b = hovered;
       if (!act || !b) return;
-      if (act === "cmd") { await invoke("clip_write", { text: b.command }); toast("Команда скопирована"); }
-      if (act === "out") { await invoke("clip_write", { text: blockText(p, b, 5000) }); toast("Вывод скопирован"); }
+      if (act === "cmd") { await copyText(b.command); toast("Команда скопирована"); }
+      if (act === "out") { await copyText(blockText(p, b, 5000)); toast("Вывод скопирован"); }
       if (act === "save") addSnippet(b.command);
       if (act === "ai") askAi(p, b);
     });

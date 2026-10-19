@@ -4,6 +4,7 @@
 
 use crate::store::err;
 use std::{
+    collections::VecDeque,
     sync::{
         atomic::{AtomicU64, Ordering},
         Mutex,
@@ -19,6 +20,11 @@ static START: std::sync::OnceLock<Instant> = std::sync::OnceLock::new();
 static LAST_TICK: AtomicU64 = AtomicU64::new(0);
 /// Synchronous command being executed right now (on the UI thread), for freeze reports.
 static CURRENT: Mutex<Option<(String, Instant)>> = Mutex::new(None);
+/// Последние запросы интерфейса: (команда, когда вернулась, сколько держала поток).
+/// Зависания чаще всего случаются не внутри команды, а сразу после неё — в том, что она запустила
+/// (буфер обмена, окно, нативная панель), и тогда сама команда в отчёте уже не видна.
+static RECENT: Mutex<VecDeque<(String, u64, u64)>> = Mutex::new(VecDeque::new());
+const RECENT_KEEP: usize = 8;
 
 fn now_ms() -> u64 {
     START.get_or_init(Instant::now).elapsed().as_millis() as u64
@@ -41,6 +47,9 @@ pub fn log_plugin() -> tauri::plugin::TauriPlugin<tauri::Wry> {
         .level_for("kube_runtime", log::LevelFilter::Warn)
         .level_for("hyper_util", log::LevelFilter::Warn)
         .level_for("reqwest", log::LevelFilter::Warn)
+        // arboard пишет одно и то же предупреждение при каждой инициализации буфера обмена на
+        // Wayland без ext-data-control: он молча переходит на X11, и делать с этим нечего
+        .level_for("arboard", log::LevelFilter::Error)
         .max_file_size(5_000_000)
         .rotation_strategy(RotationStrategy::KeepSome(5))
         .build()
@@ -71,7 +80,30 @@ where
         if took > SLOW_COMMAND {
             log::warn!("slow command on UI thread: {cmd} took {} ms", took.as_millis());
         }
+        {
+            let mut recent = RECENT.lock().unwrap();
+            if recent.len() == RECENT_KEEP {
+                recent.pop_front();
+            }
+            recent.push_back((cmd, now_ms(), took.as_millis() as u64));
+        }
         handled
+    }
+}
+
+/// Что интерфейс просил перед зависанием, новое первым: «clip_read 0,4 с назад (2 мс)».
+fn recent_commands(now: u64) -> String {
+    let recent = RECENT.lock().unwrap();
+    let list: Vec<String> = recent
+        .iter()
+        .rev()
+        .take(5)
+        .map(|(cmd, at, took)| format!("{cmd} {:.1} с назад ({took} мс)", now.saturating_sub(*at) as f64 / 1000.0))
+        .collect();
+    if list.is_empty() {
+        "команд не было".into()
+    } else {
+        list.join(", ")
     }
 }
 
@@ -93,7 +125,10 @@ pub fn start_watchdog(app: AppHandle) {
                         .as_ref()
                         .map(|(c, t)| format!("{c} (идёт {} мс)", t.elapsed().as_millis()))
                         .unwrap_or_else(|| "нет синхронной команды (JS/рендеринг или системный вызов GTK)".into());
-                    log::error!("UI FREEZE: главный поток не отвечает {} мс; выполняется: {running}", lag);
+                    log::error!(
+                        "UI FREEZE: главный поток не отвечает {lag} мс; выполняется: {running}; до этого: {}",
+                        recent_commands(now_ms())
+                    );
                     frozen_since = Some(LAST_TICK.load(Ordering::Relaxed));
                 }
                 Some(since) if lag < 600 => {

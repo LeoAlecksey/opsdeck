@@ -570,6 +570,30 @@ fn valid_ref(name: &str) -> bool {
     !name.is_empty() && !name.starts_with('-') && !name.contains("..") && !name.chars().any(|c| c.is_whitespace() || c.is_control() || "~^:?*[\\".contains(c))
 }
 
+/// Что из вывода git показать человеку. ssh пишет свои предупреждения в тот же поток, и они
+/// встают первыми строками (из отчёта: «** WARNING: connection is not using a post-quantum key
+/// exchange algorithm»), вытесняя настоящую причину — а у git она в конце: «fatal: …», «error: …».
+/// Чужие предупреждения убираем, причину ставим первой, остальное оставляем как есть.
+fn git_note(text: &str) -> String {
+    let lines: Vec<&str> = text
+        .lines()
+        .map(str::trim_end)
+        .filter(|l| !l.trim().is_empty())
+        // предупреждения ssh: «** WARNING: …» и продолжения такими же звёздочками
+        .filter(|l| !l.trim_start().starts_with("**"))
+        .collect();
+    let reason: Vec<&str> = lines
+        .iter()
+        .copied()
+        .filter(|l| {
+            let t = l.trim_start();
+            t.starts_with("fatal:") || t.starts_with("error:")
+        })
+        .collect();
+    let keep = if reason.is_empty() { lines } else { reason };
+    keep.into_iter().take(10).collect::<Vec<_>>().join("\n")
+}
+
 /// Branch / sync / commit operations. Output (stdout+stderr) is returned for the UI.
 #[tauri::command]
 pub async fn code_git_op(root: String, op: String, name: Option<String>, from: Option<String>, message: Option<String>, force: Option<bool>) -> Result<String, String> {
@@ -586,7 +610,7 @@ pub async fn code_git_op(root: String, op: String, name: Option<String>, from: O
             }
             process::no_console(&mut cmd);
             let out = cmd.output().map_err(|e| format!("git: {e}"))?;
-            let text = format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr)).trim().to_string();
+            let text = git_note(&format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr)));
             if out.status.success() { Ok(text) } else { Err(if text.is_empty() { format!("git {} завершился с ошибкой", args[0]) } else { text }) }
         };
         match op.as_str() {
@@ -645,6 +669,33 @@ pub async fn code_git_op(root: String, op: String, name: Option<String>, from: O
 
 #[cfg(test)]
 mod tests {
+    /// Из отчёта: «pull» показал предупреждение ssh про post-quantum обмен ключами, а почему
+    /// именно не получилось подтянуть — не показал: причина у git идёт последней строкой.
+    #[test]
+    fn a_git_error_shows_the_reason_not_the_ssh_warning() {
+        let out = [
+            "** WARNING: connection is not using a post-quantum key exchange algorithm.",
+            " ** This session may be vulnerable to \"store now, decrypt later\" attacks.",
+            " ** The server may need to be upgraded. See https://openssh.com/pq.html",
+            "From gitlab.example.com:infra/deploy",
+            " * branch            main       -> FETCH_HEAD",
+            "fatal: Not possible to fast-forward, aborting.",
+        ]
+        .join("\n");
+        assert_eq!(super::git_note(&out), "fatal: Not possible to fast-forward, aborting.");
+    }
+
+    #[test]
+    fn without_a_reason_the_output_stays_as_it_is_minus_the_noise() {
+        let out = "** WARNING: connection is not using a post-quantum key exchange algorithm.\nAlready up to date.";
+        assert_eq!(super::git_note(out), "Already up to date.");
+        // пустые строки и хвостовые пробелы убираются, остальное не трогаем
+        assert_eq!(super::git_note("Updating 1a2b3c4..5d6e7f8   \n\nFast-forward\n"), "Updating 1a2b3c4..5d6e7f8\nFast-forward");
+        assert_eq!(super::git_note(""), "");
+        // несколько причин сразу: показываем все
+        assert_eq!(super::git_note("error: не удалось A\nпрочее\nfatal: и B"), "error: не удалось A\nfatal: и B");
+    }
+
     /// Подсветка строк, не отправленных в удалённую ветку: номера берутся из правой части `@@`.
     #[test]
     fn hunk_headers_give_the_changed_lines() {

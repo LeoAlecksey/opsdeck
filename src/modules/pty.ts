@@ -8,6 +8,7 @@ import { ShellBlocks } from "./blocks";
 import { hlPrefs, InputHighlighter, OutputHighlighter, type HlPrefs } from "./highlight";
 import { AutoSuggest } from "./suggest";
 import type { Launched } from "./shellkind";
+import { copyText } from "./ui";
 import { uid } from "./winid";
 
 export type SpawnOpts = { program?: string; args?: string[]; cwd?: string; env?: Record<string, string> };
@@ -164,7 +165,7 @@ export class PtyTerminal {
       // and the text lands in the terminal twice
       if (k === "C" && this.term.hasSelection()) {
         e.preventDefault();
-        invoke("clip_write", { text: this.term.getSelection() });
+        copyText(this.term.getSelection());
         return false;
       }
       if (k === "V") {

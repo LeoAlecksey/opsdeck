@@ -141,14 +141,37 @@ pub fn credentials(state: &KeepassState, id: &str, used: Use) -> Result<(String,
     })
 }
 
+/// Сколько заняла работа с буфером обмена. На X11 arboard ждёт владельца выделения до 4 секунд
+/// (LONG_TIMEOUT_DUR), и ровно столько стоит вызвавший поток; на Wayland без ext-data-control он
+/// как раз переходит на X11. В журнале по этим строкам видно, совпадают ли зависания интерфейса
+/// с буфером обмена.
+fn timed<T>(what: &str, f: impl FnOnce() -> T) -> T {
+    let started = std::time::Instant::now();
+    let out = f();
+    let ms = started.elapsed().as_millis();
+    if ms >= 500 {
+        log::warn!("буфер обмена: {what} заняло {ms} мс");
+    }
+    out
+}
+
+/// Записать в буфер обмена (единственное место, где это делается: заодно замеряется).
+pub fn clip_put(app: &AppHandle, text: String) -> Result<(), String> {
+    timed("запись", || app.clipboard().write_text(text)).map_err(err)
+}
+
+fn clip_get(app: &AppHandle) -> Option<String> {
+    timed("чтение", || app.clipboard().read_text()).ok()
+}
+
 /// Put a secret on the clipboard and wipe it after 30 s unless the user copied something else.
 pub fn copy_secret(app: &AppHandle, value: String) -> Result<(), String> {
-    app.clipboard().write_text(value.clone()).map_err(err)?;
+    clip_put(app, value.clone())?;
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
         tokio::time::sleep(CLIPBOARD_CLEAR).await;
-        if app.clipboard().read_text().ok().as_deref() == Some(value.as_str()) {
-            let _ = app.clipboard().write_text(String::new());
+        if clip_get(&app).as_deref() == Some(value.as_str()) {
+            let _ = clip_put(&app, String::new());
         }
         let mut value = value;
         value.zeroize();
@@ -244,7 +267,7 @@ pub async fn kp_copy(app: AppHandle, state: State<'_, KeepassState>, id: String,
     if field == "password" {
         copy_secret(&app, value)
     } else {
-        app.clipboard().write_text(value).map_err(err)
+        clip_put(&app, value)
     }
 }
 
@@ -359,14 +382,14 @@ async fn reload_if_changed(app: &AppHandle) {
 
 #[tauri::command]
 pub async fn clip_write(app: AppHandle, text: String) -> Result<(), String> {
-    app.clipboard().write_text(text).map_err(err)
+    clip_put(&app, text)
 }
 
 #[tauri::command]
 // async = not on the UI thread: reading a selection that OpsDeck itself owns from the UI thread
 // blocks it until the clipboard request times out ("application not responding")
 pub async fn clip_read(app: AppHandle) -> String {
-    app.clipboard().read_text().unwrap_or_default()
+    clip_get(&app).unwrap_or_default()
 }
 
 #[cfg(test)]
