@@ -22,6 +22,10 @@ import { esc, logUi, overlay, toast } from "./modules/ui";
 import { currentLang, startI18n, t } from "./i18n";
 import { popoutOpen, popoutViews, routeToMain, type Route } from "./modules/popout";
 import { popoutView } from "./modules/winid";
+import { watchJs } from "./modules/jswatch";
+
+// стояла ли сама страница во время зависания окна (строка рядом с «UI FREEZE» в журнале)
+watchJs((m) => logUi("warn", m));
 
 // anything that blows up in the UI ends up in the log file (⚙ → Журнал)
 window.addEventListener("error", (e) => logUi("error", `JS: ${e.message} @ ${e.filename}:${e.lineno}:${e.colno}${e.error?.stack ? "\n" + e.error.stack : ""}`));
