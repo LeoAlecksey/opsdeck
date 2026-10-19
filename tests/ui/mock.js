@@ -368,7 +368,13 @@ lint:
       { id: "qwen3.6-35b-a3b", title: "Большая — Qwen3.6 35B-A3B (MoE)", size: 22134528992, ram_gb: 32, installed: false } ] },
     ai_command: { command: "kubectl -n shop rollout restart deploy/worker && kubectl -n shop rollout status deploy/worker --timeout=120s", from_notes: ["kubectl -n shop rollout restart deploy/worker", "kubectl -n shop rollout status deploy/worker --timeout=120s"], elapsed_ms: 1840 },
     ports_listening: [], alerts_poll_now: [], kp_copy: null,
-    popout_views: ["terminal", "k8s", "alerts", "net", "ssh", "monitor", "sftp", "yc", "code", "db", "notes", "tasks", "vault", "passbolt", "winbox"],
+    popout_views: ["terminal", "k8s", "alerts", "net", "ssh", "monitor", "sftp", "yc", "code", "db", "notes", "tasks", "vault", "passbolt", "winbox", "agent"],
+    agent_policy: { enabled: false, mode: "read", hosts: {}, allow_sudo: false, allow_local: false, max_steps: 12, step_timeout_s: 20, output_limit: 4000, extra_read: [], deny: [] },
+    agent_policy_save: null,
+    agent_audit: [
+      { at: "2026-10-19 14:02:11", target: "id:h1", command: "journalctl -u nginx --since -1h", verdict: L("чтение", "reading"), approved: false, exit_code: 0, took_ms: 420 },
+      { at: "2026-10-19 14:02:30", target: "id:h1", command: "systemctl restart nginx", verdict: L("изменение", "a change"), approved: true, exit_code: 0, took_ms: 980 },
+    ],
     window_popout: null, window_focus_main: null,
   };
 
@@ -384,6 +390,13 @@ lint:
       window.__calls.push({ cmd, args });
       const ov = window.__DEMO_OVERRIDES?.[cmd];
       if (ov !== undefined) return typeof ov === "function" ? ov(args) : ov;
+      if (cmd === "agent_check") {
+        // разбор у настоящего бэкенда свой (agent.rs), здесь — ровно столько, чтобы проверить интерфейс
+        const c = args.command;
+        if (/\brm\b|[;>|&`]/.test(c)) return { verdict: { kind: "forbidden", reason: L("так агент не умеет", "the agent cannot do that") }, mode: "read", allowed_now: false, needs_approval: false, why: "" };
+        if (/restart|stop|start|truncate/.test(c)) return { verdict: { kind: "write" }, mode: "ask", allowed_now: false, needs_approval: true, why: L("нужно разрешение администратора", "an administrator's permission is needed") };
+        return { verdict: { kind: "read" }, mode: "read", allowed_now: true, needs_approval: false, why: "" };
+      }
       if (cmd === "pty_spawn") {
         const id = args.req.id, prog = args.req.program;
         setTimeout(() => emit(`pty-data-${id}`, b64(prog ? L("AI-панель: выберите инструмент сверху\r\n", "AI panel: pick a tool at the top\r\n") : termOut)), 100);

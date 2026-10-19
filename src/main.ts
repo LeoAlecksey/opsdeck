@@ -13,6 +13,7 @@ import { mountTasks } from "./modules/tasks";
 import { mountMikrotik } from "./modules/mikrotik";
 import { mountMonitor } from "./modules/monitor";
 import { mountSettings } from "./modules/settings";
+import { mountAiAgent } from "./modules/aiagent";
 import { mountSftp } from "./modules/sftp";
 import { mountYc } from "./modules/yc";
 import { mountSsh } from "./modules/ssh";
@@ -55,6 +56,7 @@ const views: View[] = [
   { id: "vault", svg: icon("key", 20), title: "KeePass", mount: mountKeepass },
   { id: "passbolt", svg: icon("lock", 20), title: "Passbolt", mount: mountPassbolt },
   { id: "winbox", svg: icon("router", 20), title: "MikroTik / WinBox", mount: mountMikrotik },
+  { id: "agent", svg: icon("sparkles", 20), title: "ИИ-агент", mount: mountAiAgent },
   { id: "settings", svg: icon("settings", 20), title: "Настройки", mount: mountSettings, bottom: true },
 ];
 

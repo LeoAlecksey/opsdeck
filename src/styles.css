@@ -1180,6 +1180,32 @@ body.no-select, body.no-select * { user-select: none; -webkit-user-select: none;
 .view-menu .menu-item:hover { background: var(--panel-2); }
 .view-menu .menu-item svg { flex: none; color: var(--muted); }
 
+/* ИИ-агент: правила и журнал */
+.agent-lead { max-width: 76ch; margin: 0 0 14px; }
+.agent-body { display: grid; grid-template-columns: repeat(auto-fit, minmax(330px, 1fr)); gap: 12px; align-items: start; }
+.agent-card { padding: 12px 14px; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; }
+.agent-card h3 { margin: 0 0 10px; font-size: 14px; }
+.agent-card label { display: block; margin: 8px 0; }
+.agent-card label.row, .agent-card label.check, .agent .check.big { display: flex; align-items: center; gap: 8px; }
+.agent-card label input[type=number] { width: 90px; }
+.agent-card label > input:not([type=checkbox]):not([type=number]) { display: block; width: 100%; margin-top: 4px; }
+.agent-card .mode-hint { margin: 2px 0 10px; }
+.agent .check.big { font-weight: 600; }
+.agent.off .agent-body { opacity: .55; }
+.agent-host { display: grid; grid-template-columns: 1fr auto; gap: 2px 10px; align-items: center; padding: 6px 0; border-top: 1px solid var(--border); }
+.agent-host:first-child { border-top: 0; }
+.agent-host .ah-addr { grid-column: 1; font-size: 12px; }
+.agent-host select { grid-column: 2; grid-row: 1 / span 2; }
+.agent-try .row { flex-wrap: wrap; }
+.agent-try-cmd { flex: 1; min-width: 200px; font-family: ui-monospace, monospace; }
+.agent-try-out { margin: 10px 0 0; }
+.agent-try-out.ok { color: var(--accent); }
+.agent-try-out.warn { color: #e3b341; }
+.agent-try-out.err { color: var(--danger); }
+.agent-log { grid-column: 1 / -1; }
+.agent-log code { font-size: 12px; }
+.agent-log td.err { color: var(--danger); }
+
 /* окно одного раздела: боковой колонки нет, выносить его из себя же некуда */
 body.popout #sidebar { display: none; }
 body.popout .popout-btn { display: none; }

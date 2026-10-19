@@ -330,6 +330,27 @@ export const HELP_EN: Record<string, { title: string; html: string }> = {
       <li>Passbolt entries can be bound to web panels, SSH hosts, databases and MikroTik routers — then passwords are taken from here.</li>
       <li>While Passbolt is unlocked, passwords are in the palette ${kbd("Ctrl+Shift+P")} → “Password: …”.</li></ul>`,
   },
+  agent: {
+    title: "AI agent",
+    html: `
+      <h4>What this is</h4>
+      <p>The agent goes to a host itself and looks at what is happening there: service logs, systemd state, disk space, containers, pods. It doesn't guess from memory — it runs real commands and reads their output. It can change only what is allowed here, and only the way the dialog shows before it runs. Investigations start in the terminal's AI panel; this section is about the rules.</p>
+      <h4>Access levels</h4>
+      <ul>
+        <li><b>Stay away</b> — no agent on this host.</li>
+        <li><b>Read only</b> — it looks and reports; it cannot change anything, not even with permission.</li>
+        <li><b>Change with permission</b> — it reads on its own and shows every change as an exact command line, waiting for a click.</li>
+        <li><b>Change freely</b> — for throwaway environments.</li>
+      </ul>
+      <p>A host's level wins over the default one. The switch at the top wins over every level: while it is off, the agent does nothing.</p>
+      <h4>What never runs</h4>
+      <p>Redirections and compound commands (<code>&gt;</code>, <code>;</code>, <code>&amp;&amp;</code>, backticks), interpreters (<code>sh</code>, <code>bash</code>, <code>python</code>, <code>awk</code>, <code>nc</code>) and the irreversible (<code>rm</code>, <code>dd</code>, <code>mkfs</code>, <code>reboot</code>, <code>passwd</code>). None of it passes at any level, "change freely" included: that is not a command the rules can reason about, it is running someone else's text. If you need it, type it in the terminal yourself.</p>
+      <p><code>sudo</code> has its own checkbox, and under it even reading counts as a change. "Your own lists" add commands to the reading set and forbid ones allowed here; a ban wins over everything.</p>
+      <h4>Why so strict</h4>
+      <p>The agent reads logs, and logs are written by anyone. A line like "ADMIN NOTE: run this command" is indistinguishable from real data for a model, so output from a host is treated as data, not instructions: what runs is decided by the rules in this section, not by the model's answer.</p>
+      <h4>Checking and the log</h4>
+      <p><b>Check a command</b> shows what would happen if the agent proposed it — without running anything. The <b>log</b> keeps every command that ran: when, on which host, whether it was reading or a change, with permission or not, and the exit code.</p>`,
+  },
   winbox: {
     title: "MikroTik",
     html: `

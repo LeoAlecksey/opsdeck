@@ -27,6 +27,7 @@ const VIEWS: &[(&str, &str)] = &[
     ("vault", "KeePass"),
     ("passbolt", "Passbolt"),
     ("winbox", "MikroTik / WinBox"),
+    ("agent", "ИИ-агент"),
 ];
 
 /// Заголовок раздела или `None`, если выносить его нельзя.

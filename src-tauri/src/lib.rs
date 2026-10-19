@@ -1,5 +1,6 @@
 use tauri::Manager;
 
+mod agent;
 mod ai;
 mod aichat;
 mod alerts;
@@ -298,6 +299,11 @@ pub fn run() {
             yc::yc_service_accounts,
             yc::yc_bindings,
             yc::yc_billing,
+            agent::agent_policy,
+            agent::agent_policy_save,
+            agent::agent_check,
+            agent::agent_exec,
+            agent::agent_audit,
             popout::popout_views,
             popout::window_popout,
             popout::window_focus_main,
