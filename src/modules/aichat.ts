@@ -7,6 +7,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { esc, toast } from "./ui";
 import { t } from "../i18n";
+import { uid } from "./winid";
 
 export type ChatMsg = { role: "user" | "assistant"; content: string };
 
@@ -32,7 +33,6 @@ function inline(s: string): string {
   return esc(s).replace(/`([^`\n]+)`/g, "<code>$1</code>").replace(/\*\*([^*\n]+)\*\*/g, "<b>$1</b>").replace(/\n/g, "<br>");
 }
 
-let seq = 0;
 
 export type ChatOpts = {
   /** context sent with each question */
@@ -131,7 +131,7 @@ export class LocalChat {
     const out = this.bubble("assistant");
     out.classList.add("pending");
     out.innerHTML = `<span class="muted">${esc(t("думаю…"))}</span>`;
-    const id = `chat${++seq}`;
+    const id = uid("chat");
     let answer = "";
     const un = [
       await listen<{ text: string }>(`ai-chat-${id}`, (e) => { answer += e.payload.text; out.classList.remove("pending"); this.render(out, answer); }),

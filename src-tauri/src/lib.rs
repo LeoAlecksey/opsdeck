@@ -21,6 +21,7 @@ mod keepass;
 mod mikrotik;
 mod notes;
 mod passbolt;
+mod popout;
 mod ports;
 mod process;
 mod pty;
@@ -88,6 +89,7 @@ pub fn run() {
             k8s_events::spawn(app.handle().clone());
             ide::start(app.handle().clone());
             embed::install(app.handle());
+            popout::install(app.handle());
             alerts::load_data(&app.state::<alerts::AlertsState>());
             let handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
@@ -296,6 +298,9 @@ pub fn run() {
             yc::yc_service_accounts,
             yc::yc_bindings,
             yc::yc_billing,
+            popout::popout_views,
+            popout::window_popout,
+            popout::window_focus_main,
             sftp::sftp_list,
             sftp::sftp_get,
             sftp::sftp_put,

@@ -5,6 +5,7 @@
 //   window.__demoListeners    — event -> [callback id] of the listeners still subscribed
 //   window.__DEMO_OVERRIDES   — { command: value | (args) => value } replaces an answer
 //   window.__DEMO_LANG        — "ru" (default) or "en": UI language and demo texts
+//   window.__DEMO_WIN         — метка окна: "main" (по умолчанию) или "pop-<раздел>"
 (() => {
   const LANG = window.__DEMO_LANG || "ru";
   try { localStorage.setItem("opsdeck.lang", LANG); } catch {}
@@ -367,10 +368,13 @@ lint:
       { id: "qwen3.6-35b-a3b", title: "Большая — Qwen3.6 35B-A3B (MoE)", size: 22134528992, ram_gb: 32, installed: false } ] },
     ai_command: { command: "kubectl -n shop rollout restart deploy/worker && kubectl -n shop rollout status deploy/worker --timeout=120s", from_notes: ["kubectl -n shop rollout restart deploy/worker", "kubectl -n shop rollout status deploy/worker --timeout=120s"], elapsed_ms: 1840 },
     ports_listening: [], alerts_poll_now: [], kp_copy: null,
+    popout_views: ["terminal", "k8s", "alerts", "net", "ssh", "monitor", "sftp", "yc", "code", "db", "notes", "tasks", "vault", "passbolt", "winbox"],
+    window_popout: null, window_focus_main: null,
   };
 
+  const WIN = window.__DEMO_WIN || "main";
   window.__TAURI_INTERNALS__ = {
-    metadata: { currentWindow: { label: "main" }, currentWebview: { label: "main", windowLabel: "main" } },
+    metadata: { currentWindow: { label: WIN }, currentWebview: { label: WIN, windowLabel: WIN } },
     transformCallback: (cb) => { const id = ++cbid; window[`_${id}`] = cb; return id; },
     unregisterCallback: (id) => { delete window[`_${id}`]; },
     convertFileSrc: (p) => p,

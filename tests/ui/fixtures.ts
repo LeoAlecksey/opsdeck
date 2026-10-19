@@ -5,7 +5,9 @@ export type Call = { cmd: string; args: Record<string, unknown> };
 const ALL = ["terminal", "k8s", "web", "alerts", "net", "ssh", "monitor", "sftp", "yc", "code", "db", "notes", "tasks", "vault", "winbox"];
 
 /** Options for the fake backend, set per test with `test.use({ demo: {...} })`. */
-export type Demo = { lang?: "ru" | "en"; modules?: string[] | null; overrides?: Record<string, unknown> };
+export type Demo = { lang?: "ru" | "en"; modules?: string[] | null; overrides?: Record<string, unknown>;
+  /** Метка окна: «pop-<раздел>» открывает страницу как вынесенное окно одного раздела. */
+  win?: string };
 
 export const test = base.extend<{ demo: Demo; app: App }>({
   demo: [{}, { option: true }],
@@ -14,17 +16,20 @@ export const test = base.extend<{ demo: Demo; app: App }>({
     const errors: string[] = [];
     page.on("pageerror", (e) => { errors.push(e.message); console.log("pageerror:", e.message, e.stack?.split("\n")[1] ?? ""); });
     page.on("console", (m) => { if (m.type() === "error") console.log("console.error:", m.text()); });
-    await page.addInitScript(({ lang, modules, overrides }) => {
+    await page.addInitScript(({ lang, modules, overrides, win }) => {
       (window as any).__DEMO_LANG = lang;
       (window as any).__DEMO_OVERRIDES = overrides;
+      (window as any).__DEMO_WIN = win;
       try {
         localStorage.clear();
         if (modules) localStorage.setItem("opsdeck.modules", JSON.stringify(modules));
       } catch { /* ignore */ }
-    }, { lang: demo.lang ?? "ru", modules: demo.modules === undefined ? ALL : demo.modules, overrides: demo.overrides ?? {} });
+    }, { lang: demo.lang ?? "ru", modules: demo.modules === undefined ? ALL : demo.modules, overrides: demo.overrides ?? {}, win: demo.win ?? "main" });
     await page.addInitScript({ path: fileURLToPath(new URL("./mock.js", import.meta.url)) });
     await page.goto("/");
-    await expect(page.locator("#sidebar button[data-view]:visible").first()).toBeVisible();
+    // вынесенное окно боковой колонки не имеет: ждём сам раздел
+    if (demo.win?.startsWith("pop-")) await expect(page.locator("#views .view:not([hidden])")).toBeVisible();
+    else await expect(page.locator("#sidebar button[data-view]:visible").first()).toBeVisible();
     const app = new App(page);
     await use(app);
     expect(errors, "uncaught errors in the page").toEqual([]);

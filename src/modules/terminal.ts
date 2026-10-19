@@ -16,6 +16,7 @@ import { isWindows } from "./themes";
 import { AI_PROVIDERS, aiAgent, setAiAgent } from "./ai-agents";
 import { LocalChat } from "./aichat";
 import { isProgramPath, isWsl, shellName, webShareCommand, wslDistro } from "./shellkind";
+import { popoutOpen } from "./popout";
 
 /** Other modules open a tab via: window.dispatchEvent(new CustomEvent("open-terminal", { detail })) */
 export type OpenTerminalDetail = SpawnOpts & { title?: string; keepOpen?: boolean };
@@ -71,6 +72,7 @@ export function mountTerminal(root: HTMLElement) {
         <button class="icon" data-act="split-host" title="Новая панель с SSH-хостом: рядом с текущими, до 6 в одной вкладке. Вкладку можно и перетащить на область терминала — она встанет панелью">${icon("server", 16)}</button>
         <button class="icon rec-btn" data-act="rec" title="Записывать эту панель в файл (вкл/выкл)">${icon("record", 16)}</button>
         <button class="icon" data-act="records" title="Открыть папку с записями сессий">${icon("folderOpen", 16)}</button>
+        <button class="icon popout-btn" data-act="popout" title="Вынести терминал в отдельное окно: его вкладки и панели останутся здесь, в новом окне откроется свой терминал">${icon("externalLink", 16)}</button>
         <span class="font-ctl" title="Размер шрифта терминала: Ctrl+= / Ctrl+- / Ctrl+0, или Ctrl+колесо">
           <button class="icon" data-act="font-down">A−</button><span class="font-size"></span><button class="icon" data-act="font-up">A+</button>
         </span>
@@ -867,6 +869,7 @@ export function mountTerminal(root: HTMLElement) {
   $("[data-act=split-host]").onclick = () => splitHost();
   $("[data-act=rec]").onclick = toggleRec;
   $("[data-act=records]").onclick = () => { invoke("pty_records_open").catch((e) => toast(String(e), "err")); };
+  $("[data-act=popout]").onclick = () => popoutOpen("terminal");
   $("[data-act=font-up]").onclick = () => termFontStep(1);
   $("[data-act=font-down]").onclick = () => termFontStep(-1);
   const fontSizeEl = $(".font-size");

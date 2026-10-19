@@ -15,6 +15,8 @@ struct Session {
     writer: Box<dyn Write + Send>,
     child: Box<dyn Child + Send + Sync>,
     recorder: Recorder,
+    /// Метка окна, которое завело сессию: когда окно закрывается, его оболочки надо погасить.
+    owner: String,
 }
 
 /// Session log shared with the reader thread; `None` while not recording.
@@ -88,7 +90,7 @@ fn wslenv(existing: Option<&str>, names: &[&str]) -> String {
 }
 
 #[tauri::command]
-pub fn pty_spawn(app: AppHandle, state: State<PtyState>, req: SpawnRequest) -> Result<Launched, String> {
+pub fn pty_spawn(app: AppHandle, window: tauri::WebviewWindow, state: State<PtyState>, req: SpawnRequest) -> Result<Launched, String> {
     let pair = native_pty_system()
         .openpty(PtySize { rows: req.rows, cols: req.cols, pixel_width: 0, pixel_height: 0 })
         .map_err(err)?;
@@ -204,7 +206,7 @@ pub fn pty_spawn(app: AppHandle, state: State<PtyState>, req: SpawnRequest) -> R
         .sessions
         .lock()
         .unwrap()
-        .insert(req.id, Session { master: pair.master, writer, child, recorder });
+        .insert(req.id, Session { master: pair.master, writer, child, recorder, owner: window.label().to_string() });
     Ok(launched)
 }
 
@@ -310,6 +312,29 @@ pub fn pty_kill(state: State<PtyState>, id: String) -> Result<(), String> {
         });
     }
     Ok(())
+}
+
+/// Сессии этого окна. Отдельной функцией, чтобы правило проверялось тестом: метка окна должна
+/// совпадать целиком, иначе «main» забрало бы с собой и сессии окна «main-2».
+fn owned_by<'a>(sessions: impl Iterator<Item = (&'a str, &'a str)>, label: &str) -> Vec<String> {
+    sessions.filter(|(_, owner)| *owner == label).map(|(id, _)| id.to_string()).collect()
+}
+
+/// Окно закрылось: его оболочки больше никому не видны, а процессы жили бы до выхода из
+/// приложения. Вкладки главного окна это не затрагивает — у них своя метка.
+pub fn kill_window(state: &PtyState, label: &str) {
+    let closed: Vec<Session> = {
+        let mut sessions = state.sessions.lock().unwrap();
+        let ids = owned_by(sessions.iter().map(|(id, s)| (id.as_str(), s.owner.as_str())), label);
+        ids.iter().filter_map(|id| sessions.remove(id)).collect()
+    };
+    for mut s in closed {
+        std::thread::spawn(move || {
+            let _ = s.child.kill();
+            let _ = s.child.wait(); // reap: no zombie shells
+            drop(s);
+        });
+    }
 }
 
 fn records_dir() -> Result<std::path::PathBuf, String> {
@@ -441,6 +466,17 @@ fn path_commands() -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn closing_a_window_takes_only_its_own_shells() {
+        let sessions = [("pty1", "main"), ("pty2", "main"), ("pty-pop-terminal-1", "pop-terminal"), ("pty-main-2-1", "main-2")];
+        let mut mine = owned_by(sessions.iter().copied(), "pop-terminal");
+        assert_eq!(mine, ["pty-pop-terminal-1"]);
+        mine = owned_by(sessions.iter().copied(), "main");
+        mine.sort();
+        assert_eq!(mine, ["pty1", "pty2"]);
+        assert!(owned_by(sessions.iter().copied(), "pop-k8s").is_empty());
+    }
 
     #[test]
     fn wslenv_adds_names_and_keeps_users_own() {

@@ -1150,7 +1150,7 @@ dialog.task-dialog { width: 520px; }
 .tabbar .tabs { min-width: 90px; } /* the active tab never shrinks to nothing */
 .tabbar.w1 .lbl { display: none; }
 .tabbar.w1 .ide-status { max-width: 22px; overflow: hidden; }
-.tabbar.w2 .font-ctl, .tabbar.w2 [data-act=records], .tabbar.w2 .help-btn { display: none; }
+.tabbar.w2 .font-ctl, .tabbar.w2 [data-act=records], .tabbar.w2 [data-act=popout], .tabbar.w2 .help-btn { display: none; }
 .tabbar.w3 [data-act=split-r], .tabbar.w3 [data-act=split-d], .tabbar.w3 [data-act=rec] { display: none; }
 /* notes toolbar: buttons keep one line; the note path shrinks instead */
 .notes-bar > :not(.note-path):not(.spacer) { flex: none; white-space: nowrap; }
@@ -1172,6 +1172,17 @@ body.no-select, body.no-select * { user-select: none; -webkit-user-select: none;
 .modules-pop label.check:hover { background: var(--panel-2); }
 .modules-pop label.check svg { width: 16px; height: 16px; flex: none; color: var(--muted); }
 .modules-pop .hint { margin: 8px 6px 2px; font-size: 12px; }
+
+/* правый клик по иконке модуля: «вынести в отдельное окно» */
+.view-menu { width: auto; min-width: 220px; }
+.view-menu .menu-item { display: flex; align-items: center; gap: 8px; width: 100%; padding: 7px 8px; border: 0; border-radius: 6px;
+  background: transparent; color: var(--text); font: inherit; text-align: left; cursor: pointer; }
+.view-menu .menu-item:hover { background: var(--panel-2); }
+.view-menu .menu-item svg { flex: none; color: var(--muted); }
+
+/* окно одного раздела: боковой колонки нет, выносить его из себя же некуда */
+body.popout #sidebar { display: none; }
+body.popout .popout-btn { display: none; }
 
 /* local AI model picker */
 .ai-custom input { flex: 1; min-width: 0; }

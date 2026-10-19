@@ -8,8 +8,7 @@ import { ShellBlocks } from "./blocks";
 import { hlPrefs, InputHighlighter, OutputHighlighter, type HlPrefs } from "./highlight";
 import { AutoSuggest } from "./suggest";
 import type { Launched } from "./shellkind";
-
-let seq = 0;
+import { uid } from "./winid";
 
 export type SpawnOpts = { program?: string; args?: string[]; cwd?: string; env?: Record<string, string> };
 
@@ -85,7 +84,7 @@ export const termFontStep = (d: number) => setTermFontSize(d === 0 ? TERM_FONT_D
 
 /** xterm.js bound to a backend PTY running `program` (defaults to $SHELL). */
 export class PtyTerminal {
-  readonly id = `pty${++seq}`;
+  readonly id = uid("pty");
   readonly term = new Terminal({
     fontFamily: termFontStack(), fontSize: termFontSize(), cursorBlink: true,
     scrollback: 20000, theme: currentTheme(), allowProposedApi: true, overviewRulerWidth: 8,

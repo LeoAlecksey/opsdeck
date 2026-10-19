@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "IPC for the main OpsDeck window only; connector windows (Grafana/ArgoCD/GitLab) get no IPC.",
-  "windows": ["main"],
+  "description": "IPC for the OpsDeck UI: the main window and the modules popped out into their own window (pop-*). Connector windows (Grafana/ArgoCD/GitLab) get no IPC.",
+  "windows": ["main", "pop-*"],
   "permissions": ["core:default"]
 }
