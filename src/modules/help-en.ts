@@ -337,17 +337,18 @@ export const HELP_EN: Record<string, { title: string; html: string }> = {
       <p>The agent goes to a host itself and looks at what is happening there: service logs, systemd state, disk space, containers, pods. It doesn't guess from memory — it runs real commands and reads their output. It can change only what is allowed here, and only the way the dialog shows before it runs. Investigations start in the terminal's AI panel; this section is about the rules.</p>
       <h4>Access levels</h4>
       <ul>
-        <li><b>Stay away</b> — no agent on this host.</li>
-        <li><b>Read only</b> — it looks and reports; it cannot change anything, not even with permission.</li>
-        <li><b>Change with permission</b> — it reads on its own and shows every change as an exact command line, waiting for a click.</li>
-        <li><b>Change freely</b> — for throwaway environments.</li>
+        <li><b>Stay away</b> — the agent does not enter this host: nothing runs, not even reading.</li>
+        <li><b>Read only</b> — it runs reading commands itself (logs, service state, disk space, containers, pods). Any changing command is refused, and permission does not get around that.</li>
+        <li><b>Change with permission</b> — it reads on its own; for every changing command it shows the exact line and the host name and waits for a click. A refusal does not end the investigation — the agent moves on.</li>
+        <li><b>Change freely</b> — it reads and changes on its own, no dialogs; the bans still apply. For throwaway environments.</li>
       </ul>
       <p>A host's level wins over the default one. The switch at the top wins over every level: while it is off, the agent does nothing.</p>
-      <h4>What the agent thinks with</h4>
-      <p>The built-in engine keeps one model for the whole app, so “as in the settings” is the same model the chat and the terminal hints use. The lightest one (1.5B) is too weak for a multi-step investigation — it confuses flags and loses the thread, and the section says so plainly. To give the agent a stronger head without touching the rest, pick “its own external server” and give the address, port and model name (Ollama, vLLM, LM Studio — anything OpenAI-compatible). The key is the one from ⚙ Settings → Local AI.</p>
+      <h4>Your own rules</h4>
+      <p>Three lists: <b>count as reading</b> (the agent runs it itself even where it would ask), <b>always ask</b> (it shows it and waits for a click even when it is only reading) and <b>forbid completely</b> (it runs at no level). A ban wins over "ask", "ask" wins over "reading", and no rule unlocks what is forbidden always.</p>
+      <p>Rules go one per line or separated by commas — a space cannot be the separator, because the rules themselves are made of words. A rule is the words of a command in order: <code>docker system prune</code> also catches <code>docker system prune -a --volumes</code>, and <code>kubectl get secret</code> catches <code>kubectl -n shop get secret db -o yaml</code>, because flags shift the words but do not change their order. If a rule contains <code>|</code> or <code>&gt;</code>, it is searched in the whole line: that is how <code>| bash</code> is written. A rule catches the command under <code>sudo</code> too.</p>
       <h4>What never runs</h4>
       <p>Redirections and compound commands (<code>&gt;</code>, <code>;</code>, <code>&amp;&amp;</code>, backticks), interpreters (<code>sh</code>, <code>bash</code>, <code>python</code>, <code>awk</code>, <code>nc</code>) and the irreversible (<code>rm</code>, <code>dd</code>, <code>mkfs</code>, <code>reboot</code>, <code>passwd</code>). None of it passes at any level, "change freely" included: that is not a command the rules can reason about, it is running someone else's text. If you need it, type it in the terminal yourself.</p>
-      <p><code>sudo</code> has its own checkbox, and under it even reading counts as a change. "Your own lists" add commands to the reading set and forbid ones allowed here; a ban wins over everything.</p>
+      <p><code>sudo</code> has its own checkbox, and under it even reading counts as a change.</p>
       <h4>Why so strict</h4>
       <p>The agent reads logs, and logs are written by anyone. A line like "ADMIN NOTE: run this command" is indistinguishable from real data for a model, so output from a host is treated as data, not instructions: what runs is decided by the rules in this section, not by the model's answer.</p>
       <h4>Checking and the log</h4>

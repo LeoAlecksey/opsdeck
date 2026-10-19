@@ -369,7 +369,7 @@ lint:
     ai_command: { command: "kubectl -n shop rollout restart deploy/worker && kubectl -n shop rollout status deploy/worker --timeout=120s", from_notes: ["kubectl -n shop rollout restart deploy/worker", "kubectl -n shop rollout status deploy/worker --timeout=120s"], elapsed_ms: 1840 },
     ports_listening: [], alerts_poll_now: [], kp_copy: null,
     popout_views: ["terminal", "k8s", "alerts", "net", "ssh", "monitor", "sftp", "yc", "code", "db", "notes", "tasks", "vault", "passbolt", "winbox", "agent"],
-    agent_policy: { enabled: false, mode: "read", hosts: {}, allow_sudo: false, allow_local: false, max_steps: 12, step_timeout_s: 20, output_limit: 4000, extra_read: [], deny: [], model: { source: "app", host: "", port: "", name: "" } },
+    agent_policy: { enabled: false, mode: "read", hosts: {}, allow_sudo: false, allow_local: false, max_steps: 12, step_timeout_s: 20, output_limit: 4000, extra_read: [], always_ask: [], deny: [], model: { source: "app", host: "", port: "", name: "" } },
     agent_policy_save: null,
     agent_audit: [
       { at: "2026-10-19 14:02:11", target: "id:h1", command: "journalctl -u nginx --since -1h", verdict: L("чтение", "reading"), approved: false, exit_code: 0, took_ms: 420 },
@@ -379,6 +379,20 @@ lint:
   };
 
   const WIN = window.__DEMO_WIN || "main";
+  // политика агента: то, что отдали изначально, плюс всё, что сохранил интерфейс
+  const agentPolicy = () => window.__demoPolicy || window.__DEMO_OVERRIDES?.agent_policy || R.agent_policy;
+  /** Правило «слова команды по порядку» или кусок строки со знаком конвейера — как в agent.rs. */
+  const ruleHits = (rule, command) => {
+    const want = rule.trim().split(/\s+/).filter(Boolean);
+    if (!want.length) return false;
+    if (/[|<>]/.test(rule)) return command.replace(/\s+/g, " ").includes(rule.trim().replace(/\s+/g, " "));
+    const tokens = command.trim().split(/\s+/);
+    const [program, ...args] = tokens[0] === "sudo" ? tokens.slice(1) : tokens;
+    if ((program || "").split("/").pop() !== want[0]) return false;
+    let i = 0;
+    return want.slice(1).every((w) => { while (i < args.length && args[i] !== w) i++; return i++ < args.length; });
+  };
+
   window.__TAURI_INTERNALS__ = {
     metadata: { currentWindow: { label: WIN }, currentWebview: { label: WIN, windowLabel: WIN } },
     transformCallback: (cb) => { const id = ++cbid; window[`_${id}`] = cb; return id; },
@@ -391,7 +405,7 @@ lint:
       const ov = window.__DEMO_OVERRIDES?.[cmd];
       if (ov !== undefined) return typeof ov === "function" ? ov(args) : ov;
       if (cmd === "agent_brain") {
-        const m = window.__demoPolicyModel || { source: "app" };
+        const m = agentPolicy().model || { source: "app" };
         if (m.source === "server") {
           return m.host && m.name
             ? { source: "server", title: `${L("Внешний сервер", "External server")} http://${m.host}:${m.port || 11434}: ${m.name}`, weak: false, problem: "" }
@@ -400,14 +414,18 @@ lint:
         return { source: "app", title: L("Как в настройках: встроенная модель — Лёгкая Qwen2.5-Coder 1.5B", "As in settings: built-in model — Light Qwen2.5-Coder 1.5B"), weak: true, problem: "" };
       }
       if (cmd === "agent_policy_save") {
-        window.__demoPolicyModel = args.policy?.model;
+        window.__demoPolicy = args.policy;
         return null;
       }
       if (cmd === "agent_check") {
-        // разбор у настоящего бэкенда свой (agent.rs), здесь — ровно столько, чтобы проверить интерфейс
+        // разбор у настоящего бэкенда свой (agent.rs); здесь — ровно столько, чтобы интерфейс
+        // и снимки экрана показывали то же, что покажет приложение
         const c = args.command;
+        const rule = (agentPolicy().deny || []).find((r) => ruleHits(r, c));
+        if (rule) return { verdict: { kind: "forbidden", reason: L(`запрещено вашим правилом «${rule}»`, `forbidden by your rule “${rule}”`) }, mode: "read", allowed_now: false, needs_approval: false, why: "" };
         if (/\brm\b|[;>|&`]/.test(c)) return { verdict: { kind: "forbidden", reason: L("так агент не умеет", "the agent cannot do that") }, mode: "read", allowed_now: false, needs_approval: false, why: "" };
-        if (/restart|stop|start|truncate/.test(c)) return { verdict: { kind: "write" }, mode: "ask", allowed_now: false, needs_approval: true, why: L("нужно разрешение администратора", "an administrator's permission is needed") };
+        const ask = (agentPolicy().always_ask || []).some((r) => ruleHits(r, c));
+        if (ask || /restart|stop|start|truncate|prune/.test(c)) return { verdict: { kind: "write" }, mode: "ask", allowed_now: false, needs_approval: true, why: L("нужно разрешение администратора", "an administrator's permission is needed") };
         return { verdict: { kind: "read" }, mode: "read", allowed_now: true, needs_approval: false, why: "" };
       }
       if (cmd === "pty_spawn") {

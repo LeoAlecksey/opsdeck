@@ -13,10 +13,26 @@ test.describe("ИИ-агент: правила", () => {
     await expect(page.locator(".agent")).not.toHaveClass(/off/);
   });
 
-  test("уровень доступа объясняется словами, а не названием", async ({ page }) => {
-    await expect(page.locator(".mode-hint")).toHaveText("смотрит логи и состояние; изменить ничего не может");
+  test("на экране написано, что делает каждый уровень, и какой выбран сейчас", async ({ page }) => {
+    const levels = page.locator(".agent-levels li");
+    await expect(levels).toHaveCount(4);
+    await expect(levels.filter({ hasText: "Только чтение" })).toContainText("разрешением это не обходится");
+    await expect(levels.filter({ hasText: "Менять с разрешения" })).toContainText("ждёт нажатия");
+    // выбранный уровень подсвечен, и подсветка переезжает вместе с выбором
+    await expect(page.locator(".agent-levels li.now")).toContainText("Только чтение");
     await page.locator("[data-a=mode]").selectOption("trusted");
-    await expect(page.locator(".mode-hint")).toContainText("только для хостов, которые не жалко");
+    await expect(page.locator(".agent-levels li.now")).toContainText("Менять без вопросов");
+    // то, что не выполнится ни при каком уровне, написано рядом
+    await expect(page.locator(".agent-card").first()).toContainText("не выполнятся никогда");
+  });
+
+  test("правила пишутся по строкам или через запятую и сохраняются как есть", async ({ app, page }) => {
+    await page.locator("[data-a=deny]").fill("docker system prune, | bash\n  kubectl   delete  ");
+    await page.locator("[data-a=deny]").dispatchEvent("change");
+    expect((await saved(app)).deny).toEqual(["docker system prune", "| bash", "kubectl delete"]);
+    await page.locator("[data-a=always_ask]").fill("kubectl get secret");
+    await page.locator("[data-a=always_ask]").dispatchEvent("change");
+    expect((await saved(app)).always_ask).toEqual(["kubectl get secret"]);
   });
 
   test("у хоста свой уровень, и он сохраняется отдельно от общего", async ({ app, page }) => {
@@ -28,12 +44,6 @@ test.describe("ИИ-агент: правила", () => {
     // «как по умолчанию» убирает хост из списка исключений
     await host.selectOption("");
     expect((await saved(app)).hosts).toEqual({});
-  });
-
-  test("свои списки разбираются по пробелам, без пустых значений", async ({ app, page }) => {
-    await page.locator("[data-a=deny]").fill("  journalctl   docker  journalctl ");
-    await page.locator("[data-a=deny]").dispatchEvent("change");
-    expect((await saved(app)).deny).toEqual(["journalctl", "docker"]);
   });
 
   test("проверка команды показывает, что будет, и ничего не выполняет", async ({ app, page }) => {
@@ -52,6 +62,13 @@ test.describe("ИИ-агент: правила", () => {
     await page.locator("[data-a=try]").click();
     await expect(out).toContainText("не выполнится");
     await expect(out).toHaveClass(/err/);
+
+    // своё правило видно по имени: откуда отказ, гадать не надо
+    await page.locator("[data-a=deny]").fill("docker system prune");
+    await page.locator("[data-a=deny]").dispatchEvent("change");
+    await page.locator(".agent-try-cmd").fill("docker system prune -a --volumes");
+    await page.locator("[data-a=try]").click();
+    await expect(out).toContainText("запрещено вашим правилом «docker system prune»");
 
     // проверка — это разбор, а не запуск
     expect(await app.calls("agent_exec")).toHaveLength(0);

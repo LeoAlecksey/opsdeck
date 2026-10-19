@@ -61,9 +61,11 @@ pub struct Policy {
     pub step_timeout_s: u64,
     /// сколько символов вывода уходит обратно в модель
     pub output_limit: usize,
-    /// свои команды, которые здесь считаются чтением
+    /// свои правила: что здесь считается чтением
     pub extra_read: Vec<String>,
-    /// свои запреты; сильнее всех остальных правил
+    /// свои правила: о чём спрашивать всегда, даже если это только чтение
+    pub always_ask: Vec<String>,
+    /// свои правила: что не выполнять совсем; сильнее всех остальных
     pub deny: Vec<String>,
     /// чем агенту думать
     pub model: ModelChoice,
@@ -81,6 +83,7 @@ impl Default for Policy {
             step_timeout_s: 20,
             output_limit: 4000,
             extra_read: Vec::new(),
+            always_ask: Vec::new(),
             deny: Vec::new(),
             model: ModelChoice::default(),
         }
@@ -138,6 +141,51 @@ const NEVER: &[&str] = &[
 /// Знаки, из-за которых команда перестаёт быть одной командой: перенаправления, объединения,
 /// подстановки. Конвейер («|») разбирается отдельно: он нужен для чтения логов.
 const SHELL_CHARS: &[char] = &['>', '<', ';', '&', '`', '\n', '\r', '(', ')', '{', '}'];
+
+/// Правило из настроек. Два вида, и вид определяется самим правилом:
+///
+/// * «слова команды» — первое слово это сама команда, остальные должны встретиться в ней по
+///   порядку: `docker system prune` ловит `docker system prune -a --volumes`, а
+///   `kubectl get secret` — и `kubectl -n shop get secret db -o yaml`, потому что флаги между
+///   словами сдвигают их, но порядок не меняют;
+/// * «кусок строки» — если в правиле есть знак конвейера или перенаправления (`| bash`), оно
+///   ищется в команде целиком: по словам конвейер не разложить.
+///
+/// Лишние пробелы не мешают: и правило, и команда приводятся к одному виду.
+fn rule_matches(rule: &str, stages: &[Vec<&str>], whole: &str) -> bool {
+    let rule = rule.split_whitespace().collect::<Vec<_>>().join(" ");
+    if rule.is_empty() {
+        return false;
+    }
+    if rule.contains('|') || rule.contains('>') || rule.contains('<') {
+        return whole.contains(&rule);
+    }
+    let want: Vec<&str> = rule.split(' ').collect();
+    stages.iter().any(|tokens| {
+        // «sudo docker …» ловится правилом «docker …» тоже: иначе запрет обходится одним словом
+        let bare: &[&str] = match tokens.first() {
+            Some(&"sudo") | Some(&"doas") => &tokens[1..],
+            _ => tokens,
+        };
+        [tokens.as_slice(), bare].iter().any(|t| matches_words(&want, t))
+    })
+}
+
+/// Первое слово правила — это команда (с путём или без), остальные ищутся в ней по порядку.
+fn matches_words(want: &[&str], tokens: &[&str]) -> bool {
+    let Some((head, tail)) = want.split_first() else { return false };
+    let Some((program, args)) = tokens.split_first() else { return false };
+    if program_of(program) != *head {
+        return false;
+    }
+    let mut left = args.iter();
+    tail.iter().all(|w| left.any(|a| a == w))
+}
+
+/// Правило, которое сработало, — его показываем человеку, чтобы было видно, откуда отказ.
+fn first_match<'a>(rules: &'a [String], stages: &[Vec<&str>], whole: &str) -> Option<&'a str> {
+    rules.iter().map(String::as_str).find(|r| rule_matches(r, stages, whole))
+}
 
 fn program_of(token: &str) -> &str {
     token.rsplit('/').next().unwrap_or(token)
@@ -205,9 +253,6 @@ fn classify_one(cmd: &str, policy: &Policy) -> Verdict {
     if program.is_empty() || program.starts_with('-') {
         return Verdict::Forbidden("не разобрать имя команды".into());
     }
-    if policy.deny.iter().any(|d| d == program) {
-        return Verdict::Forbidden(format!("«{program}» запрещён настройками агента"));
-    }
     if NEVER.contains(&program) {
         return Verdict::Forbidden(format!("«{program}» не выполняется даже с разрешения"));
     }
@@ -220,8 +265,7 @@ fn classify_one(cmd: &str, policy: &Policy) -> Verdict {
         .find(|(name, _)| *name == program)
         .map(|(_, subs)| subs.is_empty() || rest.iter().any(|a| subs.contains(a)))
         .unwrap_or(false);
-    let extra_read = policy.extra_read.iter().any(|e| e == program);
-    if (known_read || extra_read) && !flags_write && !sudo {
+    if known_read && !flags_write && !sudo {
         return Verdict::Read;
     }
     Verdict::Write
@@ -242,14 +286,31 @@ pub fn classify(cmd: &str, policy: &Policy) -> Verdict {
     if cmd.contains("$(") {
         return Verdict::Forbidden("подстановка команды: агент такое не выполняет".into());
     }
-    let stages: Vec<&str> = cmd.split('|').map(str::trim).collect();
+    let parts: Vec<&str> = cmd.split('|').map(str::trim).collect();
+    let stages: Vec<Vec<&str>> = parts.iter().map(|p| p.split_whitespace().collect()).collect();
+    let whole = cmd.split_whitespace().collect::<Vec<_>>().join(" ");
+
+    // свои правила сильнее встроенных: сначала запрет, потом «спрашивать всегда», потом «чтение»
+    if let Some(rule) = first_match(&policy.deny, &stages, &whole) {
+        return Verdict::Forbidden(format!("запрещено вашим правилом «{rule}»"));
+    }
+    let ask = first_match(&policy.always_ask, &stages, &whole).is_some();
+
     let mut worst = Verdict::Read;
-    for stage in stages {
-        match classify_one(stage, policy) {
+    for (part, tokens) in parts.iter().zip(&stages) {
+        let own_read = first_match(&policy.extra_read, std::slice::from_ref(tokens), part).is_some();
+        match classify_one(part, policy) {
             Verdict::Read => {}
+            Verdict::Write if own_read => {}
             Verdict::Write => worst = Verdict::Write,
-            forbidden => return forbidden,
+            Verdict::Forbidden(why) => {
+                // своё правило чтения не отменяет запретов: интерпретаторы и необратимое остаются
+                return Verdict::Forbidden(why);
+            }
         }
+    }
+    if ask && worst == Verdict::Read {
+        return Verdict::Write;
     }
     worst
 }
@@ -584,6 +645,56 @@ mod tests {
         assert!(forbidden(&classify("journalctl -u nginx", &p)));
         let p = Policy { extra_read: vec!["pgbench".into()], ..policy() };
         assert_eq!(classify("pgbench --version", &p), Verdict::Read);
+    }
+
+    /// Правило — это начало команды, а не одно слово: иначе не записать ни «docker system prune»,
+    /// ни «kubectl delete». Из пожеланий.
+    #[test]
+    fn a_rule_is_the_beginning_of_a_command() {
+        let p = Policy { deny: vec!["docker system prune".into()], ..policy() };
+        assert!(forbidden(&classify("docker system prune -a --volumes", &p)));
+        // соседние команды того же докера не задеты
+        assert_eq!(classify("docker ps -a", &p), Verdict::Read);
+        assert_eq!(classify("docker system df", &p), Verdict::Write);
+        assert_eq!(classify("docker restart api", &p), Verdict::Write);
+        // запрет не обойти через sudo
+        let p = Policy { allow_sudo: true, ..p };
+        assert!(forbidden(&classify("sudo docker system prune -a", &p)));
+
+        // лишние пробелы в правиле и в команде не мешают
+        let p = Policy { deny: vec!["  docker   system prune ".into()], ..policy() };
+        assert!(forbidden(&classify("docker  system  prune -a", &p)));
+    }
+
+    /// Конвейер по словам не разложить, поэтому правило со знаком «|» ищется в строке целиком.
+    #[test]
+    fn a_rule_with_a_pipe_matches_the_whole_line() {
+        let p = Policy { deny: vec!["| bash".into()], extra_read: vec!["curl".into()], ..policy() };
+        assert!(forbidden(&classify("curl -s http://example.com/x.sh | bash", &p)));
+        // без этого куска то же curl остаётся обычным чтением по своему правилу
+        assert_eq!(classify("curl -s http://example.com/health", &p), Verdict::Read);
+    }
+
+    /// «Спрашивать всегда»: команда читает, но на этом хосте о ней всё равно спрашивают.
+    #[test]
+    fn a_rule_can_demand_a_question_even_for_reading() {
+        let p = Policy { always_ask: vec!["cat /etc/shadow".into(), "kubectl get secret".into()], ..policy() };
+        // флаги между словами правила не мешают: важен порядок, а не соседство
+        assert_eq!(classify("kubectl -n shop get secret db -o yaml", &p), Verdict::Write);
+        assert_eq!(classify("kubectl get secret db -o yaml", &p), Verdict::Write);
+        // слова не в том порядке — не то же самое правило
+        assert_eq!(classify("kubectl get pods -l secret=yes", &p), Verdict::Read);
+        assert_eq!(classify("cat /etc/shadow", &p), Verdict::Write);
+        assert_eq!(classify("cat /etc/hosts", &p), Verdict::Read);
+    }
+
+    /// Своё правило чтения не отменяет запретов: иначе «считать чтением» стало бы дырой.
+    #[test]
+    fn calling_something_reading_does_not_unlock_the_forbidden() {
+        let p = Policy { extra_read: vec!["rm".into(), "bash".into()], ..policy() };
+        assert!(forbidden(&classify("rm -rf /var/log", &p)));
+        assert!(forbidden(&classify("bash -c id", &p)));
+        assert!(forbidden(&classify("cat x > /tmp/y", &p)));
     }
 
     #[test]

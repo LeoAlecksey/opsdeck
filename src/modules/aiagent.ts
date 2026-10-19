@@ -14,7 +14,8 @@ type ModelChoice = { source: "app" | "server" | ""; host: string; port: string; 
 type Brain = { source: string; title: string; weak: boolean; problem: string };
 type Policy = {
   enabled: boolean; mode: Mode; hosts: Record<string, Mode>; allow_sudo: boolean; allow_local: boolean;
-  max_steps: number; step_timeout_s: number; output_limit: number; extra_read: string[]; deny: string[];
+  max_steps: number; step_timeout_s: number; output_limit: number;
+  extra_read: string[]; always_ask: string[]; deny: string[];
   model: ModelChoice;
 };
 type Verdict = { kind: "read" | "write" } | { kind: "forbidden"; reason: string };
@@ -28,15 +29,13 @@ const MODES: [Mode, string][] = [
   ["trusted", "Менять без вопросов"],
 ];
 
-/** Короткое объяснение уровня — то, что увидит человек рядом с выбором. */
-export function modeHint(mode: Mode): string {
-  return {
-    off: "агент сюда не ходит",
-    read: "смотрит логи и состояние; изменить ничего не может",
-    ask: "смотрит сам, каждое изменение показывает и ждёт кнопку",
-    trusted: "меняет без вопросов — только для хостов, которые не жалко",
-  }[mode];
-}
+/** Что именно делает каждый уровень — полностью, без «и так понятно». */
+export const MODE_TEXT: Record<Mode, string> = {
+  off: "агент на этот хост не заходит: ни одна команда не выполняется, даже чтение.",
+  read: "сам выполняет команды из списка чтения — логи, состояние служб, место на дисках, список контейнеров и подов. Любая изменяющая команда отклоняется, и разрешением это не обходится: на таком хосте её не выполнить вовсе.",
+  ask: "читает сам, без вопросов. Для каждой изменяющей команды показывает точную строку и имя хоста и ждёт нажатия; пока не нажали — ничего не происходит, а отказ просто идёт следующим шагом расследования.",
+  trusted: "читает и меняет сам, без диалогов. Запреты действуют и здесь. Разумно для стендов, которые не жалко переустановить.",
+};
 
 /** Что написать про выбранную «голову» и каким тоном. */
 export function brainNote(b: Brain): { text: string; kind: "ok" | "warn" | "err" } {
@@ -53,8 +52,9 @@ export function checkNote(c: Check): { text: string; kind: "ok" | "warn" | "err"
   return { text: `не выполнится: ${c.why}`, kind: "err" };
 }
 
-const list = (xs: string[]) => xs.join(" ");
-const parseList = (s: string) => [...new Set(s.split(/[\s,]+/).filter(Boolean))];
+/** Правила содержат пробелы, поэтому разделитель — запятая или перевод строки, но не пробел. */
+export const parseRules = (s: string) => [...new Set(s.split(/[,\n]/).map((x) => x.trim().replace(/\s+/g, " ")).filter(Boolean))];
+const list = (xs: string[]) => xs.join("\n");
 
 export function mountAiAgent(root: HTMLElement) {
   root.innerHTML = `
@@ -70,7 +70,8 @@ export function mountAiAgent(root: HTMLElement) {
         <section class="agent-card">
           <h3>Уровень доступа</h3>
           <label class="row">По умолчанию <select data-a="mode"></select></label>
-          <p class="muted mode-hint"></p>
+          <ul class="agent-levels">${MODES.map(([id, title]) => `<li data-m="${id}"><b>${title}</b> — ${MODE_TEXT[id]}</li>`).join("")}</ul>
+          <p class="muted">Что бы ни стояло в уровне, не выполнятся никогда: перенаправления и составные команды (<code>&gt;</code>, <code>;</code>, <code>&amp;&amp;</code>, обратные кавычки), интерпретаторы (<code>sh</code>, <code>bash</code>, <code>python</code>, <code>awk</code>, <code>nc</code>) и необратимое (<code>rm</code>, <code>dd</code>, <code>mkfs</code>, <code>reboot</code>, <code>passwd</code>).</p>
           <label class="check"><input type="checkbox" data-a="allow_local" /><span>Разрешить работать на этой машине</span></label>
           <label class="check"><input type="checkbox" data-a="allow_sudo" /><span>Разрешить sudo <span class="muted">(любая команда под ним считается изменением)</span></span></label>
         </section>
@@ -80,11 +81,17 @@ export function mountAiAgent(root: HTMLElement) {
           <label class="row">Ждать команду, с <input type="number" data-a="step_timeout_s" min="1" max="120" /></label>
           <label class="row">Вывода в модель, символов <input type="number" data-a="output_limit" min="500" max="100000" step="500" /></label>
         </section>
-        <section class="agent-card">
-          <h3>Свои списки</h3>
-          <label>Считать чтением <input data-a="extra_read" spellcheck="false" placeholder="например: pgbench rabbitmqctl" /></label>
-          <label>Запретить совсем <input data-a="deny" spellcheck="false" placeholder="например: journalctl docker" /></label>
-          <p class="muted">Через пробел, по имени команды. Запрет сильнее всего остального.</p>
+        <section class="agent-card agent-rules">
+          <h3>Свои правила</h3>
+          <label>Считать чтением <span class="muted">— выполнит сам даже там, где спросил бы</span>
+            <textarea data-a="extra_read" spellcheck="false" rows="2" placeholder="rabbitmqctl list_queues, pgbench --version"></textarea></label>
+          <label>Спрашивать всегда <span class="muted">— покажет и дождётся кнопки, даже если это чтение</span>
+            <textarea data-a="always_ask" spellcheck="false" rows="2" placeholder="cat /etc/shadow, kubectl get secret"></textarea></label>
+          <label>Запретить совсем <span class="muted">— не выполнит ни на каком уровне</span>
+            <textarea data-a="deny" spellcheck="false" rows="2" placeholder="docker system prune, | bash"></textarea></label>
+          <p class="muted">По одному правилу в строке или через запятую: пробел разделителем быть не может, правила сами из слов.</p>
+          <p class="muted">Правило — это слова команды по порядку. «docker system prune» поймает и «docker system prune -a --volumes», а «kubectl get secret» — и «kubectl -n shop get secret db -o yaml»: флаги сдвигают слова, но не меняют их порядок. Правило со знаком «|» или «&gt;» ищется в строке целиком — так записывается «| bash». Команду под sudo правило тоже ловит.</p>
+          <p class="muted">Запрет сильнее «спрашивать всегда», тот сильнее «считать чтением», и ни одно правило не отменяет того, что запрещено всегда.</p>
         </section>
         <section class="agent-card agent-hosts">
           <h3>Хосты</h3>
@@ -140,14 +147,15 @@ export function mountAiAgent(root: HTMLElement) {
     // выключенный агент виден сразу: остальные правила гаснут
     $(".agent").classList.toggle("off", !policy.enabled);
     modeSel.value = policy.mode;
-    $(".mode-hint").textContent = modeHint(policy.mode);
     check("allow_local").checked = policy.allow_local;
     check("allow_sudo").checked = policy.allow_sudo;
     num("max_steps").value = String(policy.max_steps);
     num("step_timeout_s").value = String(policy.step_timeout_s);
     num("output_limit").value = String(policy.output_limit);
-    num("extra_read").value = list(policy.extra_read);
-    num("deny").value = list(policy.deny);
+    for (const name of ["extra_read", "always_ask", "deny"] as const) {
+      $<HTMLTextAreaElement>(`[data-a=${name}]`).value = list(policy[name] ?? []);
+    }
+    for (const li of root.querySelectorAll<HTMLElement>(".agent-levels li")) li.classList.toggle("now", li.dataset.m === policy.mode);
     const model = policy.model ?? { source: "app", host: "", port: "", name: "" };
     $<HTMLSelectElement>("[data-a=model_source]").value = model.source === "server" ? "server" : "app";
     $(".agent-server").hidden = model.source !== "server";
@@ -180,8 +188,8 @@ export function mountAiAgent(root: HTMLElement) {
       policy.mode = el.value as Mode;
     } else if (name === "max_steps" || name === "step_timeout_s" || name === "output_limit") {
       policy[name] = Number(el.value) || policy[name];
-    } else if (name === "extra_read" || name === "deny") {
-      policy[name] = parseList(el.value);
+    } else if (name === "extra_read" || name === "always_ask" || name === "deny") {
+      policy[name] = parseRules(el.value);
     } else if (name?.startsWith("model_")) {
       const field = name.slice(6) as keyof ModelChoice;
       policy.model = { ...(policy.model ?? { source: "app", host: "", port: "", name: "" }), [field]: el.value } as ModelChoice;
