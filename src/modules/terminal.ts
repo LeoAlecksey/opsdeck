@@ -9,7 +9,8 @@ import { pickSshHost } from "./hostpick";
 import { registerProvider } from "./palette";
 import { hlPrefs, setHlPrefs } from "./highlight";
 import { addSnippet } from "./snippets";
-import { attachPathLinks, mountFiles } from "./files";
+import { attachPathLinks, attachUrlLinks, mountFiles } from "./files";
+import { throughTunnel, type Target } from "./urls";
 import { ask, copyText, esc, overlay, toast } from "./ui";
 import { t } from "../i18n";
 import { isWindows } from "./themes";
@@ -260,6 +261,7 @@ export function mountTerminal(root: HTMLElement) {
     pane.pty = pty;
     pane.exited = false;
     attachPathLinks(pty);
+    attachUrlLinks(pty, (target) => openFromOutput(pane, target));
     pty.term.onData(() => { if (startupTab === pane.tab) startupTab = null; });
     // a plain tab learns its program (the shell from Settings) only when pty_spawn answers, and ConPTY's
     // first title, the program's path, may come before that: such a title waits until it can be checked
@@ -698,6 +700,32 @@ export function mountTerminal(root: HTMLElement) {
       // a dropped connection keeps its chip: there is something to do about it
       if (!conn) chipTimer = window.setTimeout(() => (chip.hidden = true), 12000);
     };
+  }
+
+  /**
+   * Ctrl+клик по адресу в выводе. Если сервер подняли на хосте по ssh, его localhost — это
+   * localhost того хоста: прыгать туда напрямую некуда, поэтому поднимаем ssh -L к этому порту и
+   * открываем уже свой конец туннеля. Туннель закрывается вместе с панелью, как у раздачи папки.
+   */
+  async function openFromOutput(pane: Pane, target: Target) {
+    const remote = pane.spawn.program === "ssh" ? parseSshTarget(pane.spawn.args ?? []) : null;
+    if (!target.here || !remote) {
+      invoke("open_external", { url: target.url }).catch((e) => toast(String(e), "err"));
+      return;
+    }
+    toast(`${t("Поднимаю туннель к порту")} ${target.port}…`);
+    try {
+      const local = await invoke<number>("web_share_tunnel", { dest: remote, port: target.port });
+      pane.shared = remote;
+      if (!(await invoke<boolean>("web_share_ready", { port: local }))) {
+        return toast(`${t("Порт")} ${target.port} ${t("на хосте не ответил — проверьте, что сервер слушает именно его")}`, "err");
+      }
+      const url = throughTunnel(target.url, local);
+      await invoke("open_external", { url });
+      toast(`${t("Открыто через туннель")}: ${url}`);
+    } catch (e) {
+      toast(String(e), "err");
+    }
   }
 
   // ----- «открыть папку в web» -----
