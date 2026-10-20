@@ -34,3 +34,11 @@ let n = 0;
 
 /** Имя новой сессии: уникально и внутри окна, и между окнами. */
 export const uid = (prefix: string) => `${prefix}${TAG}${++n}`;
+
+/**
+ * Вкладку утащили за пределы окна приложения — значит, её хотят в отдельное окно. Запас в
+ * несколько пикселей: у края курсор оказывается «снаружи» и при обычном перетаскивании внутри.
+ */
+export function beyondWindow(x: number, y: number, width: number, height: number, slack = 24): boolean {
+  return x < -slack || y < -slack || x > width + slack || y > height + slack;
+}

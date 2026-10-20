@@ -320,6 +320,16 @@ fn owned_by<'a>(sessions: impl Iterator<Item = (&'a str, &'a str)>, label: &str)
     sessions.filter(|(_, owner)| *owner == label).map(|(id, _)| id.to_string()).collect()
 }
 
+/// Вкладку забрало другое окно: сессия теперь его, и закрытие прежнего её не погасит. Без этого
+/// перенос вкладки оставлял бы оболочку за окном, которого уже нет.
+#[tauri::command]
+pub fn pty_adopt(window: tauri::WebviewWindow, state: State<PtyState>, id: String) -> Result<(), String> {
+    let mut sessions = state.sessions.lock().unwrap();
+    let s = sessions.get_mut(&id).ok_or("no such pty")?;
+    s.owner = window.label().to_string();
+    Ok(())
+}
+
 /// Окно закрылось: его оболочки больше никому не видны, а процессы жили бы до выхода из
 /// приложения. Вкладки главного окна это не затрагивает — у них своя метка.
 pub fn kill_window(state: &PtyState, label: &str) {

@@ -1189,6 +1189,10 @@ body.no-select, body.no-select * { user-select: none; -webkit-user-select: none;
 .agent-card label.row, .agent-card label.check, .agent .check.big { display: flex; align-items: center; gap: 8px; }
 .agent-card label input[type=number] { width: 90px; }
 .agent-card label > input:not([type=checkbox]):not([type=number]) { display: block; width: 100%; margin-top: 4px; }
+/* вкладку тащат за пределы окна: она уедет в соседнее окно вместе с сессией */
+.tab-ghost.out { border-color: var(--accent); color: var(--accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 35%, transparent); }
+.tab-menu button { display: flex; align-items: center; gap: 8px; white-space: nowrap; }
+
 .agent-levels { margin: 8px 0 10px; padding: 0; list-style: none; }
 .agent-levels li { padding: 6px 8px; border-radius: 6px; color: var(--muted); font-size: 13px; }
 .agent-levels li b { color: var(--text); }

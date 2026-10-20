@@ -22,7 +22,7 @@ import { checkUpdates } from "./modules/updates";
 import { esc, logUi, overlay, toast } from "./modules/ui";
 import { currentLang, startI18n, t } from "./i18n";
 import { popoutOpen, popoutViews, routeToMain, type Route } from "./modules/popout";
-import { popoutView } from "./modules/winid";
+import { popoutView, winLabel } from "./modules/winid";
 import { watchJs } from "./modules/jswatch";
 
 // стояла ли сама страница во время зависания окна (строка рядом с «UI FREEZE» в журнале)
@@ -296,6 +296,8 @@ sidebar.addEventListener("click", (e) => { if (dragJustEnded) { e.stopPropagatio
 
 // a module asked for a terminal tab: switch to the terminal view (the tab itself is created there)
 window.addEventListener("open-terminal", () => show("terminal"));
+// другое окно отдаёт нам вкладку: раздел должен быть смонтирован, иначе сессию некому принять
+listen<string>("term-handoff", (e) => { if (e.payload === winLabel() && !panes.has("terminal")) show("terminal"); });
 window.addEventListener("show-view", (e) => show((e as CustomEvent<string>).detail));
 // firing-alerts counter on the 🔔 button
 const setAlertBadge = (n: number) => {

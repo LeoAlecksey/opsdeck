@@ -6,6 +6,8 @@
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::sync::Mutex;
+use tauri::Emitter;
 use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder};
 
 /// Что можно вынести: идентификатор раздела и заголовок окна (он же ключ перевода).
@@ -129,6 +131,27 @@ pub async fn window_popout(app: AppHandle, view: String) -> Result<(), String> {
 /// из приложения — их вкладок уже нет, а процессы есть.
 fn close_sessions(app: &AppHandle, label: &str) {
     crate::pty::kill_window(&app.state::<crate::pty::PtyState>(), label);
+}
+
+/// Вкладка терминала, которую одно окно отдаёт другому: кому и что. Лежит здесь, пока адресат не
+/// заберёт. Через события такое не передать: окно может ещё не открыться, а сессия уже отдана.
+static HANDOFF: Mutex<Option<(String, serde_json::Value)>> = Mutex::new(None);
+
+#[tauri::command]
+pub fn term_handoff_put(app: AppHandle, to: String, payload: serde_json::Value) -> Result<(), String> {
+    *HANDOFF.lock().map_err(crate::store::err)? = Some((to.clone(), payload));
+    // окно, которое уже открыто, заберёт сразу; только что созданное — когда смонтируется
+    let _ = app.emit("term-handoff", to);
+    Ok(())
+}
+
+#[tauri::command]
+pub fn term_handoff_take(window: tauri::WebviewWindow) -> Option<serde_json::Value> {
+    let mut held = HANDOFF.lock().ok()?;
+    match held.as_ref() {
+        Some((to, _)) if to == window.label() => held.take().map(|(_, payload)| payload),
+        _ => None,
+    }
 }
 
 /// Вынесенное окно просит показать раздел, которого в нём нет: поднимаем главное.

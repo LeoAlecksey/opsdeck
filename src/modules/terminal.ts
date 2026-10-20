@@ -3,7 +3,7 @@ import { icon } from "./icons";
 import { sshTarget as parseSshTarget } from "./sshargs";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { PtyTerminal, SpawnOpts, termFontSize, termFontStep } from "./pty";
+import { Adopt, PtyTerminal, SpawnOpts, termFontSize, termFontStep } from "./pty";
 import { Block, fmtDuration } from "./blocks";
 import { pickSshHost } from "./hostpick";
 import { registerProvider } from "./palette";
@@ -17,6 +17,7 @@ import { AI_PROVIDERS, aiAgent, setAiAgent } from "./ai-agents";
 import { LocalChat } from "./aichat";
 import { isProgramPath, isWsl, shellName, webShareCommand, wslDistro } from "./shellkind";
 import { popoutOpen } from "./popout";
+import { beyondWindow, popoutView, winLabel } from "./winid";
 
 /** Other modules open a tab via: window.dispatchEvent(new CustomEvent("open-terminal", { detail })) */
 export type OpenTerminalDetail = SpawnOpts & { title?: string; keepOpen?: boolean };
@@ -195,7 +196,7 @@ export function mountTerminal(root: HTMLElement) {
 
   // ----- panes -----
 
-  function addPane(tab: Tab, opts: OpenTerminalDetail = {}) {
+  function addPane(tab: Tab, opts: OpenTerminalDetail = {}, adopt?: Adopt) {
     const { title, keepOpen, ...spawn } = opts;
     const el = document.createElement("div");
     el.className = "pane";
@@ -229,7 +230,7 @@ export function mountTerminal(root: HTMLElement) {
       else focusPane(pane);
     });
     layoutTab(tab);
-    mountPty(pane);
+    mountPty(pane, adopt);
     wireBlocks(pane);
     el.querySelector<HTMLElement>(".reconnect-bar")!.addEventListener("click", (e) => {
       const a = (e.target as HTMLElement).closest<HTMLElement>("[data-rc]")?.dataset.rc;
@@ -245,11 +246,11 @@ export function mountTerminal(root: HTMLElement) {
     return pane;
   }
 
-  /** (Re)starts the pane's process in its terminal area. */
-  function mountPty(pane: Pane) {
+  /** (Re)starts the pane's process in its terminal area; `adopt` — сессия, пришедшая из другого окна. */
+  function mountPty(pane: Pane, adopt?: Adopt) {
     const area = pane.el.querySelector<HTMLElement>(".pane-term")!;
     area.innerHTML = "";
-    const pty = new PtyTerminal(area, pane.spawn);
+    const pty = new PtyTerminal(area, pane.spawn, adopt);
     pane.pty = pty;
     pane.exited = false;
     attachPathLinks(pty);
@@ -414,6 +415,10 @@ export function mountTerminal(root: HTMLElement) {
     let ghost: HTMLElement | null = null, zoneEl: HTMLElement | null = null;
     let zone: "left" | "right" | "top" | "bottom" | "end" | null = null;
     const target = () => (activeTab && activeTab !== tab ? activeTab : null);
+    // захват указателя: иначе, как только курсор уходит за край окна, события перестают приходить
+    // и «утащить вкладку наружу» не отличить от «отпустил у самого края»
+    try { tab.btn.setPointerCapture(e.pointerId); } catch { /* мышь уже отпущена */ }
+    let outside = false;
     const move = (ev: PointerEvent) => {
       if (!ghost) {
         if (Math.hypot(ev.clientX - sx, ev.clientY - sy) < 8) return;
@@ -429,6 +434,9 @@ export function mountTerminal(root: HTMLElement) {
       }
       ghost.style.left = `${ev.clientX + 12}px`;
       ghost.style.top = `${ev.clientY + 8}px`;
+      outside = beyondWindow(ev.clientX, ev.clientY, window.innerWidth, window.innerHeight);
+      ghost.classList.toggle("out", outside);
+      if (outside) { zone = null; zoneEl!.hidden = true; return; }
       const r = hostsEl.getBoundingClientRect();
       const inside = target() && ev.clientX >= r.left && ev.clientX <= r.right && ev.clientY >= r.top && ev.clientY <= r.bottom;
       if (!inside) { zone = null; zoneEl!.hidden = true; return; }
@@ -451,7 +459,9 @@ export function mountTerminal(root: HTMLElement) {
         // the click that ends a drag must not switch to the dragged tab
         justDragged = true;
         setTimeout(() => (justDragged = false), 0);
-        if (zone && dst) movePanes(tab, dst, zone);
+        // вытащили за край приложения — вкладка уезжает в соседнее окно вместе с сессией
+        if (outside) moveTabToWindow(tab);
+        else if (zone && dst) movePanes(tab, dst, zone);
       }
     };
     document.addEventListener("pointermove", move);
@@ -466,6 +476,97 @@ export function mountTerminal(root: HTMLElement) {
     focusPane(tab.panes[i]);
     tab.panes[i].pty.term.focus();
   }
+
+  /** Правый клик по вкладке: перенос в соседнее окно (и подсказка, что сессия не перезапустится). */
+  function tabMenu(tab: Tab, x: number, y: number) {
+    document.querySelector(".tab-menu")?.remove();
+    const back = otherWindow() === "main";
+    const menu = document.createElement("div");
+    menu.className = "web-pick-menu tab-menu";
+    menu.innerHTML = `<button class="ghost" data-a="move" title="Процесс не перезапускается: переезжает только окно, в котором он нарисован">
+      ${icon("externalLink", 14)} ${back ? "Вернуть в главное окно" : "Вынести в отдельное окно"}</button>`;
+    menu.style.left = `${Math.min(x, window.innerWidth - 240)}px`;
+    menu.style.top = `${y + 4}px`;
+    overlay(true);
+    document.body.appendChild(menu);
+    const close = (e?: Event) => {
+      if (e instanceof KeyboardEvent && e.key !== "Escape") return;
+      if (e && e.type === "pointerdown" && menu.contains(e.target as Node)) return;
+      menu.remove();
+      document.removeEventListener("pointerdown", close, true);
+      document.removeEventListener("keydown", close, true);
+      overlay(false);
+    };
+    menu.addEventListener("click", () => { close(); moveTabToWindow(tab); });
+    document.addEventListener("pointerdown", close, true);
+    document.addEventListener("keydown", close, true);
+  }
+
+  // ----- перенос вкладки в другое окно -----
+
+  /** Что уезжает вместе с панелью: сессия, снятый экран и всё, чем панель была. */
+  type MovedPane = Adopt & { spawn: SpawnOpts; title?: string; termTitle?: string; keepOpen: boolean; recording?: string; lastConn?: string; shared?: string[] };
+  type MovedTab = { title: string; dir: "row" | "column"; panes: MovedPane[] };
+
+  /** Куда уезжает вкладка: из главного окна — в вынесенное, из вынесенного — обратно. */
+  const otherWindow = () => (popoutView() === "terminal" ? "main" : "pop-terminal");
+
+  /**
+   * Отдать вкладку другому окну. Оболочки не перезапускаются: процессы те же, меняется только
+   * окно, которое их рисует, — поэтому `cd`, переменные и запущенный ssh остаются как были.
+   */
+  async function moveTabToWindow(tab: Tab) {
+    const to = otherWindow();
+    const payload: MovedTab = {
+      title: tab.label.textContent ?? "shell",
+      dir: tab.dir,
+      panes: tab.panes.map((p) => ({
+        id: p.pty.id, screen: "", launched: p.pty.launched,
+        spawn: p.spawn, title: p.title, termTitle: p.termTitle, keepOpen: p.keepOpen,
+        recording: p.recording, lastConn: p.lastConn, shared: p.shared,
+      })),
+    };
+    try {
+      // окно адресата должно существовать до передачи: иначе сессия уедет в никуда
+      if (to === "main") await invoke("window_focus_main");
+      else await invoke("window_popout", { view: "terminal" });
+      // экран снимаем в последний момент — вместе с отпиской, чтобы не потерять то, что пришло
+      payload.panes.forEach((moved, i) => Object.assign(moved, tab.panes[i].pty.detach()));
+      await invoke("term_handoff_put", { to, payload });
+    } catch (e) {
+      toast(String(e), "err");
+      return;
+    }
+    // панели отпущены, а не закрыты: ни pty_kill, ни остановки записи, ни закрытия туннеля
+    tab.panes.splice(0).forEach((p) => p.el.remove());
+    closeTab(tab);
+    toast(to === "main" ? "Вкладка возвращена в главное окно" : "Вкладка вынесена в отдельное окно");
+  }
+
+  /** Принять вкладку, отданную другим окном. */
+  function adoptTab(moved: MovedTab) {
+    const tab = createTab(moved.title);
+    tab.dir = moved.dir;
+    for (const m of moved.panes) {
+      const pane = addPane(tab, { ...m.spawn, title: m.title, keepOpen: m.keepOpen }, { id: m.id, screen: m.screen, launched: m.launched });
+      pane.termTitle = m.termTitle;
+      pane.recording = m.recording;
+      pane.lastConn = m.lastConn;
+      pane.shared = m.shared;
+      paneTitle(pane);
+    }
+    layoutTab(tab);
+    activate(tab);
+    toast("Вкладка перенесена сюда");
+  }
+
+  async function takeHandoff() {
+    const moved = await invoke<MovedTab | null>("term_handoff_take").catch(() => null);
+    if (moved?.panes?.length) adoptTab(moved);
+  }
+  // окно только что открылось — вкладка уже ждёт; открытое заранее узнаёт о ней из события
+  takeHandoff();
+  listen<string>("term-handoff", (e) => { if (e.payload === winLabel()) takeHandoff(); });
 
   // ----- tabs -----
 
@@ -493,6 +594,7 @@ export function mountTerminal(root: HTMLElement) {
     const tab: Tab = { btn, host, label, panes: [], active: null, dir: "row" };
     btn.onclick = () => { if (!justDragged) activate(tab); };
     btn.addEventListener("pointerdown", (e) => startTabDrag(e, tab));
+    btn.addEventListener("contextmenu", (e) => { e.preventDefault(); tabMenu(tab, e.clientX, e.clientY); });
     btn.querySelector<HTMLElement>(".x")!.onclick = (e) => { e.stopPropagation(); closeTab(tab); };
     tabs.push(tab);
     return tab;
