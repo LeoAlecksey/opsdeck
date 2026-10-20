@@ -30,12 +30,30 @@ test.describe("адрес в выводе терминала", () => {
     await expect(link).toBeVisible();
     await link.click({ modifiers: ["Control"] });
 
-    expect((await app.called("web_share_tunnel")).args).toEqual({ dest: ["ops@198.51.100.7"], port: 5173 });
+    expect((await app.called("web_share_tunnel")).args).toEqual({ dest: ["ops@198.51.100.7"], port: 5173, host: "127.0.0.1" });
     expect((await app.called("open_external")).args).toEqual({ url: "http://127.0.0.1:41234/" });
 
     // туннель уходит вместе с вкладкой
     await page.locator(".tabs .tab").last().locator(".x").click();
     expect((await app.called("web_share_close")).args).toEqual({ dest: ["ops@198.51.100.7"] });
+  });
+
+  // из отчёта: сервер печатает своё короткое имя, и снаружи той сети такого имени нет
+  test("короткое имя хоста из вывода доезжает через туннель на этот же хост", async ({ app, page }) => {
+    await app.view("terminal");
+    await app.override("web_share_tunnel", 41235);
+    await page.evaluate(() => window.dispatchEvent(new CustomEvent("open-terminal", { detail: { program: "ssh", args: ["ops@198.51.100.7"], keepOpen: true } })));
+    await expect.poll(async () => ((await app.calls("pty_spawn")).at(-1)!.args as any).req.program).toBe("ssh");
+    const id = await lastPty(app);
+
+    await app.emit(`pty-data-${id}`, b64("[MailHog] Serving under http://adas-adcu-build-3:8025/\r\n"));
+    const link = page.locator(".term-host:not([hidden]) .xterm-rows span", { hasText: "adas-adcu-build-3:8025" }).first();
+    await expect(link).toBeVisible();
+    await link.click({ modifiers: ["Control"] });
+
+    // ssh -L ведёт на сам этот хост, а не на loopback: имя живёт только в сети хоста сессии
+    expect((await app.called("web_share_tunnel")).args).toEqual({ dest: ["ops@198.51.100.7"], port: 8025, host: "adas-adcu-build-3" });
+    expect((await app.called("open_external")).args).toEqual({ url: "http://127.0.0.1:41235/" });
   });
 
   test("адрес настоящего хоста открывается как есть, без туннелей", async ({ app, page }) => {

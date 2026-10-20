@@ -165,7 +165,7 @@ test.describe("terminal", () => {
     expect(port).toBeGreaterThanOrEqual(8000);
     expect(text).toContain("--bind 127.0.0.1"); // наружу папка не светится
     // туннель — к адресу этой же сессии, с её портом и пользователем
-    expect((await app.called("web_share_tunnel")).args).toEqual({ dest: ["-p", "2222", "ops@198.51.100.7"], port });
+    expect((await app.called("web_share_tunnel")).args).toEqual({ dest: ["-p", "2222", "ops@198.51.100.7"], port, host: "127.0.0.1" });
     expect((await app.called("open_external")).args).toEqual({ url: "http://127.0.0.1:41234/" });
     await expect(page.locator(".toast").last()).toContainText("http://127.0.0.1:41234/");
 

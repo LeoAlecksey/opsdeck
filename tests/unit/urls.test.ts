@@ -12,14 +12,27 @@ describe("ссылки в выводе терминала", () => {
   });
 
   it("0.0.0.0 — это «слушаю везде», подключаться надо на 127.0.0.1", () => {
-    expect(siteTarget("http://0.0.0.0:8000/")).toEqual({ url: "http://127.0.0.1:8000/", port: 8000, here: true });
-    expect(siteTarget("http://[::]:8080/app")).toMatchObject({ url: "http://127.0.0.1:8080/app", here: true });
+    expect(siteTarget("http://0.0.0.0:8000/")).toEqual({ url: "http://127.0.0.1:8000/", host: "127.0.0.1", port: 8000, where: "here" });
+    expect(siteTarget("http://[::]:8080/app")).toMatchObject({ url: "http://127.0.0.1:8080/app", where: "here" });
+  });
+
+  /// Из отчёта: сервер напечатал своё короткое имя, браузер получил «http://adas-adcu-build-3:8025»
+  /// и, разумеется, никуда не попал — такого имени снаружи той сети нет.
+  it("короткое имя и частный адрес живут только в сети хоста", () => {
+    expect(siteTarget("http://adas-adcu-build-3:8025/")).toMatchObject({ host: "adas-adcu-build-3", port: 8025, where: "inside" });
+    expect(siteTarget("http://10.1.2.3:9000/")?.where).toBe("inside");
+    expect(siteTarget("http://192.168.1.10/")?.where).toBe("inside");
+    expect(siteTarget("http://172.20.0.5:3000/")?.where).toBe("inside");
+    expect(siteTarget("http://100.70.0.4:3000/")?.where).toBe("inside");
+    // а это уже обычные адреса, их незачем тащить через туннель
+    expect(siteTarget("http://172.32.0.5:3000/")?.where).toBe("outside");
+    expect(siteTarget("https://build-3.corp.example.com/")?.where).toBe("outside");
   });
 
   it("отличает «та же машина» от настоящего хоста", () => {
-    expect(siteTarget("http://localhost:5173/")?.here).toBe(true);
-    expect(siteTarget("http://127.0.0.5:9000/")?.here).toBe(true);
-    expect(siteTarget("https://grafana.example.com/d/abc")?.here).toBe(false);
+    expect(siteTarget("http://localhost:5173/")?.where).toBe("here");
+    expect(siteTarget("http://127.0.0.5:9000/")?.where).toBe("here");
+    expect(siteTarget("https://grafana.example.com/d/abc")?.where).toBe("outside");
     // порт по умолчанию берётся из схемы: его же надо пробрасывать
     expect(siteTarget("https://example.com/")?.port).toBe(443);
     expect(siteTarget("http://example.com/")?.port).toBe(80);

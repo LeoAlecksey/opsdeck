@@ -117,15 +117,25 @@ async fn open_dest(state: &TunnelState, id: &str, spec: &str, dest: &[String], h
     Ok(local)
 }
 
-/// «Открыть папку в web»: папка раздаётся `python3 -m http.server` на 127.0.0.1 удалённого хоста
-/// (в сеть не светится), а сюда ведёт локальный порт через ssh -L — его и открывает браузер.
-/// `dest` — аргументы уже открытой сессии ssh (опции и адрес), как их видит `sshTarget`.
+/// Ключ туннеля этой сессии: по нему их потом закрывают все разом.
+fn web_prefix(dest: &[String]) -> String {
+    format!("web:{}|", dest.join(" "))
+}
+
+/// Туннель к порту из открытой сессии ssh: «папка в web» ведёт на 127.0.0.1 того хоста, а ссылка
+/// из вывода терминала — куда напечатано. Короткое имя вроде `build-3` или адрес из 10.0.0.0/8
+/// живут только в сети хоста, и `ssh -L` умеет довести до них: форвард идёт на этот адрес, а не на
+/// loopback. `dest` — аргументы уже открытой сессии (опции и адрес), как их видит `sshTarget`.
 #[tauri::command]
-pub async fn web_share_tunnel(tunnels: tauri::State<'_, TunnelState>, dest: Vec<String>, port: u16) -> Result<u16, String> {
+pub async fn web_share_tunnel(tunnels: tauri::State<'_, TunnelState>, dest: Vec<String>, port: u16, host: Option<String>) -> Result<u16, String> {
     if dest.is_empty() {
         return Err("нет адреса ssh-сессии".into());
     }
-    open_args(&tunnels, &format!("web:{}", dest.join(" ")), &dest, "127.0.0.1", port).await
+    let host = host.filter(|h| !h.trim().is_empty()).unwrap_or_else(|| "127.0.0.1".into());
+    if !crate::tools::valid_host(&host) {
+        return Err(format!("недопустимый адрес: {host}"));
+    }
+    open_args(&tunnels, &format!("{}{host}:{port}", web_prefix(&dest)), &dest, &host, port).await
 }
 
 /// Отвечает ли раздача через туннель. Просто подключиться к локальному порту мало: его слушает сам
@@ -148,10 +158,17 @@ pub async fn web_share_ready(port: u16) -> bool {
     }
 }
 
-/// Папку больше не раздают: туннель к ней не нужен.
+/// Вкладка закрылась: все её туннели (раздача папки и ссылки из вывода) уходят вместе с ней.
 #[tauri::command]
 pub fn web_share_close(tunnels: tauri::State<'_, TunnelState>, dest: Vec<String>) {
-    close(&tunnels, &format!("web:{}", dest.join(" ")));
+    close_prefix(&tunnels, &web_prefix(&dest));
+}
+
+/// Закрыть все туннели, заведённые одной сессией.
+fn close_prefix(state: &TunnelState, prefix: &str) {
+    if let Ok(mut m) = state.map.try_lock() {
+        m.retain(|id, _| !id.starts_with(prefix));
+    }
 }
 
 /// The profile is gone: its tunnel goes too (skipped if one is being opened right now; it ends with the app).
@@ -183,6 +200,20 @@ mod tests {
         for must in ["-N", "BatchMode=yes", "ExitOnForwardFailure=yes"] {
             assert!(a.iter().any(|x| x == must), "{must}");
         }
+    }
+
+    #[test]
+    fn one_session_can_have_several_tunnels_and_loses_them_together() {
+        let dest = vec!["-p".to_string(), "2222".into(), "ops@198.51.100.7".into()];
+        let prefix = web_prefix(&dest);
+        // ключ включает адрес и порт: раздача папки и ссылка на другой хост — разные туннели
+        assert_ne!(format!("{prefix}127.0.0.1:8000"), format!("{prefix}build-3:8025"));
+        // и оба закрываются одним префиксом сессии
+        for id in [format!("{prefix}127.0.0.1:8000"), format!("{prefix}build-3:8025")] {
+            assert!(id.starts_with(&prefix), "{id}");
+        }
+        // чужая сессия под этот префикс не попадает
+        assert!(!web_prefix(&["ops@other".to_string()]).starts_with(&prefix));
     }
 
     #[test]

@@ -709,16 +709,17 @@ export function mountTerminal(root: HTMLElement) {
    */
   async function openFromOutput(pane: Pane, target: Target) {
     const remote = pane.spawn.program === "ssh" ? parseSshTarget(pane.spawn.args ?? []) : null;
-    if (!target.here || !remote) {
+    // снаружи сети хоста такой адрес открывать нечем: ведём туда ssh -L прямо на этот хост и порт
+    if (target.where === "outside" || !remote) {
       invoke("open_external", { url: target.url }).catch((e) => toast(String(e), "err"));
       return;
     }
-    toast(`${t("Поднимаю туннель к порту")} ${target.port}…`);
+    toast(`${t("Поднимаю туннель к")} ${target.host}:${target.port}…`);
     try {
-      const local = await invoke<number>("web_share_tunnel", { dest: remote, port: target.port });
+      const local = await invoke<number>("web_share_tunnel", { dest: remote, port: target.port, host: target.host });
       pane.shared = remote;
       if (!(await invoke<boolean>("web_share_ready", { port: local }))) {
-        return toast(`${t("Порт")} ${target.port} ${t("на хосте не ответил — проверьте, что сервер слушает именно его")}`, "err");
+        return toast(`${target.host}:${target.port} ${t("не ответил через хост сессии — проверьте, что сервер слушает именно этот адрес")}`, "err");
       }
       const url = throughTunnel(target.url, local);
       await invoke("open_external", { url });
@@ -742,7 +743,7 @@ export function mountTerminal(root: HTMLElement) {
     toast(t("Поднимаю раздачу…"));
     try {
       // ssh -L к порту на самом хосте; для локального шелла порт уже локальный
-      const local = remote ? await invoke<number>("web_share_tunnel", { dest: remote, port }) : port;
+      const local = remote ? await invoke<number>("web_share_tunnel", { dest: remote, port, host: "127.0.0.1" }) : port;
       if (remote) p.shared = remote;
       // туннель открыт — это ещё не значит, что раздача отвечает: локальный порт слушает сам ssh,
       // а на том конце может не быть никого (python ещё не поднялся или сессия ведёт на другой хост)
