@@ -132,6 +132,12 @@ export function mountTerminal(root: HTMLElement) {
 
   const tabs: Tab[] = [];
   let activeTab: Tab | null = null;
+  /**
+   * Вкладка, которую окно открыло себе само при запуске, пока в неё ничего не набрали. Когда окно
+   * открывают ради перенесённой вкладки, эта пустая уступает ей место: иначе в новом окне их две,
+   * и первая никому не нужна (из отчёта).
+   */
+  let startupTab: Tab | null = null;
   const filesPanel = $(".files-panel");
   /** what the AI panel holds: an agent's CLI in a terminal, or the local AI chat */
   type AiPane = { dispose(): void; resize(): void; paste(text: string): void; focus(): void };
@@ -254,6 +260,7 @@ export function mountTerminal(root: HTMLElement) {
     pane.pty = pty;
     pane.exited = false;
     attachPathLinks(pty);
+    pty.term.onData(() => { if (startupTab === pane.tab) startupTab = null; });
     // a plain tab learns its program (the shell from Settings) only when pty_spawn answers, and ConPTY's
     // first title, the program's path, may come before that: such a title waits until it can be checked
     const setTitle = (t: string) => {
@@ -557,7 +564,15 @@ export function mountTerminal(root: HTMLElement) {
     }
     layoutTab(tab);
     activate(tab);
+    dropStartupTab();
     toast("Вкладка перенесена сюда");
+  }
+
+  /** Пустая вкладка, открытая при запуске окна, закрывается, когда приехала настоящая. */
+  function dropStartupTab() {
+    const empty = startupTab;
+    startupTab = null;
+    if (empty && tabs.includes(empty) && tabs.length > 1 && empty.panes.length === 1) closeTab(empty);
   }
 
   async function takeHandoff() {
@@ -1132,5 +1147,6 @@ export function mountTerminal(root: HTMLElement) {
   const show = () => window.dispatchEvent(new CustomEvent("show-view", { detail: "terminal" }));
 
   newTab();
+  startupTab = tabs[0] ?? null;
   if (load("opsdeck.files.open", "0") === "1") toggleFiles(true);
 }

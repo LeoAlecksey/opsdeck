@@ -39,13 +39,28 @@ test.describe("вкладка переезжает между окнами", () 
     await app.override("term_handoff_take", moved("pty-pop-terminal-7"));
     await page.evaluate(() => (window as any).__demoEmit("term-handoff", "main"));
 
-    await expect(page.locator(".tabs .tab")).toHaveCount(2);
-    await expect(page.locator(".tabs .tab").last()).toContainText("prod-api");
+    // пустая вкладка, которую окно открыло себе при запуске, уступает место приехавшей
+    await expect(page.locator(".tabs .tab")).toHaveCount(1);
+    await expect(page.locator(".tabs .tab")).toContainText("prod-api");
     expect((await app.called("pty_adopt")).args).toEqual({ id: "pty-pop-terminal-7" });
     // новую оболочку для неё не запускали: процесс тот же
     expect(await app.calls("pty_spawn")).toHaveLength(spawnedBefore);
     expect(first).not.toBe("pty-pop-terminal-7");
     // экран приехал вместе с вкладкой
     await expect(app.terminalText()).toContainText("up 31 days");
+  });
+
+  test("если в своей вкладке уже работали, она остаётся: закрывается только нетронутая пустая", async ({ app, page }) => {
+    await app.view("terminal");
+    await app.called("pty_spawn");
+    await page.locator(".term-host:not([hidden]) .xterm").click();
+    await page.keyboard.type("ls -la");
+    await expect.poll(async () => (await app.calls("pty_write")).length).toBeGreaterThan(0);
+
+    await app.override("term_handoff_take", moved("pty-pop-terminal-7"));
+    await page.evaluate(() => (window as any).__demoEmit("term-handoff", "main"));
+
+    await expect(page.locator(".tabs .tab")).toHaveCount(2);
+    await expect(page.locator(".tabs .tab").last()).toContainText("prod-api");
   });
 });
