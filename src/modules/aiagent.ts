@@ -248,15 +248,22 @@ export function mountAiAgent(root: HTMLElement) {
   }
   $("[data-a=reload-log]").onclick = loadLog;
 
-  (async () => {
+  async function load() {
     [policy, hosts] = await Promise.all([
       invoke<Policy>("agent_policy"),
       invoke<Parameters<typeof targets>[0]>("ssh_list")
         .then((l) => targets(l).sort((a, b) => natCmp(a.name, b.name)))
         .catch(() => [] as Target[]),
     ]);
+    const keep = tryHost.value;
     tryHost.innerHTML = [`<option value="local">эта машина</option>`, ...hosts.map((h) => `<option value="${esc(h.key)}">${esc(h.name)}</option>`)].join("");
+    if (keep && hosts.some((h) => h.key === keep)) tryHost.value = keep;
     draw();
     await Promise.all([showBrain(), loadLog()]);
-  })();
+  }
+
+  // хосты добавляют в разделе SSH, а не здесь: перечитываем при каждом открытии раздела, иначе
+  // новый хост появлялся только после перезапуска приложения (из отчёта)
+  window.addEventListener("view-shown", (e) => { if ((e as CustomEvent).detail === "agent") load(); });
+  load();
 }

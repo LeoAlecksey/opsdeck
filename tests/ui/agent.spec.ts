@@ -112,6 +112,22 @@ test.describe("ИИ-агент: правила", () => {
     await expect(page.locator(".toast").last()).toContainText("Правил добавлено: 3");
   });
 
+  // из отчёта: хост добавили в разделе SSH, а здесь он появлялся только после перезапуска
+  test("хост, добавленный в разделе SSH, виден сразу при возврате в раздел", async ({ app, page }) => {
+    const before = await page.locator(".agent-host").count();
+    await app.override("ssh_list", {
+      hosts: [{ id: "new1", name: "zeta-new", group: "prod", host: "198.51.100.99", port: 22, user: "ops", identity_file: "", jump: "", auth: "key", keepass_entry: "" }],
+      config: [],
+    });
+    await app.view("ssh");
+    await app.view("agent");
+    await expect(page.locator(".agent-host")).toHaveCount(1);
+    expect(before).toBeGreaterThan(1);
+    await expect(page.locator(".agent-host").first()).toContainText("zeta-new");
+    // и в проверке команды он тоже есть
+    await expect(page.locator(".agent-try-host option")).toContainText(["эта машина", "zeta-new"]);
+  });
+
   test("журнал показывает, что агент уже делал", async ({ page }) => {
     const rows = page.locator(".agent-log tbody tr");
     await expect(rows).toHaveCount(2);
