@@ -1407,7 +1407,9 @@ mod tests {
         fs::create_dir_all(&dir).unwrap();
         let part = dir.join("model.part");
         let cancel = std::sync::atomic::AtomicBool::new(false);
-        let client = reqwest::Client::new();
+        // без пула: первую порцию соединений сервер закрывает нарочно, и переиспользование уже
+        // закрытого соединения во второй попытке иногда ломало сам тест (macOS в CI)
+        let client = reqwest::Client::builder().pool_max_idle_per_host(0).build().unwrap();
         let url = format!("http://127.0.0.1:{port}/model.gguf");
         let total = body.len() as u64;
 
