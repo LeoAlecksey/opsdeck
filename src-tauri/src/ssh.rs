@@ -364,7 +364,6 @@ fn effective(alias: &str) -> Option<Effective> {
 /// Адрес, по которому до хоста сессии можно дотянуться не через ssh: браузеру алиас из
 /// ~/.ssh/config не поможет — такого имени в DNS нет, его знает только ssh (из отчёта: «Папка в
 /// web» открыла http://adas-adcu-build-3:8611 и страница, разумеется, не нашлась).
-/// Спрашиваем у самого ssh (`-G`), он учитывает и Match, и Include.
 #[tauri::command]
 pub async fn ssh_address(dest: Vec<String>) -> Result<String, String> {
     let target = dest.last().cloned().ok_or("нет адреса ssh-сессии")?;
@@ -373,11 +372,33 @@ pub async fn ssh_address(dest: Vec<String>) -> Result<String, String> {
         return Err(format!("непонятный адрес сессии: {target}"));
     }
     tauri::async_runtime::spawn_blocking(move || {
-        let resolved = effective(&alias).map(|e| e.hostname).filter(|h| !h.is_empty());
-        Ok(resolved.unwrap_or(alias))
+        // `ssh -G` учитывает Match и Include; если и он отдаёт имя, разрешаем его сами
+        let from_ssh = effective(&alias).map(|e| e.hostname).unwrap_or_default();
+        Ok(best_address(&from_ssh, &alias, resolve_ip))
     })
     .await
     .map_err(crate::store::err)?
+}
+
+/// Имя в IP силами системы (DNS, /etc/hosts, mDNS — что настроено). Порт здесь роли не играет.
+fn resolve_ip(host: &str) -> Option<String> {
+    use std::net::ToSocketAddrs;
+    let mut addrs: Vec<std::net::SocketAddr> = (host, 80u16).to_socket_addrs().ok()?.collect();
+    // IPv4 первым: он работает там, где IPv6 только настроен, но не маршрутизируется
+    addrs.sort_by_key(|a| !a.is_ipv4());
+    addrs.first().map(|a| a.ip().to_string())
+}
+
+/// Что отдать браузеру. Сначала то, что подставит сам ssh; если это снова короткое имя (а у
+/// алиасов так и бывает: `Host adas-adcu-build-3` без HostName), просим систему разрешить его в
+/// адрес. Браузер резолвит сам и о ~/.ssh/config не знает, поэтому имя для него бесполезно.
+fn best_address(from_ssh: &str, alias: &str, resolve: impl Fn(&str) -> Option<String>) -> String {
+    let named = |h: &str| !h.is_empty() && (h.contains('.') || h.contains(':'));
+    let host = if from_ssh.is_empty() { alias } else { from_ssh };
+    if named(host) {
+        return host.to_string();
+    }
+    resolve(host).unwrap_or_else(|| host.to_string())
 }
 
 /// Хост из «user@host» (пользователь браузеру не нужен).
@@ -892,6 +913,21 @@ mod tests {
         std::fs::write(dir.join("x"), "").unwrap();
         assert_ne!(key("Include x\nHost a\nUser u\n"), split, "a line moved between files");
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// Из отчёта: сессия открыта по алиасу, браузер получил алиас и не нашёл страницы.
+    #[test]
+    fn the_browser_gets_an_address_and_not_an_ssh_alias() {
+        let dns = |h: &str| (h == "adas-adcu-build-3").then(|| "172.21.255.30".to_string());
+        // HostName в конфиге указан адресом — его и берём
+        assert_eq!(super::best_address("172.21.255.30", "adas-adcu-build-3", dns), "172.21.255.30");
+        // HostName нет: ssh отдал то же имя, разрешаем его сами
+        assert_eq!(super::best_address("adas-adcu-build-3", "adas-adcu-build-3", dns), "172.21.255.30");
+        assert_eq!(super::best_address("", "adas-adcu-build-3", dns), "172.21.255.30");
+        // имя не разрешается нигде — отдаём как есть, выше по стеку это станет понятным отказом
+        assert_eq!(super::best_address("build-9", "build-9", dns), "build-9");
+        // домен и так годится, дёргать DNS незачем
+        assert_eq!(super::best_address("build.corp.example.com", "b", |_| panic!("не нужно")), "build.corp.example.com");
     }
 
     #[test]
