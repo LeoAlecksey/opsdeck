@@ -1150,7 +1150,7 @@ dialog.task-dialog { width: 520px; }
 .tabbar .tabs { min-width: 90px; } /* the active tab never shrinks to nothing */
 .tabbar.w1 .lbl { display: none; }
 .tabbar.w1 .ide-status { max-width: 22px; overflow: hidden; }
-.tabbar.w2 .font-ctl, .tabbar.w2 [data-act=records], .tabbar.w2 .help-btn { display: none; }
+.tabbar.w2 .font-ctl, .tabbar.w2 [data-act=records], .tabbar.w2 [data-act=popout], .tabbar.w2 .help-btn { display: none; }
 .tabbar.w3 [data-act=split-r], .tabbar.w3 [data-act=split-d], .tabbar.w3 [data-act=rec] { display: none; }
 /* notes toolbar: buttons keep one line; the note path shrinks instead */
 .notes-bar > :not(.note-path):not(.spacer) { flex: none; white-space: nowrap; }
@@ -1172,6 +1172,72 @@ body.no-select, body.no-select * { user-select: none; -webkit-user-select: none;
 .modules-pop label.check:hover { background: var(--panel-2); }
 .modules-pop label.check svg { width: 16px; height: 16px; flex: none; color: var(--muted); }
 .modules-pop .hint { margin: 8px 6px 2px; font-size: 12px; }
+
+/* правый клик по иконке модуля: «вынести в отдельное окно» */
+.view-menu { width: auto; min-width: 220px; }
+.view-menu .menu-item { display: flex; align-items: center; gap: 8px; width: 100%; padding: 7px 8px; border: 0; border-radius: 6px;
+  background: transparent; color: var(--text); font: inherit; text-align: left; cursor: pointer; }
+.view-menu .menu-item:hover { background: var(--panel-2); }
+.view-menu .menu-item svg { flex: none; color: var(--muted); }
+
+/* расследование в AI-панели: шаги, вывод, итог */
+.ai-chat-in .ai-agent-mode { display: flex; align-items: center; gap: 6px; margin: 0 0 6px; font-size: 12px; }
+.ai-msg.agent .ai-step { margin: 8px 0; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.ai-msg.agent .ai-step-head { display: flex; justify-content: space-between; gap: 8px; padding: 5px 8px; background: var(--panel-2); font-size: 12px; }
+.ai-msg.agent .ai-step pre { margin: 0; padding: 7px 8px; overflow-x: auto; }
+.ai-msg.agent .ai-step.denied { border-color: var(--danger); }
+.ai-msg.agent .ai-step.ask { border-color: #e3b341; }
+.ai-msg.agent .ai-out { margin: -4px 0 8px; font-size: 12px; }
+.ai-msg.agent .ai-out summary { cursor: pointer; color: var(--muted); }
+.ai-msg.agent .ai-out pre { max-height: 260px; overflow: auto; margin: 6px 0 0; padding: 6px 8px; background: var(--panel-2); border-radius: 6px; }
+.ai-msg.agent .ai-out.err summary { color: var(--danger); }
+.ai-msg.agent .ai-done { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border); }
+
+/* ИИ-агент: правила и журнал */
+.agent-lead { max-width: 76ch; margin: 0 0 14px; }
+.agent-body { display: grid; grid-template-columns: repeat(auto-fit, minmax(330px, 1fr)); gap: 12px; align-items: start; }
+.agent-card { padding: 12px 14px; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; }
+.agent-card h3 { margin: 0 0 10px; font-size: 14px; }
+.agent-card label { display: block; margin: 8px 0; }
+.agent-card label.row, .agent-card label.check, .agent .check.big { display: flex; align-items: center; gap: 8px; }
+.agent-card label input[type=number] { width: 90px; }
+.agent-card label > input:not([type=checkbox]):not([type=number]) { display: block; width: 100%; margin-top: 4px; }
+/* вкладку тащат за пределы окна: она уедет в соседнее окно вместе с сессией */
+.tab-ghost.out { border-color: var(--accent); color: var(--accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 35%, transparent); }
+.tab-menu button { display: flex; align-items: center; gap: 8px; white-space: nowrap; }
+
+.agent-levels { margin: 8px 0 10px; padding: 0; list-style: none; }
+.agent-levels li { padding: 6px 8px; border-radius: 6px; color: var(--muted); font-size: 13px; }
+.agent-levels li b { color: var(--text); }
+.agent-levels li.now { background: var(--panel-2); color: var(--text); }
+.agent-levels li.now b { color: var(--accent); }
+.agent-rules .rule-count { display: inline-block; margin-top: 2px; font-size: 12px; }
+.agent-rules button.small { float: right; margin-top: 2px; padding: 2px 8px; font-size: 12px; }
+.agent-rules textarea { display: block; width: 100%; margin-top: 4px; min-height: 48px; font-family: ui-monospace, monospace; font-size: 12px; resize: vertical; }
+.agent .check.big { font-weight: 600; }
+.agent.off .agent-body { opacity: .55; }
+.agent-host { display: grid; grid-template-columns: 1fr auto; gap: 2px 10px; align-items: center; padding: 6px 0; border-top: 1px solid var(--border); }
+.agent-host:first-child { border-top: 0; }
+.agent-host .ah-addr { grid-column: 1; font-size: 12px; }
+.agent-host select { grid-column: 2; grid-row: 1 / span 2; }
+.agent-try .row { flex-wrap: wrap; }
+.agent-try-cmd { flex: 1; min-width: 200px; font-family: ui-monospace, monospace; }
+.agent-try-out { margin: 10px 0 0; }
+.agent-brain-note { margin: 10px 0; }
+.agent-brain-note.ok { color: var(--accent); }
+.agent-brain-note.warn { color: #e3b341; }
+.agent-brain-note.err { color: var(--danger); }
+.agent-server { padding-left: 2px; border-left: 2px solid var(--border); margin-left: 2px; }
+.agent-try-out.ok { color: var(--accent); }
+.agent-try-out.warn { color: #e3b341; }
+.agent-try-out.err { color: var(--danger); }
+.agent-log { grid-column: 1 / -1; }
+.agent-log code { font-size: 12px; }
+.agent-log td.err { color: var(--danger); }
+
+/* окно одного раздела: боковой колонки нет, выносить его из себя же некуда */
+body.popout #sidebar { display: none; }
+body.popout .popout-btn { display: none; }
 
 /* local AI model picker */
 .ai-custom input { flex: 1; min-width: 0; }

@@ -4,14 +4,18 @@ import { t } from "../i18n";
 import { listen, EventCallback, UnlistenFn } from "@tauri-apps/api/event";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
+import { SerializeAddon } from "@xterm/addon-serialize";
 import { ShellBlocks } from "./blocks";
 import { hlPrefs, InputHighlighter, OutputHighlighter, type HlPrefs } from "./highlight";
 import { AutoSuggest } from "./suggest";
 import type { Launched } from "./shellkind";
-
-let seq = 0;
+import { copyText } from "./ui";
+import { uid } from "./winid";
 
 export type SpawnOpts = { program?: string; args?: string[]; cwd?: string; env?: Record<string, string> };
+
+/** Сессия, которую отдало другое окно: процесс уже работает, заново его запускать не нужно. */
+export type Adopt = { id: string; screen: string; launched: Launched | null };
 
 
 function b64(s: string): Uint8Array {
@@ -85,7 +89,7 @@ export const termFontStep = (d: number) => setTermFontSize(d === 0 ? TERM_FONT_D
 
 /** xterm.js bound to a backend PTY running `program` (defaults to $SHELL). */
 export class PtyTerminal {
-  readonly id = `pty${++seq}`;
+  readonly id: string;
   readonly term = new Terminal({
     fontFamily: termFontStack(), fontSize: termFontSize(), cursorBlink: true,
     scrollback: 20000, theme: currentTheme(), allowProposedApi: true, overviewRulerWidth: 8,
@@ -93,6 +97,7 @@ export class PtyTerminal {
   /** Command blocks (only populated when the shell integration is active). */
   readonly blocks = new ShellBlocks(this.term);
   private fit = new FitAddon();
+  private ser = new SerializeAddon();
   private outHl = new OutputHighlighter(this.term, this.blocks);
   private inHl = new InputHighlighter(this.term, this.blocks);
   private sugg = new AutoSuggest(this.term, this.blocks, (s) => this.send(s));
@@ -123,9 +128,11 @@ export class PtyTerminal {
   /** Settles once pty_spawn has answered: with `launched`, or null when it failed. */
   readonly started: Promise<Launched | null>;
 
-  constructor(readonly host: HTMLElement, readonly spawn: SpawnOpts = {}) {
+  constructor(readonly host: HTMLElement, readonly spawn: SpawnOpts = {}, adopt?: Adopt) {
     const opts = spawn;
+    this.id = adopt?.id ?? uid("pty");
     this.term.loadAddon(this.fit);
+    this.term.loadAddon(this.ser);
     this.term.open(host);
     this.inHl.setEnabled(this.hl.input);
     window.addEventListener("term-highlight", this.onHl);
@@ -165,7 +172,7 @@ export class PtyTerminal {
       // and the text lands in the terminal twice
       if (k === "C" && this.term.hasSelection()) {
         e.preventDefault();
-        invoke("clip_write", { text: this.term.getSelection() });
+        copyText(this.term.getSelection());
         return false;
       }
       if (k === "V") {
@@ -177,7 +184,7 @@ export class PtyTerminal {
     });
     this.ro = new ResizeObserver(() => this.resize());
     this.ro.observe(host);
-    this.started = this.start(opts).then(() => this.launched);
+    this.started = (adopt ? this.resume(adopt) : this.start(opts)).then(() => this.launched);
   }
 
   /** Subscribes to a backend event until dispose(): the handler's closure holds this terminal and its scrollback. */
@@ -187,12 +194,62 @@ export class PtyTerminal {
     else this.unlisten.push(un);
   }
 
-  private async start(opts: SpawnOpts) {
+  /** Подписки на вывод и конец процесса — одни и те же и для новой сессии, и для принятой. */
+  private async subscribe() {
     await this.listen<string>(`pty-data-${this.id}`, (e) => this.term.write(this.outHl.feed(b64(e.payload), this.hl.output)));
     await this.listen(`pty-exit-${this.id}`, () => {
       this.term.write(`\r\n\x1b[2m[${t("процесс завершён")}]\x1b[0m\r\n`);
       this.onExit?.();
     });
+  }
+
+  /**
+   * Принять сессию, которую отдало другое окно. Процесс тот же самый: меняется только окно,
+   * которое его рисует. Экран приходит снятым с прежнего терминала — иначе вкладка открылась бы
+   * пустой, хотя оболочка работает и всё помнит.
+   */
+  private async resume(a: Adopt) {
+    this.launched = a.launched;
+    await this.subscribe();
+    if (this.disposed) return;
+    this.safeFit();
+    if (a.screen) this.term.write(a.screen);
+    try {
+      await invoke("pty_adopt", { id: this.id });
+    } catch (e) {
+      this.term.write(`\r\n\x1b[31m${t("сессия больше не существует")}: ${t(String(e))}\x1b[0m\r\n`);
+      return;
+    }
+    if (this.disposed) return;
+    invoke("pty_resize", { id: this.id, cols: this.term.cols, rows: this.term.rows }).catch(() => {});
+  }
+
+  /** Экран со всем, что на нём есть, вместе с цветами — чтобы перенести вкладку в другое окно. */
+  serialize(): string {
+    try {
+      return this.ser.serialize({ scrollback: 5000 });
+    } catch {
+      return "";
+    }
+  }
+
+  /** Отдать сессию другому окну: отписываемся и убираем терминал, процесс не трогаем. */
+  detach(): Adopt {
+    const screen = this.serialize();
+    this.disposed = true;
+    this.ro.disconnect();
+    window.removeEventListener("term-highlight", this.onHl);
+    window.removeEventListener("term-font", this.onFont);
+    window.removeEventListener("term-font-family", this.onFontFamily);
+    window.removeEventListener("term-theme", this.onTheme);
+    this.sugg.dispose();
+    this.unlisten.forEach((u) => u());
+    this.term.dispose();
+    return { id: this.id, screen, launched: this.launched };
+  }
+
+  private async start(opts: SpawnOpts) {
+    await this.subscribe();
     // closed while subscribing: its pty_kill has already gone, a shell started now would be orphaned
     if (this.disposed) return;
     this.safeFit();

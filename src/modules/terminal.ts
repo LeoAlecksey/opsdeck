@@ -3,19 +3,23 @@ import { icon } from "./icons";
 import { sshTarget as parseSshTarget } from "./sshargs";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { PtyTerminal, SpawnOpts, termFontSize, termFontStep } from "./pty";
+import { Adopt, PtyTerminal, SpawnOpts, termFontSize, termFontStep } from "./pty";
 import { Block, fmtDuration } from "./blocks";
 import { pickSshHost } from "./hostpick";
+import { targets } from "./monitor";
 import { registerProvider } from "./palette";
 import { hlPrefs, setHlPrefs } from "./highlight";
 import { addSnippet } from "./snippets";
-import { attachPathLinks, mountFiles } from "./files";
-import { ask, esc, overlay, toast } from "./ui";
+import { attachPathLinks, attachUrlLinks, mountFiles } from "./files";
+import { addressable, throughTunnel, type Target } from "./urls";
+import { ask, copyText, esc, overlay, toast } from "./ui";
 import { t } from "../i18n";
 import { isWindows } from "./themes";
 import { AI_PROVIDERS, aiAgent, setAiAgent } from "./ai-agents";
 import { LocalChat } from "./aichat";
 import { isProgramPath, isWsl, shellName, webShareCommand, wslDistro } from "./shellkind";
+import { popoutOpen } from "./popout";
+import { beyondWindow, popoutView, winLabel } from "./winid";
 
 /** Other modules open a tab via: window.dispatchEvent(new CustomEvent("open-terminal", { detail })) */
 export type OpenTerminalDetail = SpawnOpts & { title?: string; keepOpen?: boolean };
@@ -71,6 +75,7 @@ export function mountTerminal(root: HTMLElement) {
         <button class="icon" data-act="split-host" title="Новая панель с SSH-хостом: рядом с текущими, до 6 в одной вкладке. Вкладку можно и перетащить на область терминала — она встанет панелью">${icon("server", 16)}</button>
         <button class="icon rec-btn" data-act="rec" title="Записывать эту панель в файл (вкл/выкл)">${icon("record", 16)}</button>
         <button class="icon" data-act="records" title="Открыть папку с записями сессий">${icon("folderOpen", 16)}</button>
+        <button class="icon popout-btn" data-act="popout" title="Вынести терминал в отдельное окно: его вкладки и панели останутся здесь, в новом окне откроется свой терминал">${icon("externalLink", 16)}</button>
         <span class="font-ctl" title="Размер шрифта терминала: Ctrl+= / Ctrl+- / Ctrl+0, или Ctrl+колесо">
           <button class="icon" data-act="font-down">A−</button><span class="font-size"></span><button class="icon" data-act="font-up">A+</button>
         </span>
@@ -129,6 +134,12 @@ export function mountTerminal(root: HTMLElement) {
 
   const tabs: Tab[] = [];
   let activeTab: Tab | null = null;
+  /**
+   * Вкладка, которую окно открыло себе само при запуске, пока в неё ничего не набрали. Когда окно
+   * открывают ради перенесённой вкладки, эта пустая уступает ей место: иначе в новом окне их две,
+   * и первая никому не нужна (из отчёта).
+   */
+  let startupTab: Tab | null = null;
   const filesPanel = $(".files-panel");
   /** what the AI panel holds: an agent's CLI in a terminal, or the local AI chat */
   type AiPane = { dispose(): void; resize(): void; paste(text: string): void; focus(): void };
@@ -193,7 +204,7 @@ export function mountTerminal(root: HTMLElement) {
 
   // ----- panes -----
 
-  function addPane(tab: Tab, opts: OpenTerminalDetail = {}) {
+  function addPane(tab: Tab, opts: OpenTerminalDetail = {}, adopt?: Adopt) {
     const { title, keepOpen, ...spawn } = opts;
     const el = document.createElement("div");
     el.className = "pane";
@@ -227,7 +238,7 @@ export function mountTerminal(root: HTMLElement) {
       else focusPane(pane);
     });
     layoutTab(tab);
-    mountPty(pane);
+    mountPty(pane, adopt);
     wireBlocks(pane);
     el.querySelector<HTMLElement>(".reconnect-bar")!.addEventListener("click", (e) => {
       const a = (e.target as HTMLElement).closest<HTMLElement>("[data-rc]")?.dataset.rc;
@@ -243,14 +254,16 @@ export function mountTerminal(root: HTMLElement) {
     return pane;
   }
 
-  /** (Re)starts the pane's process in its terminal area. */
-  function mountPty(pane: Pane) {
+  /** (Re)starts the pane's process in its terminal area; `adopt` — сессия, пришедшая из другого окна. */
+  function mountPty(pane: Pane, adopt?: Adopt) {
     const area = pane.el.querySelector<HTMLElement>(".pane-term")!;
     area.innerHTML = "";
-    const pty = new PtyTerminal(area, pane.spawn);
+    const pty = new PtyTerminal(area, pane.spawn, adopt);
     pane.pty = pty;
     pane.exited = false;
     attachPathLinks(pty);
+    attachUrlLinks(pty, (target) => openFromOutput(pane, target));
+    pty.term.onData(() => { if (startupTab === pane.tab) startupTab = null; });
     // a plain tab learns its program (the shell from Settings) only when pty_spawn answers, and ConPTY's
     // first title, the program's path, may come before that: such a title waits until it can be checked
     const setTitle = (t: string) => {
@@ -412,6 +425,10 @@ export function mountTerminal(root: HTMLElement) {
     let ghost: HTMLElement | null = null, zoneEl: HTMLElement | null = null;
     let zone: "left" | "right" | "top" | "bottom" | "end" | null = null;
     const target = () => (activeTab && activeTab !== tab ? activeTab : null);
+    // захват указателя: иначе, как только курсор уходит за край окна, события перестают приходить
+    // и «утащить вкладку наружу» не отличить от «отпустил у самого края»
+    try { tab.btn.setPointerCapture(e.pointerId); } catch { /* мышь уже отпущена */ }
+    let outside = false;
     const move = (ev: PointerEvent) => {
       if (!ghost) {
         if (Math.hypot(ev.clientX - sx, ev.clientY - sy) < 8) return;
@@ -427,6 +444,9 @@ export function mountTerminal(root: HTMLElement) {
       }
       ghost.style.left = `${ev.clientX + 12}px`;
       ghost.style.top = `${ev.clientY + 8}px`;
+      outside = beyondWindow(ev.clientX, ev.clientY, window.innerWidth, window.innerHeight);
+      ghost.classList.toggle("out", outside);
+      if (outside) { zone = null; zoneEl!.hidden = true; return; }
       const r = hostsEl.getBoundingClientRect();
       const inside = target() && ev.clientX >= r.left && ev.clientX <= r.right && ev.clientY >= r.top && ev.clientY <= r.bottom;
       if (!inside) { zone = null; zoneEl!.hidden = true; return; }
@@ -449,7 +469,9 @@ export function mountTerminal(root: HTMLElement) {
         // the click that ends a drag must not switch to the dragged tab
         justDragged = true;
         setTimeout(() => (justDragged = false), 0);
-        if (zone && dst) movePanes(tab, dst, zone);
+        // вытащили за край приложения — вкладка уезжает в соседнее окно вместе с сессией
+        if (outside) moveTabToWindow(tab);
+        else if (zone && dst) movePanes(tab, dst, zone);
       }
     };
     document.addEventListener("pointermove", move);
@@ -464,6 +486,105 @@ export function mountTerminal(root: HTMLElement) {
     focusPane(tab.panes[i]);
     tab.panes[i].pty.term.focus();
   }
+
+  /** Правый клик по вкладке: перенос в соседнее окно (и подсказка, что сессия не перезапустится). */
+  function tabMenu(tab: Tab, x: number, y: number) {
+    document.querySelector(".tab-menu")?.remove();
+    const back = otherWindow() === "main";
+    const menu = document.createElement("div");
+    menu.className = "web-pick-menu tab-menu";
+    menu.innerHTML = `<button class="ghost" data-a="move" title="Процесс не перезапускается: переезжает только окно, в котором он нарисован">
+      ${icon("externalLink", 14)} ${back ? "Вернуть в главное окно" : "Вынести в отдельное окно"}</button>`;
+    menu.style.left = `${Math.min(x, window.innerWidth - 240)}px`;
+    menu.style.top = `${y + 4}px`;
+    overlay(true);
+    document.body.appendChild(menu);
+    const close = (e?: Event) => {
+      if (e instanceof KeyboardEvent && e.key !== "Escape") return;
+      if (e && e.type === "pointerdown" && menu.contains(e.target as Node)) return;
+      menu.remove();
+      document.removeEventListener("pointerdown", close, true);
+      document.removeEventListener("keydown", close, true);
+      overlay(false);
+    };
+    menu.addEventListener("click", () => { close(); moveTabToWindow(tab); });
+    document.addEventListener("pointerdown", close, true);
+    document.addEventListener("keydown", close, true);
+  }
+
+  // ----- перенос вкладки в другое окно -----
+
+  /** Что уезжает вместе с панелью: сессия, снятый экран и всё, чем панель была. */
+  type MovedPane = Adopt & { spawn: SpawnOpts; title?: string; termTitle?: string; keepOpen: boolean; recording?: string; lastConn?: string; shared?: string[] };
+  type MovedTab = { title: string; dir: "row" | "column"; panes: MovedPane[] };
+
+  /** Куда уезжает вкладка: из главного окна — в вынесенное, из вынесенного — обратно. */
+  const otherWindow = () => (popoutView() === "terminal" ? "main" : "pop-terminal");
+
+  /**
+   * Отдать вкладку другому окну. Оболочки не перезапускаются: процессы те же, меняется только
+   * окно, которое их рисует, — поэтому `cd`, переменные и запущенный ssh остаются как были.
+   */
+  async function moveTabToWindow(tab: Tab) {
+    const to = otherWindow();
+    const payload: MovedTab = {
+      title: tab.label.textContent ?? "shell",
+      dir: tab.dir,
+      panes: tab.panes.map((p) => ({
+        id: p.pty.id, screen: "", launched: p.pty.launched,
+        spawn: p.spawn, title: p.title, termTitle: p.termTitle, keepOpen: p.keepOpen,
+        recording: p.recording, lastConn: p.lastConn, shared: p.shared,
+      })),
+    };
+    try {
+      // окно адресата должно существовать до передачи: иначе сессия уедет в никуда
+      if (to === "main") await invoke("window_focus_main");
+      else await invoke("window_popout", { view: "terminal" });
+      // экран снимаем в последний момент — вместе с отпиской, чтобы не потерять то, что пришло
+      payload.panes.forEach((moved, i) => Object.assign(moved, tab.panes[i].pty.detach()));
+      await invoke("term_handoff_put", { to, payload });
+    } catch (e) {
+      toast(String(e), "err");
+      return;
+    }
+    // панели отпущены, а не закрыты: ни pty_kill, ни остановки записи, ни закрытия туннеля
+    tab.panes.splice(0).forEach((p) => p.el.remove());
+    closeTab(tab);
+    toast(to === "main" ? "Вкладка возвращена в главное окно" : "Вкладка вынесена в отдельное окно");
+  }
+
+  /** Принять вкладку, отданную другим окном. */
+  function adoptTab(moved: MovedTab) {
+    const tab = createTab(moved.title);
+    tab.dir = moved.dir;
+    for (const m of moved.panes) {
+      const pane = addPane(tab, { ...m.spawn, title: m.title, keepOpen: m.keepOpen }, { id: m.id, screen: m.screen, launched: m.launched });
+      pane.termTitle = m.termTitle;
+      pane.recording = m.recording;
+      pane.lastConn = m.lastConn;
+      pane.shared = m.shared;
+      paneTitle(pane);
+    }
+    layoutTab(tab);
+    activate(tab);
+    dropStartupTab();
+    toast("Вкладка перенесена сюда");
+  }
+
+  /** Пустая вкладка, открытая при запуске окна, закрывается, когда приехала настоящая. */
+  function dropStartupTab() {
+    const empty = startupTab;
+    startupTab = null;
+    if (empty && tabs.includes(empty) && tabs.length > 1 && empty.panes.length === 1) closeTab(empty);
+  }
+
+  async function takeHandoff() {
+    const moved = await invoke<MovedTab | null>("term_handoff_take").catch(() => null);
+    if (moved?.panes?.length) adoptTab(moved);
+  }
+  // окно только что открылось — вкладка уже ждёт; открытое заранее узнаёт о ней из события
+  takeHandoff();
+  listen<string>("term-handoff", (e) => { if (e.payload === winLabel()) takeHandoff(); });
 
   // ----- tabs -----
 
@@ -491,6 +612,7 @@ export function mountTerminal(root: HTMLElement) {
     const tab: Tab = { btn, host, label, panes: [], active: null, dir: "row" };
     btn.onclick = () => { if (!justDragged) activate(tab); };
     btn.addEventListener("pointerdown", (e) => startTabDrag(e, tab));
+    btn.addEventListener("contextmenu", (e) => { e.preventDefault(); tabMenu(tab, e.clientX, e.clientY); });
     btn.querySelector<HTMLElement>(".x")!.onclick = (e) => { e.stopPropagation(); closeTab(tab); };
     tabs.push(tab);
     return tab;
@@ -547,8 +669,8 @@ export function mountTerminal(root: HTMLElement) {
       const act = (e.target as HTMLElement).closest<HTMLElement>("[data-b]")?.dataset.b;
       const b = hovered;
       if (!act || !b) return;
-      if (act === "cmd") { await invoke("clip_write", { text: b.command }); toast("Команда скопирована"); }
-      if (act === "out") { await invoke("clip_write", { text: blockText(p, b, 5000) }); toast("Вывод скопирован"); }
+      if (act === "cmd") { await copyText(b.command); toast("Команда скопирована"); }
+      if (act === "out") { await copyText(blockText(p, b, 5000)); toast("Вывод скопирован"); }
       if (act === "save") addSnippet(b.command);
       if (act === "ai") askAi(p, b);
     });
@@ -581,6 +703,33 @@ export function mountTerminal(root: HTMLElement) {
     };
   }
 
+  /**
+   * Ctrl+клик по адресу в выводе. Если сервер подняли на хосте по ssh, его localhost — это
+   * localhost того хоста: прыгать туда напрямую некуда, поэтому поднимаем ssh -L к этому порту и
+   * открываем уже свой конец туннеля. Туннель закрывается вместе с панелью, как у раздачи папки.
+   */
+  async function openFromOutput(pane: Pane, target: Target) {
+    const remote = pane.spawn.program === "ssh" ? parseSshTarget(pane.spawn.args ?? []) : null;
+    // снаружи сети хоста такой адрес открывать нечем: ведём туда ssh -L прямо на этот хост и порт
+    if (target.where === "outside" || !remote) {
+      invoke("open_external", { url: target.url }).catch((e) => toast(String(e), "err"));
+      return;
+    }
+    toast(`${t("Поднимаю туннель к")} ${target.host}:${target.port}…`);
+    try {
+      const local = await invoke<number>("web_share_tunnel", { dest: remote, port: target.port, host: target.host });
+      pane.shared = remote;
+      if (!(await invoke<boolean>("web_share_ready", { port: local }))) {
+        return toast(`${target.host}:${target.port} ${t("не ответил через хост сессии — проверьте, что сервер слушает именно этот адрес")}`, "err");
+      }
+      const url = throughTunnel(target.url, local);
+      await invoke("open_external", { url });
+      toast(`${t("Открыто через туннель")}: ${url}`);
+    } catch (e) {
+      toast(String(e), "err");
+    }
+  }
+
   // ----- «открыть папку в web» -----
 
   async function webShare() {
@@ -595,7 +744,7 @@ export function mountTerminal(root: HTMLElement) {
     toast(t("Поднимаю раздачу…"));
     try {
       // ssh -L к порту на самом хосте; для локального шелла порт уже локальный
-      const local = remote ? await invoke<number>("web_share_tunnel", { dest: remote, port }) : port;
+      const local = remote ? await invoke<number>("web_share_tunnel", { dest: remote, port, host: "127.0.0.1" }) : port;
       if (remote) p.shared = remote;
       // туннель открыт — это ещё не значит, что раздача отвечает: локальный порт слушает сам ssh,
       // а на том конце может не быть никого (python ещё не поднялся или сессия ведёт на другой хост)
@@ -610,7 +759,9 @@ export function mountTerminal(root: HTMLElement) {
 
   /** Через туннель не ответили: предлагаем раздать по адресу хоста — но вслух про то, что это видно в сети. */
   async function sharePlanB(p: Pane, remote: string[] | null, port: number) {
-    const host = (remote?.at(-1) ?? "").split("@").pop() ?? "";
+    // алиас из ~/.ssh/config знает только ssh: в браузере он не резолвится (из отчёта — открылась
+    // страница «не найдено»). Спрашиваем у ssh настоящий адрес этого хоста.
+    const host = remote ? await invoke<string>("ssh_address", { dest: remote }).catch(() => "") : "";
     const why = t("Через туннель раздача не ответила. Так бывает, когда внутри этой сессии вы зашли дальше на другой хост: туннель ведёт на первый.");
     const ok = await ask(t("Раздать папку по адресу хоста?"), `${why}\n${t("Можно раздать её на всех адресах хоста — тогда папку увидит любой, кто дотянется до него по сети. Останавливает Ctrl+C.")}`,
       { ok: t("Раздать на всех адресах"), danger: true });
@@ -621,10 +772,13 @@ export function mountTerminal(root: HTMLElement) {
     p.pty.send("\x03");
     p.pty.send(`python3 -m http.server ${port}\r`);
     p.pty.term.focus();
-    if (host) {
-      const url = `http://${host}:${port}/`;
+    // частный адрес хоста браузеру дать можно (вы в этой сети), короткое имя — нет
+    const url = host && addressable(host) ? `http://${host}:${port}/` : "";
+    if (url) {
       await invoke("open_external", { url }).catch(() => {});
       toast(`Папка раздаётся: ${url} — Ctrl+C в терминале останавливает`);
+    } else if (host) {
+      toast(`${t("Папка раздаётся на")} ${host}:${port} — ${t("этот адрес открывается только изнутри сети хоста")}`, "err");
     } else {
       toast(`${t("Папка раздаётся на порту")} ${port} — ${t("откройте её по адресу этого хоста")}`);
     }
@@ -659,6 +813,8 @@ export function mountTerminal(root: HTMLElement) {
     if (p.local) {
       return new LocalChat(body, {
         context: () => ({ cwd: cwd(), shell: shellName(activePane()?.pty.launched ?? null) }),
+        // хосты для расследования: те же, что в разделах SSH и «ИИ-агент»
+        hosts: async () => targets(await invoke("ssh_list")).map((x) => ({ key: x.key, name: x.name })),
         // into the active pane, as a bracketed paste: multi-line stays one input, no Enter
         insert: (cmd) => { const pane = activePane(); if (!pane) return; pane.pty.send(`\x1b[200~${cmd}\x1b[201~`); pane.pty.term.focus(); },
       });
@@ -867,6 +1023,7 @@ export function mountTerminal(root: HTMLElement) {
   $("[data-act=split-host]").onclick = () => splitHost();
   $("[data-act=rec]").onclick = toggleRec;
   $("[data-act=records]").onclick = () => { invoke("pty_records_open").catch((e) => toast(String(e), "err")); };
+  $("[data-act=popout]").onclick = () => popoutOpen("terminal");
   $("[data-act=font-up]").onclick = () => termFontStep(1);
   $("[data-act=font-down]").onclick = () => termFontStep(-1);
   const fontSizeEl = $(".font-size");
@@ -1027,5 +1184,6 @@ export function mountTerminal(root: HTMLElement) {
   const show = () => window.dispatchEvent(new CustomEvent("show-view", { detail: "terminal" }));
 
   newTab();
+  startupTab = tabs[0] ?? null;
   if (load("opsdeck.files.open", "0") === "1") toggleFiles(true);
 }

@@ -16,6 +16,8 @@ export const HELP_EN: Record<string, { title: string; html: string }> = {
         <li><b>◆ Claude IDE</b> in the tab bar — Claude Code is connected to OpsDeck and sees selections in notes.</li>
         <li>Coloured marks on the scrollbar are commands (red — failed).</li>
         <li><b>⏺</b> — record the active pane to a text file (on/off); a red dot on the tab while recording. Files go to Documents/OpsDeck/sessions, <b>📂</b> next to ⏺ opens that folder. Passwords you type are not recorded — the terminal doesn't display them.</li>
+        <li><b>↗ Separate window</b> — move the terminal into a second window: on a second monitor it stays in front of you and you don't have to switch sections. The tabs and panes stay in the main window too, and the new window gets a terminal of its own (their sessions are separate). Almost any section can be moved out this way: right-click its icon on the left, or the command palette (${kbd("Ctrl+Shift+P")}) → “Open in a separate window”. The window's size and place are remembered; closing the main window closes the detached ones with it.</li>
+        <li><b>A tab can move to another window together with its session</b>: right-click the tab → “Open in a separate window”, and in the detached window → “Back to the main window”. You can also simply drag the tab past the edge of the window. The process is not restarted: it is the same shell, <code>cd</code>, variables, a running ssh or top stay as they were — only the window drawing them changes, and the screen travels with the tab. Closing a window still closes its tabs, so a moved session lives with the window it moved into.</li>
         <li><b>A− 13 A+</b> — font size in all terminals (click the number — back to 13). Also ${kbd("Ctrl+=")} / ${kbd("Ctrl+-")} / ${kbd("Ctrl+0")} or ${kbd("Ctrl")}+mouse wheel over the terminal. The size is remembered.</li>
         <li><b>The bottom bar</b> — resources of the machine: this one, or the remote one when the active tab runs an SSH session (Linux hosts; metrics go over the same SSH connection, no second login).</li>
         <li><b>Highlighting</b>: while typing, the command is green if it exists and red if not (aliases and functions from your .bashrc/.zshrc count); flags, strings, $VARIABLES, | && ; and comments get their own colours. In the output: ERROR/WARN, pod states (Running, CrashLoopBackOff…), IPs, links and time. Turn off in ⚙ → Terminal or via the palette.</li>
@@ -25,6 +27,7 @@ export const HELP_EN: Record<string, { title: string; html: string }> = {
         <li><b>Several AIs side by side.</b> Picking an agent at the top of the AI panel no longer restarts it: one already open just gets the focus, a new one is added next to it (up to three). Each keeps its own conversation and its own ⟳ and ×. A selection or logs go to the one in focus.</li>
         <li><b>✦ AI</b> (${kbd("Ctrl+Shift+K")}) — <b>local AI</b>: describe in words what to do (“restart the api deployment in stage”) and get a command based on your notes and history. <b>Paste</b> (${kbd("Enter")}) puts it on the line without running, <b>Run</b> (${kbd("Ctrl+Enter")}) runs it. The model (Qwen2.5-Coder 1.5B by default) is chosen and installed in ⚙ → Local AI and runs only on this computer.</li>
         <li><b>AI knowledge base</b> — built-in cheat sheets for kubectl, helm, docker, systemd, terraform, git, ssh, jq, networking, disks, nginx, PostgreSQL, MySQL, ClickHouse, Kafka, Redis, Vault, PromQL, ansible, certificates and Yandex Cloud: when a request looks like one of the topics, proven commands go into the model's prompt, so the flags are real rather than invented. Your own commands go into <code>knowledge.md</code> next to the settings (⚙ → Local AI → “Open folder”), and they come first.</li>
+        <li><b>${kbd("Ctrl")}+click on an address in the output</b> — open it in the browser. <code>0.0.0.0</code> and <code>[::]</code> become <code>127.0.0.1</code>: that is “listening on every address”, not an address to connect to. When the server runs on a host in an ssh session (<code>python3 -m http.server</code>, vite, a service's web interface), its <code>localhost</code> is that host's localhost, so OpsDeck opens an <code>ssh -L</code> tunnel to that port and opens its own end. It does the same for short names (<code>build-3</code>) and private addresses (10/8, 172.16/12, 192.168/16): outside that network such a name does not resolve and such an address is not routed, but through the session's host it gets there — even when the server sits on a neighbouring machine in the same network. The tunnels close with the tab.</li>
         <li>${kbd("Ctrl")}+click a path in the output (e.g. <code>src/main.rs:42</code> from a compiler error) — open the file in the editor at that line.</li>
       </ul>
       <h4>Hotkeys</h4>
@@ -328,6 +331,32 @@ export const HELP_EN: Record<string, { title: string; html: string }> = {
       <li>⟳ — re-read the list from the server (new and changed entries).</li>
       <li>Passbolt entries can be bound to web panels, SSH hosts, databases and MikroTik routers — then passwords are taken from here.</li>
       <li>While Passbolt is unlocked, passwords are in the palette ${kbd("Ctrl+Shift+P")} → “Password: …”.</li></ul>`,
+  },
+  agent: {
+    title: "AI agent",
+    html: `
+      <h4>What this is</h4>
+      <p>The agent goes to a host itself and looks at what is happening there: service logs, systemd state, disk space, containers, pods. It doesn't guess from memory — it runs real commands and reads their output. It can change only what is allowed here, and only the way the dialog shows before it runs. Investigations start in the terminal's AI panel; this section is about the rules.</p>
+      <h4>How to start an investigation</h4>
+      <p>In the terminal's AI panel pick “OpsDeck AI (local)” and tick <b>Investigation</b> (it appears once the agent is switched on here). Then just ask: “go to app-1 and look at the disk”. The agent picks a command, shows it with the host, runs it under the rules of this section and feeds the output back to itself for the next step — until there is an answer or the steps run out. Every step is visible in the panel: the command, whether it is reading or a change, the exit code and the output under a disclosure arrow. “Stop” interrupts between steps.</p>
+      <h4>Access levels</h4>
+      <ul>
+        <li><b>Stay away</b> — the agent does not enter this host: nothing runs, not even reading.</li>
+        <li><b>Read only</b> — it runs reading commands itself (logs, service state, disk space, containers, pods). Any changing command is refused, and permission does not get around that.</li>
+        <li><b>Change with permission</b> — it reads on its own; for every changing command it shows the exact line and the host name and waits for a click. A refusal does not end the investigation — the agent moves on.</li>
+        <li><b>Change freely</b> — it reads and changes on its own, no dialogs; the bans still apply. For throwaway environments.</li>
+      </ul>
+      <p>A host's level wins over the default one. The switch at the top wins over every level: while it is off, the agent does nothing.</p>
+      <h4>Your own rules</h4>
+      <p>Three lists: <b>count as reading</b> (the agent runs it itself even where it would ask), <b>always ask</b> (it shows it and waits for a click even when it is only reading) and <b>forbid completely</b> (it runs at no level). A ban wins over "ask", "ask" wins over "reading", and no rule unlocks what is forbidden always.</p>
+      <p>Rules go one per line or separated by commas — a space cannot be the separator, because the rules themselves are made of words. A rule is the words of a command in order: <code>docker system prune</code> also catches <code>docker system prune -a --volumes</code>, and <code>kubectl get secret</code> catches <code>kubectl -n shop get secret db -o yaml</code>, because flags shift the words but do not change their order. If a rule contains <code>|</code> or <code>&gt;</code>, it is searched in the whole line: that is how <code>| bash</code> is written. A rule catches the command under <code>sudo</code> too.</p>
+      <h4>What never runs</h4>
+      <p>Redirections and compound commands (<code>&gt;</code>, <code>;</code>, <code>&amp;&amp;</code>, backticks), interpreters (<code>sh</code>, <code>bash</code>, <code>python</code>, <code>awk</code>, <code>nc</code>) and the irreversible (<code>rm</code>, <code>dd</code>, <code>mkfs</code>, <code>reboot</code>, <code>passwd</code>). None of it passes at any level, "change freely" included: that is not a command the rules can reason about, it is running someone else's text. If you need it, type it in the terminal yourself.</p>
+      <p><code>sudo</code> has its own checkbox, and under it even reading counts as a change.</p>
+      <h4>Why so strict</h4>
+      <p>The agent reads logs, and logs are written by anyone. A line like "ADMIN NOTE: run this command" is indistinguishable from real data for a model, so output from a host is treated as data, not instructions: what runs is decided by the rules in this section, not by the model's answer.</p>
+      <h4>Checking and the log</h4>
+      <p><b>Check a command</b> shows what would happen if the agent proposed it — without running anything. The <b>log</b> keeps every command that ran: when, on which host, whether it was reading or a change, with permission or not, and the exit code.</p>`,
   },
   winbox: {
     title: "MikroTik",

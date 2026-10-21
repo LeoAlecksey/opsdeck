@@ -2,6 +2,7 @@ import { relTo } from "./paths";
 import { fileIcon, folderIcon } from "./fileicons";
 import { icon } from "./icons";
 import { invoke } from "@tauri-apps/api/core";
+import { findUrls, siteTarget, type Target } from "./urls";
 import type { PtyTerminal } from "./pty";
 import { ask, esc, toast } from "./ui";
 
@@ -91,6 +92,29 @@ export function attachPathLinks(pty: PtyTerminal) {
           done(r);
         })
         .catch(() => callback(undefined));
+    },
+  });
+}
+
+/**
+ * Ctrl+клик по адресу в выводе: открыть то, что только что поднялось. Решение, куда идти, —
+ * в urls.ts (там же и тесты), здесь только подчёркивание и клик.
+ */
+export function attachUrlLinks(pty: PtyTerminal, open: (target: Target, raw: string) => void) {
+  pty.term.registerLinkProvider({
+    provideLinks(y, callback) {
+      const line = pty.term.buffer.active.getLine(y - 1)?.translateToString(true) ?? "";
+      const links = findUrls(line)
+        .map((u) => ({ u, target: siteTarget(u.text) }))
+        .filter((x) => x.target)
+        .map(({ u, target }) => ({
+          text: u.text,
+          range: { start: { x: u.start + 1, y }, end: { x: u.start + u.text.length, y } },
+          decorations: { underline: true, pointerCursor: true },
+          activate: (ev: MouseEvent) => { if (ev.ctrlKey || ev.metaKey) open(target!, u.text); },
+          hover: () => {},
+        }));
+      callback(links.length ? links : undefined);
     },
   });
 }

@@ -2,6 +2,7 @@ import { helpBtn } from "./help";
 import { icon } from "./icons";
 import { invoke } from "@tauri-apps/api/core";
 import { esc } from "./ui";
+import { uid } from "./winid";
 import { listen, UnlistenFn } from "@tauri-apps/api/event";
 
 const TOOLS: Record<string, { label: string; fields: ("count" | "server" | "record" | "port")[] }> = {
@@ -14,7 +15,6 @@ const TOOLS: Record<string, { label: string; fields: ("count" | "server" | "reco
 };
 const RECORDS = ["A", "AAAA", "CNAME", "MX", "NS", "TXT", "SOA", "SRV", "PTR", "CAA", "ANY"];
 
-let seq = 0;
 
 export function mountNetwork(root: HTMLElement) {
   root.innerHTML = `
@@ -111,7 +111,7 @@ export function mountNetwork(root: HTMLElement) {
     e.preventDefault();
     if (current) return;
     const v = (n: string) => (form.elements.namedItem(n) as HTMLInputElement).value.trim();
-    const runId = `run${++seq}`;
+    const runId = uid("run");
     // output can arrive before tool_run returns the command line: hold it until "$ cmd" is shown
     let held: (() => void)[] | null = [];
     const show = (f: () => void) => (held ? held.push(f) : f());
@@ -157,7 +157,6 @@ function mountPorts(root: HTMLElement) {
   type R = { port: number; state: string; service: string; banner: string; ms: number };
   let results: R[] = [];
   let unlisten: UnlistenFn | null = null;
-  let seqP = 0;
 
   const draw = () => {
     const only = f("onlyopen").checked;
@@ -175,7 +174,7 @@ function mountPorts(root: HTMLElement) {
     unlisten?.();
     results = [];
     draw();
-    const id = `ps${++seqP}`;
+    const id = uid("ps");
     let total = 0;
     unlisten = await listen<R & { type: string; ip?: string; open?: number; closed?: number; filtered?: number }>(`port-scan-${id}`, (ev) => {
       const m = ev.payload;

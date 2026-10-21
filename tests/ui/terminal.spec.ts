@@ -165,7 +165,7 @@ test.describe("terminal", () => {
     expect(port).toBeGreaterThanOrEqual(8000);
     expect(text).toContain("--bind 127.0.0.1"); // наружу папка не светится
     // туннель — к адресу этой же сессии, с её портом и пользователем
-    expect((await app.called("web_share_tunnel")).args).toEqual({ dest: ["-p", "2222", "ops@198.51.100.7"], port });
+    expect((await app.called("web_share_tunnel")).args).toEqual({ dest: ["-p", "2222", "ops@198.51.100.7"], port, host: "127.0.0.1" });
     expect((await app.called("open_external")).args).toEqual({ url: "http://127.0.0.1:41234/" });
     await expect(page.locator(".toast").last()).toContainText("http://127.0.0.1:41234/");
 
@@ -199,6 +199,41 @@ test.describe("terminal", () => {
     // второй запуск — уже без --bind, то есть на всех адресах хоста
     expect(text.slice(text.lastIndexOf("\u0003"))).toBe(`\u0003python3 -m http.server ${port}\r`);
     expect((await app.called("open_external")).args).toEqual({ url: `http://198.51.100.7:${port}/` });
+  });
+
+  // из отчёта: сессия открыта по алиасу из ~/.ssh/config, и план Б отдал браузеру этот алиас —
+  // страница «не найдено», потому что в DNS такого имени нет, его знает только ssh
+  test("plan B opens the address ssh really uses, not the config alias", async ({ app, page }) => {
+    await app.called("pty_spawn");
+    await app.override("web_share_tunnel", 41234);
+    await app.override("web_share_ready", false);
+    await page.evaluate(() => window.dispatchEvent(new CustomEvent("open-terminal", { detail: { program: "ssh", args: ["alexey@adas-adcu-build-3"], keepOpen: true } })));
+    await expect.poll(async () => ((await app.calls("pty_spawn")).at(-1)!.args as any).req.program).toBe("ssh");
+
+    await page.locator("[data-act=web-share]").click();
+    await page.locator("dialog.ask button[value=ok]").click();
+    const typed = async () => (await app.calls("pty_write")).map((c) => (c.args as any).data).join("");
+    await expect.poll(typed).toMatch(/http\.server \d+\r/);
+    const port = Number((await typed()).match(/http\.server (\d+)\r/)![1]);
+
+    expect((await app.called("ssh_address")).args).toEqual({ dest: ["alexey@adas-adcu-build-3"] });
+    expect((await app.called("open_external")).args).toEqual({ url: `http://172.21.255.30:${port}/` });
+  });
+
+  // а если ssh и сам знает только короткое имя — открывать нечего, и мы об этом говорим
+  test("plan B says so when the host address is a name only its network knows", async ({ app, page }) => {
+    await app.called("pty_spawn");
+    await app.override("web_share_tunnel", 41234);
+    await app.override("web_share_ready", false);
+    await app.override("ssh_address", "build-3");
+    await page.evaluate(() => window.dispatchEvent(new CustomEvent("open-terminal", { detail: { program: "ssh", args: ["build-3"], keepOpen: true } })));
+    await expect.poll(async () => ((await app.calls("pty_spawn")).at(-1)!.args as any).req.program).toBe("ssh");
+
+    await page.locator("[data-act=web-share]").click();
+    await page.locator("dialog.ask button[value=ok]").click();
+    await expect(page.locator(".toast.err").last()).toContainText("только изнутри сети хоста");
+    // пустую страницу в браузере не открываем
+    expect(await app.calls("open_external")).toHaveLength(0);
   });
 
   test("session recording and the AI panel", async ({ app, page }) => {

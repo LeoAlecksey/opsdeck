@@ -1,5 +1,6 @@
 use tauri::Manager;
 
+mod agent;
 mod ai;
 mod aichat;
 mod alerts;
@@ -19,8 +20,10 @@ mod k8s_events;
 mod kb;
 mod keepass;
 mod mikrotik;
+mod net;
 mod notes;
 mod passbolt;
+mod popout;
 mod ports;
 mod process;
 mod pty;
@@ -88,6 +91,7 @@ pub fn run() {
             k8s_events::spawn(app.handle().clone());
             ide::start(app.handle().clone());
             embed::install(app.handle());
+            popout::install(app.handle());
             alerts::load_data(&app.state::<alerts::AlertsState>());
             let handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
@@ -103,6 +107,7 @@ pub fn run() {
             pty::pty_write,
             pty::pty_resize,
             pty::pty_kill,
+            pty::pty_adopt,
             diag::log_ui,
             diag::logs_open,
             diag::logs_tail,
@@ -276,6 +281,7 @@ pub fn run() {
             alerts::alerts_test_source,
             alerts::alerts_sources,
             ssh::ssh_list,
+            ssh::ssh_address,
             ssh::ssh_keys,
             dbtunnel::web_share_tunnel,
             dbtunnel::web_share_close,
@@ -296,6 +302,18 @@ pub fn run() {
             yc::yc_service_accounts,
             yc::yc_bindings,
             yc::yc_billing,
+            agent::agent_policy,
+            agent::agent_policy_save,
+            agent::agent_check,
+            agent::agent_exec,
+            agent::agent_audit,
+            agent::agent_brain,
+            agent::agent_rules_file,
+            popout::popout_views,
+            popout::window_popout,
+            popout::window_focus_main,
+            popout::term_handoff_put,
+            popout::term_handoff_take,
             sftp::sftp_list,
             sftp::sftp_get,
             sftp::sftp_put,

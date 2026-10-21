@@ -19,8 +19,8 @@ const ALLOWED_FUNDRAISE = new Set(["1KLU6SPLISU.261003"]);
 const REQUIRED = {
   "src/modules/settings.ts": [DONATE, TG],
   "README.md": [DONATE, TG],
-  "site/index.html": [DONATE, TG],
-  "site/en/index.html": [TG],
+  "site/index.html": [DONATE, FUND, TG],
+  "site/en/index.html": [FUND, TG],
 };
 
 const SELF = "scripts/check-links.mjs";

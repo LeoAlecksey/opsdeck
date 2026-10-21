@@ -62,6 +62,22 @@ export function overlay(open: boolean) {
   window.dispatchEvent(new Event(open ? "overlay-open" : "overlay-close"));
 }
 
+/**
+ * Скопировать текст. Сначала средствами самого окна: тогда владельцем выделения остаётся webview,
+ * и вставка внутри приложения обслуживается им же. Когда выделением владеет бэкенд (arboard), на
+ * X11 запрос к владельцу ждёт до 4 секунд — в журнале это выглядит как зависание интерфейса
+ * примерно на столько же. Если доступ к буферу из окна закрыт, пишем через бэкенд, как раньше.
+ * Секреты (пароли, токены) идут мимо: у них свой путь с очисткой через 30 секунд.
+ */
+export async function copyText(text: string) {
+  try {
+    await navigator.clipboard.writeText(text);
+    return;
+  } catch { /* нет доступа из окна — пишем через бэкенд */ }
+  const { invoke } = await import("@tauri-apps/api/core");
+  await invoke("clip_write", { text });
+}
+
 /** Write to the app log file (errors shown to the user, uncaught exceptions). */
 export function logUi(level: "error" | "warn" | "info", message: string) {
   import("@tauri-apps/api/core").then(({ invoke }) => invoke("log_ui", { level, message }).catch(() => {}));

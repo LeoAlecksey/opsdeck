@@ -909,7 +909,7 @@ async fn launch(app: &AppHandle, bin: &Path, model: &Path, device: Device) -> Re
     process::no_console(&mut cmd);
     let child = cmd.spawn().map_err(|e| format!("не удалось запустить llama-server: {e}"))?;
     *state.server.lock().unwrap() = Some(Server { child, port, last_used: Instant::now() });
-    let client = reqwest::Client::new();
+    let client = crate::net::client_for("http://127.0.0.1").build().map_err(err)?;
     let started = Instant::now();
     loop {
         if let Ok(r) = client.get(format!("http://127.0.0.1:{port}/health")).send().await {
@@ -1012,6 +1012,80 @@ pub fn provider_for(s: &Settings) -> AiProvider {
     AiProvider::Local
 }
 
+/// Самая лёгкая модель хороша для «подскажи команду», но для многошагового расследования
+/// слабовата: путает флаги и теряет нить. Об этом честно пишем в настройках агента.
+fn weak_model(id: &str) -> bool {
+    id == MODELS[0].id
+}
+
+/// Чем агент будет думать — то, что видит человек в настройках.
+#[derive(Serialize, PartialEq, Debug)]
+pub struct Brain {
+    /// «app» или «server»
+    pub source: String,
+    /// «Внешний сервер: qwen2.5-coder:14b» / «Встроенная — Средняя Qwen3.5 4B»
+    pub title: String,
+    /// слабовата для расследования
+    pub weak: bool,
+    /// чего не хватает, чтобы это заработало
+    pub problem: String,
+}
+
+/// Собственно решение, отдельно от чтения настроек: так его проверяет тест.
+fn brain_of(choice: &crate::agent::ModelChoice, app: &Settings, local_title: &str, local_id: &str, local_ready: bool) -> Brain {
+    if choice.source == "server" {
+        let base = remote_base(&choice.host, &choice.port);
+        let name = choice.name.trim();
+        return Brain {
+            source: "server".into(),
+            title: match (&base, name.is_empty()) {
+                (Some(b), false) => format!("Внешний сервер {b}: {name}"),
+                _ => "Внешний сервер".into(),
+            },
+            weak: false,
+            problem: match (base, name.is_empty()) {
+                (None, _) => "не указан адрес сервера".into(),
+                (Some(_), true) => "не указано имя модели".into(),
+                _ => String::new(),
+            },
+        };
+    }
+    match provider_for(app) {
+        AiProvider::Remote { base, model, .. } => Brain {
+            source: "app".into(),
+            title: format!("Как в настройках: внешний сервер {base}: {model}"),
+            weak: false,
+            problem: String::new(),
+        },
+        AiProvider::Local => Brain {
+            source: "app".into(),
+            title: format!("Как в настройках: встроенная модель — {local_title}"),
+            weak: weak_model(local_id),
+            problem: if local_ready { String::new() } else { "модель ещё не установлена (⚙ → Локальный ИИ)".into() },
+        },
+    }
+}
+
+pub fn agent_brain(choice: &crate::agent::ModelChoice) -> Brain {
+    let (title, id, ready) = match selected() {
+        Selected::Preset(m) => (m.title.to_string(), m.id.to_string(), preset_ready(m)),
+        Selected::Custom(p) => (format!("свой файл: {}", p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()), String::new(), p.is_file()),
+    };
+    brain_of(choice, &settings::load(), &title, &id, ready)
+}
+
+/// Чем выполнять запросы агента: его собственный сервер или то, что настроено в приложении.
+pub fn agent_provider(choice: &crate::agent::ModelChoice) -> AiProvider {
+    if choice.source == "server" {
+        if let (Some(base), name) = (remote_base(&choice.host, &choice.port), choice.name.trim()) {
+            if !name.is_empty() {
+                return AiProvider::Remote { base, model: name.to_string(), api_key: settings::ai_api_key() };
+            }
+        }
+    }
+    provider_for(&settings::load())
+}
+
 /// Системная инструкция: из plain-words запроса — одна shell-команда.
 const SYSTEM_PROMPT: &str = "Ты помощник DevOps-инженера в терминале. На запрос отвечай ровно одной командой shell (можно с | и &&), без пояснений, без markdown и без $ в начале. Если в контексте есть похожие команды пользователя — бери оттуда имена хостов, неймспейсов, контекстов и флаги. Не придумывай опасных команд (rm -rf /, удаление без запроса).";
 
@@ -1036,7 +1110,7 @@ async fn chat_completion(base: &str, api_key: &str, model: Option<&str>, user: &
         // llama-server: OpenAI's API rejects unknown fields (a remote model's <think> is cut by clean_command)
         body["chat_template_kwargs"] = serde_json::json!({ "enable_thinking": false });
     }
-    let mut req = reqwest::Client::new().post(format!("{base}/v1/chat/completions")).timeout(Duration::from_secs(120)).json(&body);
+    let mut req = crate::net::client_for(base).build().map_err(err)?.post(format!("{base}/v1/chat/completions")).timeout(Duration::from_secs(120)).json(&body);
     if !api_key.is_empty() {
         req = req.header(reqwest::header::AUTHORIZATION, format!("Bearer {api_key}"));
     }
@@ -1059,7 +1133,7 @@ pub struct AiTest {
 #[tauri::command]
 pub async fn ai_test(host: String, port: String, api_key: String) -> Result<AiTest, String> {
     let base = remote_base(&host, &port).ok_or("укажите адрес сервера")?;
-    let mut req = reqwest::Client::new().get(format!("{base}/v1/models")).timeout(Duration::from_secs(10));
+    let mut req = crate::net::client_for(&base).build().map_err(err)?.get(format!("{base}/v1/models")).timeout(Duration::from_secs(10));
     // the field is empty when the key is already saved: use the saved one
     let key = if api_key.trim().is_empty() { settings::ai_api_key() } else { api_key.trim().to_string() };
     if !key.is_empty() {
@@ -1163,6 +1237,47 @@ pub(crate) fn clean_command(raw: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    /// Чем думает агент: подсказка в настройках должна быть честной, включая то, что лёгкая
+    /// модель для многошагового расследования слабовата.
+    #[test]
+    fn the_agent_brain_is_named_honestly() {
+        use super::{brain_of, MODELS};
+        use crate::agent::ModelChoice;
+        use crate::settings::Settings;
+        let app = Settings::default();
+        let light = &MODELS[0];
+        let mid = &MODELS[1];
+
+        // как в настройках, встроенная лёгкая: работает, но предупреждаем
+        let b = brain_of(&ModelChoice::default(), &app, light.title, light.id, true);
+        assert!(b.title.contains(light.title));
+        assert!(b.weak);
+        assert!(b.problem.is_empty());
+
+        // модель покрупнее и установлена — замечаний нет
+        let b = brain_of(&ModelChoice::default(), &app, mid.title, mid.id, true);
+        assert!(!b.weak && b.problem.is_empty());
+
+        // выбрана, но ещё не скачана
+        let b = brain_of(&ModelChoice::default(), &app, mid.title, mid.id, false);
+        assert!(b.problem.contains("не установлена"));
+
+        // внешний сервер приложения — его и возьмёт агент
+        let remote = Settings { ai_host: "ollama.example.com".into(), ai_port: "11434".into(), ai_model: "qwen2.5-coder:14b".into(), ..Settings::default() };
+        let b = brain_of(&ModelChoice::default(), &remote, light.title, light.id, true);
+        assert!(b.title.contains("qwen2.5-coder:14b"), "{}", b.title);
+        assert!(!b.weak, "у внешнего сервера своя модель, лёгкая встроенная тут ни при чём");
+
+        // свой сервер агента: без адреса или без имени модели он не заработает
+        let own = ModelChoice { source: "server".into(), host: "ai.example.com".into(), port: "11434".into(), name: "llama3.3".into() };
+        let b = brain_of(&own, &app, light.title, light.id, true);
+        assert!(b.title.contains("llama3.3") && b.problem.is_empty());
+        let b = brain_of(&ModelChoice { host: String::new(), ..own.clone() }, &app, light.title, light.id, true);
+        assert_eq!(b.problem, "не указан адрес сервера");
+        let b = brain_of(&ModelChoice { name: String::new(), ..own }, &app, light.title, light.id, true);
+        assert_eq!(b.problem, "не указано имя модели");
+    }
+
     /// Сборка файла из частей целиком: свой маленький сервер с поддержкой Range, четыре соединения,
     /// позиционная запись. Если бы диапазоны или смещения разъехались, sha256 это сразу покажет.
     #[test]
@@ -1292,7 +1407,9 @@ mod tests {
         fs::create_dir_all(&dir).unwrap();
         let part = dir.join("model.part");
         let cancel = std::sync::atomic::AtomicBool::new(false);
-        let client = reqwest::Client::new();
+        // без пула: первую порцию соединений сервер закрывает нарочно, и переиспользование уже
+        // закрытого соединения во второй попытке иногда ломало сам тест (macOS в CI)
+        let client = reqwest::Client::builder().pool_max_idle_per_host(0).build().unwrap();
         let url = format!("http://127.0.0.1:{port}/model.gguf");
         let total = body.len() as u64;
 

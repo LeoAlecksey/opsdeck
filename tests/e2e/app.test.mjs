@@ -153,6 +153,37 @@ describe("OpsDeck (real app)", () => {
     assert.deepEqual(errs.filter((e) => /dimensions|renderer|_core/.test(e)), [], `xterm errors:\n${errs.join("\n")}`);
   });
 
+  // Вынос раздела в отдельное окно: проверяем на настоящем приложении, потому что здесь
+  // проверяется не разметка, а то, что у нового окна (метка pop-*) вообще есть доступ к бэкенду —
+  // права окон описаны в capabilities и в фейковом бэкенде не воспроизводятся.
+  it("the terminal opens in a window of its own, with a working backend", async (t) => {
+    await (await view("terminal")).click();
+    const main = await b.getWindowHandle();
+    await (await b.$("[data-act=popout]")).click();
+    const handles = await until(async () => {
+      const all = await b.getWindowHandles();
+      return all.length > 1 ? all : null;
+    }, "the second window", 20_000).catch(() => null);
+    if (!handles) {
+      // WebKitWebDriver на некоторых сборках не показывает окна, открытые приложением
+      t.skip("the driver does not list the second window");
+      return;
+    }
+    await b.switchToWindow(handles.find((h) => h !== main));
+    await until(async () => b.execute(() => !!document.querySelector(".terminal-view")), "the terminal in the new window");
+    // боковой колонки здесь нет, раздел ровно один
+    assert.deepEqual(await b.execute(() => [
+      document.body.classList.contains("popout"),
+      document.querySelectorAll("#views .view").length,
+      getComputedStyle(document.querySelector("#sidebar")).display,
+    ]), [true, 1, "none"]);
+    // настоящая оболочка в новом окне: значит, запрос к бэкенду из окна pop-* прошёл
+    await until(async () => (await termText()).trim().length > 0, "a shell prompt in the new window", 30_000);
+    await b.closeWindow();
+    await b.switchToWindow(main);
+    await until(async () => (await b.getWindowHandles()).length === 1, "the second window to close");
+  });
+
   it("settings show this version", async () => {
     await (await view("settings")).click();
     const version = (await import("../../package.json", { with: { type: "json" } })).default.version;

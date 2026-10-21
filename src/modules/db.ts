@@ -3,7 +3,7 @@ import { icon } from "./icons";
 import { invoke } from "@tauri-apps/api/core";
 import { kpEntries, kpStatus, pickEntry } from "./keepass";
 import { pbTitles, pickEntry as pickPassbolt } from "./passbolt";
-import { ask, esc, toast } from "./ui";
+import { ask, copyText, esc, toast } from "./ui";
 import { registerProvider } from "./palette";
 import { targets } from "./monitor";
 import { natCmp } from "./natsort";
@@ -465,19 +465,19 @@ export function mountDb(root: HTMLElement) {
     if (!td || td.classList.contains("db-rownum")) return;
     const tr = td.parentElement as HTMLTableRowElement;
     const v = last?.rows[tr.rowIndex - 1]?.[td.cellIndex - 1];
-    invoke("clip_write", { text: v ?? "" }).then(() => toast("Значение скопировано"));
+    copyText(v ?? "").then(() => toast("Значение скопировано"));
   });
 
   const csvCell = (v: string | null) => v === null ? "" : /[",\n\r]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v;
   $("[data-a=csv]").onclick = () => {
     if (!last) return;
     const text = [last.columns.map(csvCell).join(","), ...last.rows.map((r) => r.map(csvCell).join(","))].join("\n");
-    invoke("clip_write", { text }).then(() => toast(`CSV скопирован: ${last!.rows.length} строк`));
+    copyText(text).then(() => toast(`CSV скопирован: ${last!.rows.length} строк`));
   };
   $("[data-a=json]").onclick = () => {
     if (!last) return;
     const data = last.docs ?? last.rows.map((r) => Object.fromEntries(last!.columns.map((c, i) => [c, r[i]])));
-    invoke("clip_write", { text: JSON.stringify(data, null, 2) }).then(() => toast(`JSON скопирован: ${data.length} записей`));
+    copyText(JSON.stringify(data, null, 2)).then(() => toast(`JSON скопирован: ${data.length} записей`));
   };
 
   // ----- editor / results splitter -----

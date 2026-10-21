@@ -22,7 +22,6 @@ use std::{
     time::{Duration, Instant},
 };
 use tauri::{AppHandle, Emitter, Manager, State};
-use tauri_plugin_clipboard_manager::ClipboardExt;
 use zeroize::{Zeroize, Zeroizing};
 
 const ACCOUNT_FILE: &str = "passbolt-account.json";
@@ -1386,7 +1385,7 @@ pub async fn pb_copy(
         "notes" => secret(&state, &id, keepass::Use::User, notes).await?,
         _ => return Err("unknown field".into()),
     };
-    app.clipboard().write_text(value).map_err(err)
+    crate::keepass::clip_put(&app, value)
 }
 
 #[tauri::command]

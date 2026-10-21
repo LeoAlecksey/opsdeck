@@ -8,4 +8,13 @@ ignore = [
   # RSA, and then only locally — the advisory: "Local use on a non-compromised computer is fine".
   # Re-check when the rsa crate gets a fix (RustCrypto/RSA#626).
   "RUSTSEC-2023-0071",
+  # zip 2.6 (через tauri-plugin-updater): распаковка архива обновления может переставлять права по
+  # симлинкам, сохранять SUID/SGID и создавать симлинки за пределы папки (patched только в zip 9,
+  # на который плагин ещё не перешёл). Свой код OpsDeck распаковывает уже на zip 9; у плагина этот
+  # путь только на Windows, и до распаковки он проверяет minisign-подпись архива нашим ключом
+  # (`install` → `verify` → `install_inner`), то есть подложить такой архив может лишь тот, у кого
+  # есть приватный ключ подписи релизов. Снять, когда tauri-plugin-updater обновит zip.
+  "RUSTSEC-2026-0367",
+  "RUSTSEC-2026-0368",
+  "RUSTSEC-2026-0369",
 ]
