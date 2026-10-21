@@ -6,6 +6,7 @@ import { listen } from "@tauri-apps/api/event";
 import { Adopt, PtyTerminal, SpawnOpts, termFontSize, termFontStep } from "./pty";
 import { Block, fmtDuration } from "./blocks";
 import { pickSshHost } from "./hostpick";
+import { targets } from "./monitor";
 import { registerProvider } from "./palette";
 import { hlPrefs, setHlPrefs } from "./highlight";
 import { addSnippet } from "./snippets";
@@ -812,6 +813,8 @@ export function mountTerminal(root: HTMLElement) {
     if (p.local) {
       return new LocalChat(body, {
         context: () => ({ cwd: cwd(), shell: shellName(activePane()?.pty.launched ?? null) }),
+        // хосты для расследования: те же, что в разделах SSH и «ИИ-агент»
+        hosts: async () => targets(await invoke("ssh_list")).map((x) => ({ key: x.key, name: x.name })),
         // into the active pane, as a bracketed paste: multi-line stays one input, no Enter
         insert: (cmd) => { const pane = activePane(); if (!pane) return; pane.pty.send(`\x1b[200~${cmd}\x1b[201~`); pane.pty.term.focus(); },
       });

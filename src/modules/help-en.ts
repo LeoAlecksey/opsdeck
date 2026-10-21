@@ -337,6 +337,8 @@ export const HELP_EN: Record<string, { title: string; html: string }> = {
     html: `
       <h4>What this is</h4>
       <p>The agent goes to a host itself and looks at what is happening there: service logs, systemd state, disk space, containers, pods. It doesn't guess from memory — it runs real commands and reads their output. It can change only what is allowed here, and only the way the dialog shows before it runs. Investigations start in the terminal's AI panel; this section is about the rules.</p>
+      <h4>How to start an investigation</h4>
+      <p>In the terminal's AI panel pick “OpsDeck AI (local)” and tick <b>Investigation</b> (it appears once the agent is switched on here). Then just ask: “go to app-1 and look at the disk”. The agent picks a command, shows it with the host, runs it under the rules of this section and feeds the output back to itself for the next step — until there is an answer or the steps run out. Every step is visible in the panel: the command, whether it is reading or a change, the exit code and the output under a disclosure arrow. “Stop” interrupts between steps.</p>
       <h4>Access levels</h4>
       <ul>
         <li><b>Stay away</b> — the agent does not enter this host: nothing runs, not even reading.</li>

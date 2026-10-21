@@ -378,6 +378,7 @@ lint:
       return { "adas-adcu-build-3": "172.21.255.30" }[host] ?? host;
     },
     agent_rules_file: ["docker system prune", "kubectl delete", "| bash"],
+    agent_exec: (args) => ({ command: args.command, target: args.target, exit_code: 0, output: "/dev/mapper/vg-data  200G  /srv/data", truncated: false, took_ms: 310 }),
     agent_audit: [
       { at: "2026-10-19 14:02:11", target: "id:h1", command: "journalctl -u nginx --since -1h", verdict: L("чтение", "reading"), approved: false, exit_code: 0, took_ms: 420 },
       { at: "2026-10-19 14:02:30", target: "id:h1", command: "systemctl restart nginx", verdict: L("изменение", "a change"), approved: true, exit_code: 0, took_ms: 980 },
@@ -448,6 +449,16 @@ lint:
       }
       if (cmd === "ai_chat") {
         const q = args.messages.at(-1).content;
+        // шаг расследования: ответы «модели» задаёт тест через __DEMO_AGENT_STEPS
+        if (args.hosts) {
+          const steps = window.__DEMO_AGENT_STEPS ?? [];
+          const answer = steps.shift() ?? L("ГОТОВО: больше смотреть нечего", "DONE: nothing else to look at");
+          setTimeout(() => {
+            emit(`ai-chat-${args.id}`, { text: answer });
+            emit(`ai-chat-done-${args.id}`, { error: null, elapsed_ms: 120 });
+          }, 20);
+          return null;
+        }
         const answer = L("Посмотреть поды, которые перезапускаются:\n\n```bash\nkubectl get pods -A | grep -v Running\n```\n\nПотом `kubectl describe pod` нужного.", "Pods that restart:\n\n```bash\nkubectl get pods -A | grep -v Running\n```\n\nThen `kubectl describe pod` the one you need.");
         const pieces = q.includes("ошибка") ? [] : answer.match(/[\s\S]{1,12}/g);
         let i = 0;

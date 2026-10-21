@@ -1180,6 +1180,19 @@ body.no-select, body.no-select * { user-select: none; -webkit-user-select: none;
 .view-menu .menu-item:hover { background: var(--panel-2); }
 .view-menu .menu-item svg { flex: none; color: var(--muted); }
 
+/* расследование в AI-панели: шаги, вывод, итог */
+.ai-chat-in .ai-agent-mode { display: flex; align-items: center; gap: 6px; margin: 0 0 6px; font-size: 12px; }
+.ai-msg.agent .ai-step { margin: 8px 0; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.ai-msg.agent .ai-step-head { display: flex; justify-content: space-between; gap: 8px; padding: 5px 8px; background: var(--panel-2); font-size: 12px; }
+.ai-msg.agent .ai-step pre { margin: 0; padding: 7px 8px; overflow-x: auto; }
+.ai-msg.agent .ai-step.denied { border-color: var(--danger); }
+.ai-msg.agent .ai-step.ask { border-color: #e3b341; }
+.ai-msg.agent .ai-out { margin: -4px 0 8px; font-size: 12px; }
+.ai-msg.agent .ai-out summary { cursor: pointer; color: var(--muted); }
+.ai-msg.agent .ai-out pre { max-height: 260px; overflow: auto; margin: 6px 0 0; padding: 6px 8px; background: var(--panel-2); border-radius: 6px; }
+.ai-msg.agent .ai-out.err summary { color: var(--danger); }
+.ai-msg.agent .ai-done { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border); }
+
 /* ИИ-агент: правила и журнал */
 .agent-lead { max-width: 76ch; margin: 0 0 14px; }
 .agent-body { display: grid; grid-template-columns: repeat(auto-fit, minmax(330px, 1fr)); gap: 12px; align-items: start; }

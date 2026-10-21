@@ -1074,6 +1074,18 @@ pub fn agent_brain(choice: &crate::agent::ModelChoice) -> Brain {
     brain_of(choice, &settings::load(), &title, &id, ready)
 }
 
+/// Чем выполнять запросы агента: его собственный сервер или то, что настроено в приложении.
+pub fn agent_provider(choice: &crate::agent::ModelChoice) -> AiProvider {
+    if choice.source == "server" {
+        if let (Some(base), name) = (remote_base(&choice.host, &choice.port), choice.name.trim()) {
+            if !name.is_empty() {
+                return AiProvider::Remote { base, model: name.to_string(), api_key: settings::ai_api_key() };
+            }
+        }
+    }
+    provider_for(&settings::load())
+}
+
 /// Системная инструкция: из plain-words запроса — одна shell-команда.
 const SYSTEM_PROMPT: &str = "Ты помощник DevOps-инженера в терминале. На запрос отвечай ровно одной командой shell (можно с | и &&), без пояснений, без markdown и без $ в начале. Если в контексте есть похожие команды пользователя — бери оттуда имена хостов, неймспейсов, контекстов и флаги. Не придумывай опасных команд (rm -rf /, удаление без запроса).";
 
