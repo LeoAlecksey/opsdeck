@@ -361,6 +361,30 @@ fn effective(alias: &str) -> Option<Effective> {
     Some(e)
 }
 
+/// Адрес, по которому до хоста сессии можно дотянуться не через ssh: браузеру алиас из
+/// ~/.ssh/config не поможет — такого имени в DNS нет, его знает только ssh (из отчёта: «Папка в
+/// web» открыла http://adas-adcu-build-3:8611 и страница, разумеется, не нашлась).
+/// Спрашиваем у самого ssh (`-G`), он учитывает и Match, и Include.
+#[tauri::command]
+pub async fn ssh_address(dest: Vec<String>) -> Result<String, String> {
+    let target = dest.last().cloned().ok_or("нет адреса ssh-сессии")?;
+    let alias = host_part(&target).to_string();
+    if alias.is_empty() || !crate::tools::valid_host(&alias) {
+        return Err(format!("непонятный адрес сессии: {target}"));
+    }
+    tauri::async_runtime::spawn_blocking(move || {
+        let resolved = effective(&alias).map(|e| e.hostname).filter(|h| !h.is_empty());
+        Ok(resolved.unwrap_or(alias))
+    })
+    .await
+    .map_err(crate::store::err)?
+}
+
+/// Хост из «user@host» (пользователь браузеру не нужен).
+pub(crate) fn host_part(dest: &str) -> &str {
+    dest.rsplit('@').next().unwrap_or(dest)
+}
+
 fn effective_map(aliases: &[String], config_text: String) -> HashMap<String, Option<Effective>> {
     if let Ok(cache) = EFFECTIVE_CACHE.lock() {
         if let Some((cached_text, map)) = cache.as_ref() {

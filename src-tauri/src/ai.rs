@@ -909,7 +909,7 @@ async fn launch(app: &AppHandle, bin: &Path, model: &Path, device: Device) -> Re
     process::no_console(&mut cmd);
     let child = cmd.spawn().map_err(|e| format!("не удалось запустить llama-server: {e}"))?;
     *state.server.lock().unwrap() = Some(Server { child, port, last_used: Instant::now() });
-    let client = reqwest::Client::new();
+    let client = crate::net::client_for("http://127.0.0.1").build().map_err(err)?;
     let started = Instant::now();
     loop {
         if let Ok(r) = client.get(format!("http://127.0.0.1:{port}/health")).send().await {
@@ -1098,7 +1098,7 @@ async fn chat_completion(base: &str, api_key: &str, model: Option<&str>, user: &
         // llama-server: OpenAI's API rejects unknown fields (a remote model's <think> is cut by clean_command)
         body["chat_template_kwargs"] = serde_json::json!({ "enable_thinking": false });
     }
-    let mut req = reqwest::Client::new().post(format!("{base}/v1/chat/completions")).timeout(Duration::from_secs(120)).json(&body);
+    let mut req = crate::net::client_for(base).build().map_err(err)?.post(format!("{base}/v1/chat/completions")).timeout(Duration::from_secs(120)).json(&body);
     if !api_key.is_empty() {
         req = req.header(reqwest::header::AUTHORIZATION, format!("Bearer {api_key}"));
     }
@@ -1121,7 +1121,7 @@ pub struct AiTest {
 #[tauri::command]
 pub async fn ai_test(host: String, port: String, api_key: String) -> Result<AiTest, String> {
     let base = remote_base(&host, &port).ok_or("укажите адрес сервера")?;
-    let mut req = reqwest::Client::new().get(format!("{base}/v1/models")).timeout(Duration::from_secs(10));
+    let mut req = crate::net::client_for(&base).build().map_err(err)?.get(format!("{base}/v1/models")).timeout(Duration::from_secs(10));
     // the field is empty when the key is already saved: use the saved one
     let key = if api_key.trim().is_empty() { settings::ai_api_key() } else { api_key.trim().to_string() };
     if !key.is_empty() {

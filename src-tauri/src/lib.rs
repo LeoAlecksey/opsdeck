@@ -20,6 +20,7 @@ mod k8s_events;
 mod kb;
 mod keepass;
 mod mikrotik;
+mod net;
 mod notes;
 mod passbolt;
 mod popout;
@@ -280,6 +281,7 @@ pub fn run() {
             alerts::alerts_test_source,
             alerts::alerts_sources,
             ssh::ssh_list,
+            ssh::ssh_address,
             ssh::ssh_keys,
             dbtunnel::web_share_tunnel,
             dbtunnel::web_share_close,

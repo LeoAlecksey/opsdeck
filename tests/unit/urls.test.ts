@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { findUrls, siteTarget, throughTunnel } from "../../src/modules/urls";
+import { addressable, findUrls, siteTarget, throughTunnel } from "../../src/modules/urls";
 
 describe("ссылки в выводе терминала", () => {
   it("находит адрес вместе с хвостом строки, но без знаков препинания", () => {
@@ -37,6 +37,15 @@ describe("ссылки в выводе терминала", () => {
     expect(siteTarget("https://example.com/")?.port).toBe(443);
     expect(siteTarget("http://example.com/")?.port).toBe(80);
     expect(siteTarget("ftp://example.com/")).toBeNull();
+  });
+
+  it("адрес для браузера: частный — можно, короткое имя — нет", () => {
+    expect(addressable("172.21.255.30")).toBe(true);
+    expect(addressable("10.0.0.5")).toBe(true);
+    expect(addressable("build-3.corp.example.com")).toBe(true);
+    expect(addressable("fd00::5")).toBe(true);
+    expect(addressable("adas-adcu-build-3")).toBe(false);
+    expect(addressable("  ")).toBe(false);
   });
 
   it("через туннель открывается тот же путь на локальном порту", () => {

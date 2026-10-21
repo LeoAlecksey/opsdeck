@@ -100,7 +100,12 @@ pub async fn ai_chat(app: AppHandle, state: State<'_, ChatState>, id: String, me
         // our own Qwen: answer, don't think aloud (an external server may not know this field)
         None => body["chat_template_kwargs"] = serde_json::json!({ "enable_thinking": false }),
     }
-    let mut req = reqwest::Client::new().post(format!("{base}/v1/chat/completions")).timeout(Duration::from_secs(600)).json(&body);
+    let mut req = crate::net::client_for(&base)
+        .build()
+        .map_err(|e| e.to_string())?
+        .post(format!("{base}/v1/chat/completions"))
+        .timeout(Duration::from_secs(600))
+        .json(&body);
     if !key.is_empty() {
         req = req.bearer_auth(&key);
     }

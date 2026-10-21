@@ -78,6 +78,17 @@ export function siteTarget(raw: string): Target | null {
   };
 }
 
+/**
+ * Можно ли дать такой адрес браузеру. Частный адрес (10/8, 172.16/12) — можно: если вы в этой
+ * сети, он откроется, а если нет, то и никакой другой не поможет. А вот короткое имя без точки
+ * знает только ssh из ~/.ssh/config или DNS той сети — браузеру оно ни о чём.
+ */
+export function addressable(host: string): boolean {
+  const h = host.trim().toLowerCase();
+  if (!h) return false;
+  return h.includes(".") || h.includes(":");
+}
+
 /** Тот же адрес, но через локальный порт туннеля к хосту. */
 export function throughTunnel(raw: string, localPort: number): string {
   const u = new URL(raw);

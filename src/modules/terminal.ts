@@ -10,7 +10,7 @@ import { registerProvider } from "./palette";
 import { hlPrefs, setHlPrefs } from "./highlight";
 import { addSnippet } from "./snippets";
 import { attachPathLinks, attachUrlLinks, mountFiles } from "./files";
-import { throughTunnel, type Target } from "./urls";
+import { addressable, throughTunnel, type Target } from "./urls";
 import { ask, copyText, esc, overlay, toast } from "./ui";
 import { t } from "../i18n";
 import { isWindows } from "./themes";
@@ -758,7 +758,9 @@ export function mountTerminal(root: HTMLElement) {
 
   /** Через туннель не ответили: предлагаем раздать по адресу хоста — но вслух про то, что это видно в сети. */
   async function sharePlanB(p: Pane, remote: string[] | null, port: number) {
-    const host = (remote?.at(-1) ?? "").split("@").pop() ?? "";
+    // алиас из ~/.ssh/config знает только ssh: в браузере он не резолвится (из отчёта — открылась
+    // страница «не найдено»). Спрашиваем у ssh настоящий адрес этого хоста.
+    const host = remote ? await invoke<string>("ssh_address", { dest: remote }).catch(() => "") : "";
     const why = t("Через туннель раздача не ответила. Так бывает, когда внутри этой сессии вы зашли дальше на другой хост: туннель ведёт на первый.");
     const ok = await ask(t("Раздать папку по адресу хоста?"), `${why}\n${t("Можно раздать её на всех адресах хоста — тогда папку увидит любой, кто дотянется до него по сети. Останавливает Ctrl+C.")}`,
       { ok: t("Раздать на всех адресах"), danger: true });
@@ -769,10 +771,13 @@ export function mountTerminal(root: HTMLElement) {
     p.pty.send("\x03");
     p.pty.send(`python3 -m http.server ${port}\r`);
     p.pty.term.focus();
-    if (host) {
-      const url = `http://${host}:${port}/`;
+    // частный адрес хоста браузеру дать можно (вы в этой сети), короткое имя — нет
+    const url = host && addressable(host) ? `http://${host}:${port}/` : "";
+    if (url) {
       await invoke("open_external", { url }).catch(() => {});
       toast(`Папка раздаётся: ${url} — Ctrl+C в терминале останавливает`);
+    } else if (host) {
+      toast(`${t("Папка раздаётся на")} ${host}:${port} — ${t("этот адрес открывается только изнутри сети хоста")}`, "err");
     } else {
       toast(`${t("Папка раздаётся на порту")} ${port} — ${t("откройте её по адресу этого хоста")}`);
     }

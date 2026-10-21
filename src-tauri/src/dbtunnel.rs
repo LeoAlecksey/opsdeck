@@ -143,7 +143,8 @@ pub async fn web_share_tunnel(tunnels: tauri::State<'_, TunnelState>, dest: Vec<
 /// ждём ответа — заодно это покрывает секунду-другую, пока python поднимается.
 #[tauri::command]
 pub async fn web_share_ready(port: u16) -> bool {
-    let client = reqwest::Client::builder().timeout(Duration::from_secs(2)).build();
+    // мимо системного прокси: до 127.0.0.1 он не дотянется, а в корпоративной сети он задан всем
+    let client = crate::net::client_for("http://127.0.0.1").timeout(Duration::from_secs(2)).build();
     let Ok(client) = client else { return false };
     let url = format!("http://127.0.0.1:{port}/");
     let until = std::time::Instant::now() + Duration::from_secs(8);

@@ -372,6 +372,11 @@ lint:
     agent_policy: { enabled: false, mode: "read", hosts: {}, allow_sudo: false, allow_local: false, max_steps: 12, step_timeout_s: 20, output_limit: 4000, extra_read: [], always_ask: [], deny: [], model: { source: "app", host: "", port: "", name: "" } },
     agent_policy_save: null,
     term_handoff_put: null, term_handoff_take: null, pty_adopt: null,
+    // ssh -G: алиас из ~/.ssh/config превращается в настоящий адрес
+    ssh_address: (args) => {
+      const host = String(args.dest.at(-1) ?? "").split("@").pop();
+      return { "adas-adcu-build-3": "172.21.255.30" }[host] ?? host;
+    },
     agent_rules_file: ["docker system prune", "kubectl delete", "| bash"],
     agent_audit: [
       { at: "2026-10-19 14:02:11", target: "id:h1", command: "journalctl -u nginx --since -1h", verdict: L("чтение", "reading"), approved: false, exit_code: 0, took_ms: 420 },
