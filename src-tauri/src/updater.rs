@@ -80,6 +80,24 @@ fn check_err(e: tauri_plugin_updater::Error) -> String {
     }
 }
 
+/// Почему установка не удалась — словами, а не кодом библиотеки.
+///
+/// Главный случай: менеджер обновлений до 2.14 на Linux всегда брал из latest.json общий ключ
+/// `linux-x86_64`, а там AppImage. Для копии, установленной из .deb или .rpm, он не подходит —
+/// отсюда «invalid updater binary format». С 0.8.2 менеджер выбирает ключ под тип установки
+/// (`linux-x86_64-deb`), но прежние версии этого не умеют: такую копию надо один раз обновить
+/// пакетом вручную.
+fn install_err(e: &str) -> String {
+    if e.contains("invalid updater binary format") || e.contains("not a valid deb") {
+        return format!(
+            "эта копия установлена пакетом (.deb или .rpm), а обновление пришло в другом формате. \
+Скачайте пакет со страницы релиза и установите его один раз — дальше обновления будут ставиться сами: \
+https://github.com/{REPO}/releases/latest"
+        );
+    }
+    format!("не удалось установить: {e}")
+}
+
 #[tauri::command]
 pub async fn update_check(app: AppHandle) -> Result<UpdateInfo, String> {
     let current = app.package_info().version.to_string();
@@ -173,12 +191,24 @@ pub async fn update_install(app: AppHandle, version: Option<String>) -> Result<(
             },
         )
         .await
-        .map_err(|e| format!("не удалось установить: {e}"))?;
+        .map_err(|e| install_err(&e.to_string()))?;
     app.restart();
 }
 
 #[cfg(test)]
 mod tests {
+    /// Из отчёта: обновление 0.8.0 → 0.8.1 на установке из .deb падало с «invalid updater binary
+    /// format». Человеку нужен понятный выход, а не текст библиотеки.
+    #[test]
+    fn a_package_install_is_told_what_to_do() {
+        let msg = super::install_err("invalid updater binary format");
+        assert!(msg.contains(".deb"), "{msg}");
+        assert!(msg.contains("releases/latest"), "ссылка, куда идти: {msg}");
+        assert!(!msg.contains("invalid updater"), "код библиотеки человеку ни о чём: {msg}");
+        // остальные ошибки показываем как есть, не выдумывая причину
+        assert_eq!(super::install_err("connection closed"), "не удалось установить: connection closed");
+    }
+
     #[test]
     fn semver() {
         assert!(super::semver_gt("0.10.0", "0.9.9"));
