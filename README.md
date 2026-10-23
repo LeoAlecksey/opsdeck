@@ -3,6 +3,7 @@
 [![build](https://github.com/LeoAlecksey/opsdeck/actions/workflows/build.yml/badge.svg)](https://github.com/LeoAlecksey/opsdeck/actions/workflows/build.yml)
 [![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Telegram](https://img.shields.io/badge/Telegram-sys__admin__expert-26A5E4?logo=telegram&logoColor=white)](https://t.me/sys_admin_expert)
+[![Сказать спасибо](https://img.shields.io/badge/Сказать_спасибо-YooMoney-8B5CF6?logo=yoomoney&logoColor=white)](https://yoomoney.ru/to/4100119645604976)
 
 **Единая рабочая панель DevOps-инженера**: терминал с AI рядом и локальной моделью, Kubernetes, базы данных, встроенная IDE с git, Grafana/ArgoCD/GitLab во вкладках, алерты, заметки с задачами и напоминаниями, KeePass, SSH и MikroTik — в одном нативном приложении для Linux, Windows и macOS.
 
