@@ -193,7 +193,7 @@ export const HELP_EN: Record<string, { title: string; html: string }> = {
       <li><b>%</b> at the top switches RAM and disk between gigabytes and percentages.</li>
       <li>A group can be folded (▾): a summary by colour stays and its hosts are not polled. × on a card or a group takes it off the board — SSH profiles stay.</li></ul>
       <h4>How metrics are collected</h4>
-      <p>Over ssh without a password: a key login (ssh-agent, IdentityFile) or a session already open in OpsDeck is needed. The connection is kept for 2 minutes and reused, so the next poll is cheap. /proc and df are read — Linux only. If a host has never been connected to, accept its key: connect once from the terminal.</p>`,
+      <p>Over ssh without a password: a key login (ssh-agent, IdentityFile) or a session already open in OpsDeck is needed. The connection is kept for 2 minutes and reused, so the next poll is cheap. On Windows terminal sessions don't help the board — a key login is needed; the board keeps its own connection to each host and closes it after 2 minutes without polls. /proc and df are read — Linux only. If a host has never been connected to, accept its key: connect once from the terminal.</p>`,
   },
   ssh: {
     title: "SSH",

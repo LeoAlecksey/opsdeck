@@ -1967,6 +1967,7 @@
  "удалять можно только импортированные файлы": "only imported files can be deleted",
  "удалённая машина не ответила за 8 с": "the remote machine did not answer in 8 s",
  "удалённая машина не ответила за {} с": "the remote machine did not answer in {} s",
+ "ssh-сессия закрылась во время опроса — повторите": "the ssh session closed during the poll — try again",
  "уже есть": "already added",
  "узел": "the node",
  "узел {}": "node {}",

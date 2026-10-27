@@ -14,6 +14,8 @@ pub struct SysState {
     sys: Mutex<Option<System>>,
     /// last /proc/stat (busy, total) per remote target, for CPU% between two samples
     prev: Mutex<HashMap<String, (u64, u64)>>,
+    /// monitoring board on Windows, which has no ControlMaster: a long-lived ssh per host
+    sessions: crate::sysmon_session::Sessions,
 }
 
 #[derive(Serialize, Default)]
@@ -188,6 +190,31 @@ fn auth_hint_for(board: bool, windows: bool) -> String {
 
 async fn probe(state: &SysState, args: Vec<String>, keep: bool) -> Result<Stats, ProbeError> {
     let key = args.join(" ");
+    let text = if keep && cfg!(windows) { session_probe(state, &key, &args).await? } else { oneshot_probe(&args, keep).await? };
+    let mut prev = state.prev.lock().unwrap();
+    parse_probe(&text, &key, &mut prev).ok_or_else(|| ProbeError::Other("не Linux или нет /proc".into()))
+}
+
+/// Board on Windows: the sample comes from the host's long-lived session (sysmon_session.rs)
+/// instead of a new login every refresh.
+async fn session_probe(state: &SysState, key: &str, args: &[String]) -> Result<String, ProbeError> {
+    use crate::sysmon_session::{remote_loop, Failure};
+    let ssh = || {
+        let mut cmd = tokio::process::Command::new("ssh");
+        cmd.args(["-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-T"])
+            .args(args)
+            .arg(remote_loop(PROBE));
+        crate::process::no_console_tokio(&mut cmd);
+        cmd
+    };
+    state.sessions.sample(key, ssh, Duration::from_secs(12)).await.map_err(|e| match e {
+        Failure::Exited(e) => ssh_error(&e),
+        Failure::Timeout => ProbeError::Other(format!("удалённая машина не ответила за {} с", 12)),
+        Failure::Other(e) => ProbeError::Other(e),
+    })
+}
+
+async fn oneshot_probe(args: &[String], keep: bool) -> Result<String, ProbeError> {
     let mut cmd = tokio::process::Command::new("ssh");
     if !cfg!(windows) {
         let cp = control_path().ok_or(ProbeError::Other("no control path".into()))?;
@@ -198,7 +225,7 @@ async fn probe(state: &SysState, args: Vec<String>, keep: bool) -> Result<Stats,
         }
     }
     cmd.args(["-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-T"])
-        .args(&args)
+        .args(args)
         .arg(PROBE)
         .stdin(std::process::Stdio::null())
         .kill_on_drop(true);
@@ -208,20 +235,22 @@ async fn probe(state: &SysState, args: Vec<String>, keep: bool) -> Result<Stats,
         .map_err(|_| ProbeError::Other(format!("удалённая машина не ответила за {} с", if keep { 12 } else { 8 })))?
         .map_err(|e| ProbeError::Other(err(e)))?;
     if !out.status.success() {
-        let e = String::from_utf8_lossy(&out.stderr);
-        return Err(if e.contains("Permission denied") || e.contains("batch mode") || e.contains("Control socket") || e.contains("Host key verification failed") {
-            if e.contains("Host key verification failed") {
-                ProbeError::Other("ключ хоста ещё не принят — подключитесь один раз из терминала".into())
-            } else {
-                ProbeError::Auth
-            }
-        } else {
-            ProbeError::Other(e.lines().rev().find(|l| !l.trim().is_empty()).unwrap_or("ssh error").to_string())
-        });
+        return Err(ssh_error(&String::from_utf8_lossy(&out.stderr)));
     }
-    let text = String::from_utf8_lossy(&out.stdout);
-    let mut prev = state.prev.lock().unwrap();
-    parse_probe(&text, &key, &mut prev).ok_or_else(|| ProbeError::Other("не Linux или нет /proc".into()))
+    Ok(String::from_utf8_lossy(&out.stdout).into_owned())
+}
+
+/// What ssh's stderr says went wrong.
+fn ssh_error(e: &str) -> ProbeError {
+    if e.contains("Permission denied") || e.contains("batch mode") || e.contains("Control socket") || e.contains("Host key verification failed") {
+        if e.contains("Host key verification failed") {
+            ProbeError::Other("ключ хоста ещё не принят — подключитесь один раз из терминала".into())
+        } else {
+            ProbeError::Auth
+        }
+    } else {
+        ProbeError::Other(e.lines().rev().find(|l| !l.trim().is_empty()).unwrap_or("ssh error").to_string())
+    }
 }
 
 /// Output of PROBE → numbers. CPU% needs the previous sample of the same target.
@@ -327,5 +356,35 @@ mod tests {
         // CRLF (some shells) and junk
         assert!(parse_probe(&sample("cpu  1 0 1 1 0 0 0 0").replace('\n', "\r\n"), "x", &mut prev).is_some());
         assert!(parse_probe("Microsoft Windows", "y", &mut prev).is_none());
+    }
+
+    /// The board's long-lived session on Windows: the real PROBE in the remote loop, the login
+    /// shell played by a local sh.
+    #[test]
+    fn board_session_samples_parse() {
+        if !std::path::Path::new("/proc/stat").exists() {
+            return;
+        }
+        tauri::async_runtime::block_on(async {
+            let state = SysState::default();
+            let sh = || {
+                let mut c = tokio::process::Command::new("sh");
+                c.args(["-c", &crate::sysmon_session::remote_loop(PROBE)]);
+                c
+            };
+            let mut prev = HashMap::new();
+            let mut cpu = Vec::new();
+            for _ in 0..2 {
+                let text = match state.sessions.sample("local", sh, Duration::from_secs(10)).await {
+                    Ok(t) => t,
+                    Err(_) => panic!("no sample from the local loop"),
+                };
+                let s = parse_probe(&text, "local", &mut prev).unwrap_or_else(|| panic!("unparsed:\n{text}"));
+                assert!(s.mem_total > 0 && s.cores > 0 && s.disk_total > 0, "{text}");
+                cpu.push(s.cpu);
+                std::thread::sleep(Duration::from_millis(200));
+            }
+            assert!(cpu[0].is_none() && cpu[1].is_some(), "CPU% from the second sample of the same session");
+        });
     }
 }
