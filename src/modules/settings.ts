@@ -8,6 +8,7 @@ import { hlPrefs, setHlPrefs } from "./highlight";
 import { setTermFontSize, termFontSize, setTermFontFamily, termFontFamily, TERM_FONTS, fontInstalled } from "./pty";
 import { setSuggestEnabled, suggestEnabled } from "./suggest";
 import { rightClickMode, setRightClickMode, type RightClick } from "./rightclick";
+import { chatHistoryEnabled, forgetChatHistory, setChatHistoryEnabled } from "./aichat";
 import { AI_PROVIDERS, aiAgent, setAiAgent } from "./ai-agents";
 import { addThemes, allThemes, currentThemeName, isWindows, parseSchemes, setTheme } from "./themes";
 import { listen } from "@tauri-apps/api/event";
@@ -204,6 +205,9 @@ export function mountSettings(root: HTMLElement) {
         <hr />
           <p class="kb-line muted hint">База знаний: <span class="kb-what">…</span> Проверенные команды по теме запроса уходят в подсказку модели, поэтому флаги настоящие. Свои команды — в файле <code class="kb-path mono"></code>: «Открыть папку» создаст его с примером и описанием формата. <button type="button" class="ghost" data-a="kb-open">Открыть папку</button></p>
         <hr />
+          <label class="check"><input type="checkbox" class="ai-chat-keep" /> Сохранять историю чата ИИ (вкладки и разговоры) между запусками</label>
+          <p class="muted hint">Хранится только на этом компьютере, в папке настроек OpsDeck (файл ai-chats.json, доступ только у вас): до 8 вкладок по 200 сообщений. От расследований агента остаются вопрос и итог — шаги и вывод команд не сохраняются. Снятая галочка удаляет сохранённое. <button type="button" class="ghost" data-a="ai-chat-forget">Удалить сохранённую историю</button></p>
+        <hr />
           <div class="ai-remote">
             <p class="muted">Внешний ИИ-сервер (Ollama, vLLM, LM Studio — любой с OpenAI-совместимым /v1)</p>
             <div class="ai-remote-row">
@@ -321,6 +325,14 @@ export function mountSettings(root: HTMLElement) {
     root.querySelector(".kb-path")!.textContent = kb.path;
   }).catch(() => {});
   root.querySelector<HTMLElement>("[data-a=kb-open]")!.onclick = () => invoke("kb_open").catch((e) => toast(String(e), "err"));
+  // история чата ИИ (#100): применяется сразу, без «Сохранить»
+  const chatKeep = root.querySelector<HTMLInputElement>(".ai-chat-keep")!;
+  chatKeep.checked = chatHistoryEnabled();
+  chatKeep.onchange = () => setChatHistoryEnabled(chatKeep.checked).catch((e) => toast(String(e), "err"));
+  root.querySelector<HTMLElement>("[data-a=ai-chat-forget]")!.onclick = async () => {
+    if (await ask(t("Удалить историю чата?"), t("Все вкладки и разговоры чата ИИ будут удалены — и сохранённые, и открытые сейчас."), { ok: t("Удалить"), danger: true }) === null) return;
+    forgetChatHistory().then(() => toast(t("История чата удалена")), (e) => toast(String(e), "err"));
+  };
   // внешний ИИ-сервер: «Проверить» → список моделей в выпадающий список поля «Модель»
   // (комбо-поле: можно и выбрать из списка, и ввести любую свою модель)
   const aiTest = (host: string, port: string, key: string) => invoke<{ models: string[] }>("ai_test", { host, port, apiKey: key });
