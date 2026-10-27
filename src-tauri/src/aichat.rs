@@ -128,6 +128,9 @@ pub fn sse_deltas(buf: &mut String, chunk: &str) -> (Vec<String>, bool) {
     (out, done)
 }
 
+// аргументы приходят из интерфейса по именам (invoke("ai_chat", {…})): склеивать их в структуру —
+// значит менять вызовы и формат ради счётчика clippy
+#[allow(clippy::too_many_arguments)]
 #[tauri::command]
 pub async fn ai_chat(
     app: AppHandle,
