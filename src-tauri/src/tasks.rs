@@ -2,6 +2,17 @@
 //! in Obsidian:  `- [ ] Обновить сертификат 📅 2026-10-05 ⏰ 10:00 ⏫ #infra`
 //! (📅 due date, ⏰ reminder time on that date, ⏫/🔼/🔽 priority, ✅ date when done).
 //! This module lists them across the active vault, edits them in place and pops up reminders.
+//!
+//! A task's description and subtasks are the lines indented under it, as Obsidian shows them:
+//!
+//! ```text
+//! - [ ] Обновить сертификат 📅 2026-10-05 ⏫ #infra
+//!     Выпускали через certbot; после выпуска — nginx -t и reload.
+//!     - [ ] выпустить сертификат
+//!     - [x] проверить срок ✅ 2026-10-01
+//! ```
+//!
+//! An empty line or a line that is not indented ends the task's block.
 
 use crate::{
     notes::{resolve, vault, walk},
@@ -36,6 +47,10 @@ pub struct Task {
     priority: i8,
     tags: Vec<String>,
     done_date: Option<String>,
+    /// line of the task this one is a subtask of (same note)
+    parent: Option<usize>,
+    /// the lines indented under the task that are not subtasks, without the common indent
+    desc: String,
 }
 
 /// `- [ ] …` / `* [x] …` → Task (without path/line).
@@ -49,7 +64,7 @@ fn parse(line: &str) -> Option<Task> {
     if !done && mark != ' ' {
         return None; // [-] cancelled, [>] forwarded…: not ours
     }
-    let mut task = Task { path: String::new(), line: 0, raw: line.trim_end().to_string(), text: String::new(), done, due: None, time: None, priority: 0, tags: Vec::new(), done_date: None };
+    let mut task = Task { path: String::new(), line: 0, raw: line.trim_end().to_string(), text: String::new(), done, due: None, time: None, priority: 0, tags: Vec::new(), done_date: None, parent: None, desc: String::new() };
     let mut words: Vec<&str> = Vec::new();
     let mut it = rest.split_whitespace().peekable();
     while let Some(w) = it.next() {
@@ -103,6 +118,175 @@ fn render(raw: &str, t: &Task) -> String {
     format!("{indent}{bullet} [{}] {}{}", if t.done { "x" } else { " " }, t.text, markers(t.due.as_deref(), t.time.as_deref(), t.priority, t.done_date.as_deref()))
 }
 
+// ---------- a note's tasks with their descriptions and subtasks ----------
+
+/// A task found in a note, with where its block is: what editing it needs.
+struct Parsed {
+    task: Task,
+    /// leading whitespace of the task line
+    ws: String,
+    width: usize,
+    /// 1-based lines of its description
+    desc_lines: Vec<usize>,
+    /// the last line of its block (description and subtasks); the task line itself when it has none
+    end: usize,
+}
+
+/// Indentation width: a tab counts as four spaces, as in Obsidian.
+fn indent(l: &str) -> (String, usize) {
+    let ws: String = l.chars().take_while(|c| c.is_whitespace()).collect();
+    let width = ws.chars().map(|c| if c == '\t' { 4 } else { 1 }).sum();
+    (ws, width)
+}
+
+/// All tasks of a note, in order, with parents, descriptions and blocks. Code blocks at the top level
+/// are skipped (a `- [ ]` in an example is not a task); a code block inside a description belongs to it.
+fn parse_file(text: &str) -> Vec<Parsed> {
+    let mut out: Vec<Parsed> = Vec::new();
+    // open tasks a following indented line may belong to, innermost last (indices into `out`)
+    let mut stack: Vec<usize> = Vec::new();
+    // inside ``` …: whose description it is (None — a code block outside any task)
+    let mut fence: Option<Option<usize>> = None;
+    let mut desc: Vec<Vec<String>> = Vec::new();
+    for (i, l) in text.lines().enumerate() {
+        let n = i + 1;
+        let trimmed = l.trim();
+        let is_fence = trimmed.starts_with("```");
+        if let Some(owner) = fence {
+            if let Some(o) = owner {
+                desc[o].push(l.to_string());
+                out[o].desc_lines.push(n);
+                for &a in &stack {
+                    out[a].end = n;
+                }
+            }
+            if is_fence {
+                fence = None;
+            }
+            continue;
+        }
+        if trimmed.is_empty() {
+            stack.clear();
+            continue;
+        }
+        let (ws, width) = indent(l);
+        while stack.last().is_some_and(|&t| out[t].width >= width) {
+            stack.pop();
+        }
+        if let Some(mut task) = parse(l) {
+            task.line = n;
+            task.parent = stack.last().map(|&p| out[p].task.line);
+            for &a in &stack {
+                out[a].end = n;
+            }
+            out.push(Parsed { task, ws, width, desc_lines: Vec::new(), end: n });
+            desc.push(Vec::new());
+            stack.push(out.len() - 1);
+        } else if let Some(&owner) = stack.last() {
+            desc[owner].push(l.to_string());
+            out[owner].desc_lines.push(n);
+            for &a in &stack {
+                out[a].end = n;
+            }
+            if is_fence {
+                fence = Some(Some(owner));
+            }
+        } else {
+            stack.clear();
+            if is_fence {
+                fence = Some(None);
+            }
+        }
+    }
+    for (p, lines) in out.iter_mut().zip(desc) {
+        let cut = lines.iter().filter(|l| !l.trim().is_empty()).map(|l| l.chars().take_while(|c| c.is_whitespace()).count()).min().unwrap_or(0);
+        p.task.desc = lines.iter().map(|l| l.chars().skip(cut).collect::<String>().trim_end().to_string()).collect::<Vec<_>>().join("\n");
+    }
+    out
+}
+
+/// The note as lines (without `\r`) and whether it used CRLF, to write it back the same way.
+fn read_lines(full: &Path) -> Result<(Vec<String>, bool, bool), String> {
+    let text = fs::read_to_string(full).map_err(err)?;
+    let crlf = text.contains("\r\n");
+    let trailing = text.ends_with('\n');
+    let lines = text.lines().map(str::to_string).collect();
+    Ok((lines, crlf, trailing))
+}
+
+fn write_lines(full: &Path, lines: &[String], crlf: bool, trailing: bool) -> Result<(), String> {
+    let nl = if crlf { "\r\n" } else { "\n" };
+    let mut text = lines.join(nl);
+    if trailing {
+        text.push_str(nl);
+    }
+    fs::write(full, text).map_err(err)
+}
+
+/// The task at `line`, if that line still is `raw`: a note edited elsewhere is never changed blindly.
+fn find_task(lines: &[String], line: usize, raw: &str) -> Result<Parsed, String> {
+    let cur = lines.get(line.wrapping_sub(1)).map(|l| l.trim_end()).ok_or("строки уже нет")?;
+    if cur != raw.trim_end() {
+        return Err("заметка изменилась — список задач обновлён, попробуйте ещё раз".into());
+    }
+    parse_file(&lines.join("\n")).into_iter().find(|p| p.task.line == line).ok_or_else(|| "это не задача".into())
+}
+
+/// Indentation for lines under a task: like its subtasks if it has any, else one level deeper.
+fn child_ws(lines: &[String], p: &Parsed) -> String {
+    let next = lines.get(p.task.line).filter(|_| p.end > p.task.line);
+    match next.map(|l| indent(l)) {
+        Some((ws, w)) if w > p.width => ws,
+        _ => format!("{}{}", p.ws, if p.ws.contains('\t') { "\t" } else { "    " }),
+    }
+}
+
+/// New description lines: empty lines dropped (an empty line would end the task's block).
+fn desc_block(desc: &str, ws: &str) -> Vec<String> {
+    desc.lines().map(str::trim_end).filter(|l| !l.trim().is_empty()).map(|l| format!("{ws}{l}")).collect()
+}
+
+/// Replace a task's description. Its subtasks stay where they are.
+#[tauri::command]
+pub async fn task_describe(path: String, line: usize, raw: String, desc: String) -> Result<(), String> {
+    let root = vault().await?;
+    let full = resolve(&root, &path)?;
+    describe_in(&full, line, &raw, &desc)
+}
+
+fn describe_in(full: &Path, line: usize, raw: &str, desc: &str) -> Result<(), String> {
+    let (mut lines, crlf, trailing) = read_lines(full)?;
+    let p = find_task(&lines, line, raw)?;
+    let ws = child_ws(&lines, &p);
+    for &n in p.desc_lines.iter().rev() {
+        lines.remove(n - 1);
+    }
+    for (k, l) in desc_block(desc, &ws).into_iter().enumerate() {
+        lines.insert(line + k, l);
+    }
+    write_lines(full, &lines, crlf, trailing)
+}
+
+/// Add a subtask at the end of a task's block. `line` is the new task line (from `task_format`).
+#[tauri::command]
+pub async fn task_add_sub(path: String, line: usize, raw: String, task: String) -> Result<(), String> {
+    let root = vault().await?;
+    let full = resolve(&root, &path)?;
+    add_sub_in(&full, line, &raw, &task)
+}
+
+fn add_sub_in(full: &Path, line: usize, raw: &str, task: &str) -> Result<(), String> {
+    let new = task.trim();
+    if parse(new).is_none() {
+        return Err("это не задача".into());
+    }
+    let (mut lines, crlf, trailing) = read_lines(full)?;
+    let p = find_task(&lines, line, raw)?;
+    let ws = child_ws(&lines, &p);
+    lines.insert(p.end, format!("{ws}{new}"));
+    write_lines(full, &lines, crlf, trailing)
+}
+
 // ---------- scanning with a per-file cache ----------
 
 type Cache = HashMap<PathBuf, (SystemTime, Vec<Task>)>;
@@ -130,22 +314,12 @@ fn scan(root: &Path) -> Vec<Task> {
         }
         let Ok(text) = fs::read_to_string(&full) else { continue };
         let path = rel.to_string_lossy().into_owned();
-        let mut fence = false;
-        let tasks: Vec<Task> = text
-            .lines()
-            .enumerate()
-            .filter_map(|(i, l)| {
-                if l.trim_start().starts_with("```") {
-                    fence = !fence;
-                }
-                if fence {
-                    return None;
-                }
-                parse(l).map(|mut t| {
-                    t.path = path.clone();
-                    t.line = i + 1;
-                    t
-                })
+        let tasks: Vec<Task> = parse_file(&text)
+            .into_iter()
+            .map(|p| {
+                let mut t = p.task;
+                t.path = path.clone();
+                t
             })
             .collect();
         out.extend(tasks.iter().cloned());
@@ -220,18 +394,15 @@ pub async fn task_update(path: String, line: usize, raw: String, change: TaskCha
 
 /// Removes a task's line from its note. `raw` must still be what is on that line, so a note edited
 /// elsewhere never loses the wrong line.
+/// Its description and subtasks go with it: left behind they would become part of the task above.
 #[tauri::command]
 pub async fn task_delete(path: String, line: usize, raw: String) -> Result<(), String> {
     let root = vault().await?;
     let full = resolve(&root, &path)?;
-    let text = fs::read_to_string(&full).map_err(err)?;
-    let mut lines: Vec<&str> = text.split('\n').collect();
-    let cur = lines.get(line.wrapping_sub(1)).map(|l| l.trim_end_matches('\r').trim_end()).ok_or("строки уже нет")?;
-    if cur != raw.trim_end() {
-        return Err("заметка изменилась — список задач обновлён, попробуйте ещё раз".into());
-    }
-    lines.remove(line - 1);
-    fs::write(&full, lines.join("\n")).map_err(err)
+    let (mut lines, crlf, trailing) = read_lines(&full)?;
+    let p = find_task(&lines, line, &raw)?;
+    lines.drain(line - 1..p.end);
+    write_lines(&full, &lines, crlf, trailing)
 }
 
 /// The text of a new task line (also used by the "＋ Задача" dialog in a note).
@@ -250,7 +421,7 @@ pub fn task_format(text: String, due: Option<String>, time: Option<String>, prio
 
 /// Append a task line to a note (default: "Задачи.md" in the vault root). Returns the note path.
 #[tauri::command]
-pub async fn task_add(path: Option<String>, line: String) -> Result<String, String> {
+pub async fn task_add(path: Option<String>, line: String, desc: Option<String>) -> Result<String, String> {
     let root = vault().await?;
     let path = path.filter(|p| !p.is_empty()).unwrap_or_else(|| "Задачи.md".into());
     let full = resolve(&root, &path)?;
@@ -260,6 +431,10 @@ pub async fn task_add(path: Option<String>, line: String) -> Result<String, Stri
     }
     text.push_str(line.trim_end());
     text.push('\n');
+    for l in desc_block(desc.as_deref().unwrap_or(""), "    ") {
+        text.push_str(&l);
+        text.push('\n');
+    }
     if let Some(dir) = full.parent() {
         fs::create_dir_all(dir).map_err(err)?;
     }
@@ -371,6 +546,11 @@ mod tests {
 
         assert!(task_delete("Задачи.md".into(), 4, "- [ ] вторая".into()).await.is_ok());
         assert_eq!(std::fs::read_to_string(&note).unwrap(), "# Задачи\n\n- [ ] первая\n- [ ] третья\n");
+        // a task goes with its description and subtasks — and nothing after its block
+        std::fs::write(&note, "- [ ] первая\n- [ ] вторая\n    описание\n    - [ ] под\n        ещё\n- [ ] третья\n").unwrap();
+        assert!(task_delete("Задачи.md".into(), 2, "- [ ] вторая".into()).await.is_ok());
+        assert_eq!(std::fs::read_to_string(&note).unwrap(), "- [ ] первая\n- [ ] третья\n");
+        std::fs::write(&note, "# Задачи\n\n- [ ] первая\n- [ ] третья\n").unwrap();
         // the line is no longer what the UI saw: nothing is removed
         let e = task_delete("Задачи.md".into(), 4, "- [ ] вторая".into()).await.unwrap_err();
         assert!(e.contains("заметка изменилась"), "{e}");
@@ -400,5 +580,89 @@ mod tests {
     fn format_new() {
         let l = task_format("Позвонить".into(), Some("2026-10-05".into()), Some("9:5".into()), Some(1), vec!["#дом".into(), "срочно".into()]).unwrap();
         assert_eq!(l, "- [ ] Позвонить #дом #срочно 🔼 📅 2026-10-05 ⏰ 09:05");
+    }
+
+    fn note_text() -> String {
+        [
+            "# Работа",
+            "- [ ] Обновить сертификат 📅 2026-10-05 ⏫ #infra",
+            "    Выпускали через certbot.",
+            "    ```bash",
+            "    - [ ] это не подзадача, а пример",
+            "    ```",
+            "    - [ ] выпустить",
+            "        только на bastion",
+            "        - [x] проверить срок ✅ 2026-10-01",
+            "    - [ ] перезапустить nginx",
+            "    и проверить снаружи",
+            "- [ ] Другая задача",
+            "",
+            "    - [ ] после пустой строки — не подзадача",
+            "```",
+            "- [ ] в примере — не задача",
+            "```",
+            "",
+        ]
+        .join("\n")
+    }
+
+    #[test]
+    fn subtasks_and_descriptions() {
+        let p = parse_file(&note_text());
+        let lines: Vec<(usize, &str, Option<usize>, usize)> = p.iter().map(|x| (x.task.line, x.task.text.as_str(), x.task.parent, x.end)).collect();
+        assert_eq!(
+            lines,
+            [
+                (2, "Обновить сертификат #infra", None, 11),
+                (7, "выпустить", Some(2), 9),
+                (9, "проверить срок", Some(7), 9),
+                (10, "перезапустить nginx", Some(2), 10),
+                (12, "Другая задача", None, 12),
+                (14, "после пустой строки — не подзадача", None, 14),
+            ]
+        );
+        // the code block in the description is the description, not a subtask; a line after the
+        // subtasks that is back at the task's level is its description too
+        assert_eq!(p[0].task.desc, "Выпускали через certbot.\n```bash\n- [ ] это не подзадача, а пример\n```\nи проверить снаружи");
+        assert_eq!(p[0].desc_lines, [3, 4, 5, 6, 11]);
+        assert_eq!(p[1].task.desc, "только на bastion");
+        assert_eq!(p[4].task.desc, "");
+    }
+
+    fn note(text: &str) -> PathBuf {
+        static N: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        let n = N.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let dir = std::env::temp_dir().join(format!("opsdeck-task-sub-{}-{n}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let f = dir.join("n.md");
+        std::fs::write(&f, text).unwrap();
+        f
+    }
+
+    #[test]
+    fn describe_replaces_only_the_description() {
+        let f = note("- [ ] задача\n    старое\n    - [ ] под\n    ещё старое\n- [ ] соседняя\n");
+        describe_in(&f, 1, "- [ ] задача", "новое\n\n  с отступом  \n").unwrap();
+        // empty lines are dropped: one would end the task's block
+        assert_eq!(std::fs::read_to_string(&f).unwrap(), "- [ ] задача\n    новое\n      с отступом\n    - [ ] под\n- [ ] соседняя\n");
+        describe_in(&f, 1, "- [ ] задача", "").unwrap();
+        assert_eq!(std::fs::read_to_string(&f).unwrap(), "- [ ] задача\n    - [ ] под\n- [ ] соседняя\n");
+        // a task without subtasks, indented with a tab, in a CRLF note
+        let f = note("\t- [ ] вложенная\r\n- [ ] x\r\n");
+        describe_in(&f, 1, "\t- [ ] вложенная", "текст").unwrap();
+        assert_eq!(std::fs::read_to_string(&f).unwrap(), "\t- [ ] вложенная\r\n\t\tтекст\r\n- [ ] x\r\n");
+        // the line is not what the UI saw: nothing changes
+        assert!(describe_in(&f, 1, "- [ ] другая", "x").unwrap_err().contains("заметка изменилась"));
+    }
+
+    #[test]
+    fn a_subtask_goes_to_the_end_of_the_block() {
+        let f = note("- [ ] задача\n    описание\n    - [ ] первая\n        её описание\n- [ ] соседняя\n");
+        add_sub_in(&f, 1, "- [ ] задача", "- [ ] вторая 📅 2026-11-01").unwrap();
+        assert_eq!(std::fs::read_to_string(&f).unwrap(), "- [ ] задача\n    описание\n    - [ ] первая\n        её описание\n    - [ ] вторая 📅 2026-11-01\n- [ ] соседняя\n");
+        let f = note("  - [ ] без подзадач\n");
+        add_sub_in(&f, 1, "  - [ ] без подзадач", "- [ ] первая").unwrap();
+        assert_eq!(std::fs::read_to_string(&f).unwrap(), "  - [ ] без подзадач\n      - [ ] первая\n");
+        assert!(add_sub_in(&f, 1, "  - [ ] без подзадач", "просто текст").is_err());
     }
 }

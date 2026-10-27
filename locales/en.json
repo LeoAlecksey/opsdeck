@@ -2093,5 +2093,21 @@
  "🔕 Скрыть такие": "🔕 Hide these",
  "🔺 срочно": "🔺 urgent",
  "🔼 повыше": "🔼 higher",
- "🔽 низкий": "🔽 low"
+ "🔽 низкий": "🔽 low",
+ "Подробности: что и где сделать, ссылки, команды. Записывается строками с отступом под задачей": "Details: what to do and where, links, commands. Written as lines indented under the task",
+ "Подзадачи: выполнено": "Subtasks: done",
+ "Есть описание": "Has a description",
+ "Описание и подзадачи": "Description and subtasks",
+ "Подробности: что и где сделать, ссылки, команды": "Details: what to do and where, links, commands",
+ "Ctrl+Enter — сохранить. Пустые строки не сохраняются: в заметке они закончили бы задачу": "Ctrl+Enter — save. Empty lines are not kept: in the note they would end the task",
+ "Изменить описание": "Edit the description",
+ "＋ описание: что и где сделать, ссылки, команды": "＋ description: what to do and where, links, commands",
+ "＋ подзадача — Enter": "＋ subtask — Enter",
+ "Описание сохранено": "Description saved",
+ "Вместе с ней удалятся подзадачи": "Its subtasks will be deleted too",
+ "и описание": "and the description",
+ "Вместе с ней удалится описание.": "Its description will be deleted too.",
+ "Строка «{}» будет удалена из заметки «{}».{} Отменить это можно только в заметке.": "The line «{}» will be removed from the note «{}».{} Only the note itself can undo that.",
+ "Готово: {}{}": "Done: {}{}",
+ "открытых подзадач": "open subtasks"
 }

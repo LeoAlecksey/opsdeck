@@ -261,6 +261,8 @@ pub fn run() {
             tasks::task_delete,
             tasks::task_format,
             tasks::task_add,
+            tasks::task_describe,
+            tasks::task_add_sub,
             tasks::task_snooze,
             notes::note_search,
             notes::note_open_obsidian,
