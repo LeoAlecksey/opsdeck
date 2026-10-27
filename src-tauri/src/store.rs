@@ -175,6 +175,15 @@ pub fn secret_get(key: &str) -> Option<String> {
     entry(key).ok()?.get_password().ok()
 }
 
+/// Like `secret_get`, but tells a missing entry (Ok(None)) from a keyring that could not be read.
+pub fn secret_lookup(key: &str) -> Result<Option<String>, String> {
+    match entry(key)?.get_password() {
+        Ok(s) => Ok(Some(s)),
+        Err(keyring::Error::NoEntry) => Ok(None),
+        Err(e) => Err(err(e)),
+    }
+}
+
 pub fn secret_set(key: &str, value: &str) -> Result<(), String> {
     entry(key)?.set_password(value).map_err(err)
 }
