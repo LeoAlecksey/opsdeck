@@ -367,6 +367,7 @@ lint:
       { id: "qwen2.5-coder-1.5b", title: "Лёгкая — Qwen2.5-Coder 1.5B", size: 1117320768, ram_gb: 4, installed: true },
       { id: "qwen3.5-4b", title: "Средняя — Qwen3.5 4B", size: 2740937888, ram_gb: 8, installed: false },
       { id: "qwen3.5-9b", title: "Мощная — Qwen3.5 9B", size: 5680522464, ram_gb: 16, installed: true },
+      { id: "qwen3.8-27b", title: "Сильная — Qwen3.8 27B", size: 16464440224, ram_gb: 24, installed: false, fit: { level: "good", why: "" } },
       { id: "qwen3.6-35b-a3b", title: "Большая — Qwen3.6 35B-A3B (MoE)", size: 22134528992, ram_gb: 32, installed: false } ] },
     ai_command: { command: "kubectl -n shop rollout restart deploy/worker && kubectl -n shop rollout status deploy/worker --timeout=120s", from_notes: ["kubectl -n shop rollout restart deploy/worker", "kubectl -n shop rollout status deploy/worker --timeout=120s"], elapsed_ms: 1840 },
     ports_listening: [], alerts_poll_now: [], kp_copy: null,

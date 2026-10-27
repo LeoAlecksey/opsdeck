@@ -35,6 +35,9 @@ struct Model {
     size: u64,
     /// recommended RAM, GB
     ram_gb: u32,
+    /// parameters working per token, billions: what decides the speed on a CPU (an MoE model is
+    /// big on disk but quick, a dense one is as slow as it is big)
+    active_b: f32,
 }
 
 const MODELS: &[Model] = &[
@@ -46,6 +49,7 @@ const MODELS: &[Model] = &[
         sha256: "cc324af070c2ecbfd324a30884d2f951a7ff756aba85cb811a6ec436933bb046",
         size: 1_117_320_768,
         ram_gb: 4,
+        active_b: 1.5,
     },
     Model {
         id: "qwen3.5-4b",
@@ -55,6 +59,7 @@ const MODELS: &[Model] = &[
         sha256: "00fe7986ff5f6b463e62455821146049db6f9313603938a70800d1fb69ef11a4",
         size: 2_740_937_888,
         ram_gb: 8,
+        active_b: 4.0,
     },
     Model {
         id: "qwen3.5-9b",
@@ -64,6 +69,20 @@ const MODELS: &[Model] = &[
         sha256: "03b74727a860a56338e042c4420bb3f04b2fec5734175f4cb9fa853daf52b7e8",
         size: 5_680_522_464,
         ram_gb: 16,
+        active_b: 9.0,
+    },
+    // Qwen3.8 27B (август 2026, Apache-2.0): плотная, архитектура qwen3_5 — та же, что у Qwen3.5,
+    // поэтому закреплённый движок её запускает. Qwen3.8-Flash-Next (125B MoE, ≈100 ГБ в 4 битах,
+    // несколько файлов, архитектура Qwen4) для настольного ПК не годится и в список не входит.
+    Model {
+        id: "qwen3.8-27b",
+        title: "Сильная — Qwen3.8 27B",
+        file: "Qwen3.8-27B-UD-Q4_K_M.gguf",
+        url: "https://huggingface.co/unsloth/Qwen3.8-27B-GGUF/resolve/main/Qwen3.8-27B-UD-Q4_K_M.gguf",
+        sha256: "322e194ff79741c7baa497c240f677f54b201b0efab44ca8e50f122b39123482",
+        size: 16_464_440_224,
+        ram_gb: 24,
+        active_b: 27.0,
     },
     Model {
         id: "qwen3.6-35b-a3b",
@@ -73,9 +92,68 @@ const MODELS: &[Model] = &[
         sha256: "ac0e2c1189e055faa36eff361580e79c5bd6f8e76bffb4ce547f167d53e31a61",
         size: 22_134_528_992,
         ram_gb: 32,
+        active_b: 3.0,
     },
 ];
 const CUSTOM: &str = "custom";
+
+// ----- потянет ли этот компьютер модель -----
+
+const GIB: u64 = 1 << 30;
+
+#[derive(Serialize, PartialEq, Debug, Clone, Copy)]
+#[serde(rename_all = "lowercase")]
+pub enum FitLevel {
+    /// хватает памяти, скорость нормальная
+    Good,
+    /// запустится, но на процессоре будет медленно
+    Slow,
+    /// памяти меньше рекомендованного: запустится, но потеснит остальное
+    Tight,
+    /// не запустится или не скачается
+    No,
+}
+
+#[derive(Serialize, PartialEq, Debug, Clone)]
+pub struct Fit {
+    pub level: FitLevel,
+    /// почему, словами — пусто, если всё хорошо
+    pub why: String,
+}
+
+/// Что ждёт модель на этом компьютере. Память — по факту (размер файла плюс контекст и система),
+/// диск — если её ещё надо скачать, скорость — по числу активных параметров: на процессоре без
+/// видеокарты плотная модель на десятки миллиардов отвечает по несколько слов в секунду.
+pub fn fit(size: u64, ram_gb: u32, active_b: f32, ram_total: u64, disk_free: Option<u64>, accel: bool, installed: bool) -> Fit {
+    let gb = |b: u64| format!("{:.0}", b as f64 / GIB as f64);
+    if !installed {
+        if let Some(free) = disk_free {
+            let need = size + GIB;
+            if free < need {
+                return Fit { level: FitLevel::No, why: format!("на диске свободно {} ГБ, а нужно около {} ГБ", gb(free), gb(need)) };
+            }
+        }
+    }
+    // файл модели целиком в памяти + контекст и сама система
+    let min = size + 5 * GIB / 2;
+    if ram_total < min {
+        return Fit { level: FitLevel::No, why: format!("модели нужно не меньше {} ГБ памяти, а в компьютере {} ГБ", gb(min), gb(ram_total)) };
+    }
+    // ОС показывает чуть меньше памяти, чем стоит в компьютере: небольшой запас
+    if (ram_total as f64) < ram_gb as f64 * GIB as f64 * 0.9 {
+        return Fit { level: FitLevel::Tight, why: format!("памяти впритык: {} ГБ при рекомендованных {} ГБ — остальные программы будут потеснены, ответы медленнее", gb(ram_total), ram_gb) };
+    }
+    if !accel && active_b >= 14.0 {
+        return Fit { level: FitLevel::Slow, why: "на процессоре такая модель отвечает медленно — несколько слов в секунду; с ускорением на видеокарте в разы быстрее".into() };
+    }
+    Fit { level: FitLevel::Good, why: String::new() }
+}
+
+/// Свободное место там, куда скачиваются модели.
+fn disk_free(dir: &Path) -> Option<u64> {
+    let disks = sysinfo::Disks::new_with_refreshed_list();
+    disks.list().iter().filter(|d| dir.starts_with(d.mount_point())).max_by_key(|d| d.mount_point().as_os_str().len()).map(|d| d.available_space())
+}
 /// The user's choice, in ~/.config/opsdeck.
 const CHOICE_FILE: &str = "ai.json";
 /// Engine archive, roughly (shown in the download size).
@@ -294,6 +372,7 @@ pub struct AiModelInfo {
     size: u64,
     ram_gb: u32,
     installed: bool,
+    fit: Fit,
 }
 
 #[derive(Serialize)]
@@ -319,19 +398,30 @@ pub fn ai_models(state: tauri::State<AiState>) -> AiModels {
     let c = choice();
     let mut sys = sysinfo::System::new();
     sys.refresh_memory();
+    let ram = sys.total_memory();
+    let free = ai_dir().ok().and_then(|d| disk_free(&d));
+    let gpu_failed = state.gpu_failed.load(std::sync::atomic::Ordering::Relaxed);
+    // видеокарта работает: на ней и плотная модель отвечает быстро
+    let accel = cfg!(target_os = "macos") || (c.gpu && vulkan_found() && !gpu_failed);
     AiModels {
-        models: MODELS.iter().map(|m| AiModelInfo { id: m.id, title: m.title, size: m.size, ram_gb: m.ram_gb, installed: preset_ready(m) }).collect(),
+        models: MODELS
+            .iter()
+            .map(|m| {
+                let installed = preset_ready(m);
+                AiModelInfo { id: m.id, title: m.title, size: m.size, ram_gb: m.ram_gb, installed, fit: fit(m.size, m.ram_gb, m.active_b, ram, free, accel, installed) }
+            })
+            .collect(),
         selected: match selected() {
             Selected::Preset(m) => m.id.to_string(),
             Selected::Custom(_) => CUSTOM.to_string(),
         },
         custom_path: c.custom_path,
-        ram_total: sys.total_memory(),
+        ram_total: ram,
         gpu: c.gpu,
         gpu_supported: vulkan_asset().is_some(),
         vulkan_found: vulkan_found(),
         metal: cfg!(target_os = "macos"),
-        gpu_failed: state.gpu_failed.load(std::sync::atomic::Ordering::Relaxed),
+        gpu_failed,
     }
 }
 
@@ -745,6 +835,17 @@ fn unpack(archive: &Path, into: &Path) -> Result<(), String> {
 #[tauri::command]
 pub fn ai_install(app: AppHandle, state: tauri::State<AiState>) -> Result<(), String> {
     let asset_suffix = engine_asset()?;
+    // место проверяем до начала: модель на 17 ГБ, оборвавшаяся на 15-м, — потерянные полчаса
+    if let Selected::Preset(m) = selected() {
+        if !preset_ready(m) {
+            if let Some(free) = ai_dir().ok().and_then(|d| disk_free(&d)) {
+                let f = fit(m.size, m.ram_gb, m.active_b, u64::MAX, Some(free), true, false);
+                if f.level == FitLevel::No {
+                    return Err(format!("не хватит места: {}", f.why));
+                }
+            }
+        }
+    }
     let cancel = {
         let mut g = state.installing.lock().unwrap();
         if g.is_some() {
@@ -1513,6 +1614,36 @@ mod tests {
         }
         assert_eq!(MODELS[0].id, "qwen2.5-coder-1.5b", "the light model stays the default");
         assert!(MODELS.windows(2).all(|w| w[0].ram_gb <= w[1].ram_gb && w[0].size < w[1].size), "ordered from light to large");
+        assert!(MODELS.iter().all(|m| m.active_b > 0.0), "активные параметры указаны у всех");
+    }
+
+    #[test]
+    fn will_this_pc_run_the_model() {
+        let g = GIB;
+        let q27 = MODELS.iter().find(|m| m.id == "qwen3.8-27b").expect("Qwen3.8 27B в списке");
+        let moe = MODELS.iter().find(|m| m.id == "qwen3.6-35b-a3b").unwrap();
+        let run = |m: &Model, ram: u64, disk: u64, accel: bool| fit(m.size, m.ram_gb, m.active_b, ram * g, Some(disk * g), accel, false);
+        // 32 ГБ и видеокарта — хорошо; на процессоре плотная 27B медленная, а MoE 35B-A3B — нет
+        assert_eq!(run(q27, 32, 500, true).level, FitLevel::Good);
+        assert_eq!(run(q27, 32, 500, false).level, FitLevel::Slow);
+        assert_eq!(run(moe, 32, 500, false).level, FitLevel::Good);
+        // 20 ГБ: файл влезает, но меньше рекомендованных 24 — впритык
+        let tight = run(q27, 20, 500, true);
+        assert_eq!(tight.level, FitLevel::Tight);
+        assert!(tight.why.contains("20 ГБ") && tight.why.contains("24 ГБ"), "{}", tight.why);
+        // 16 ГБ: файл 16,5 ГБ в память не поместится
+        let no = run(q27, 16, 500, true);
+        assert_eq!(no.level, FitLevel::No);
+        assert!(no.why.contains("памяти"), "{}", no.why);
+        // места на диске мало — не скачается; уже скачанной модели место не нужно
+        let disk = run(q27, 64, 10, true);
+        assert_eq!(disk.level, FitLevel::No);
+        assert!(disk.why.contains("на диске свободно 10 ГБ"), "{}", disk.why);
+        assert_eq!(fit(q27.size, q27.ram_gb, q27.active_b, 64 * g, Some(10 * g), true, true).level, FitLevel::Good);
+        // место неизвестно — не мешаем
+        assert_eq!(fit(q27.size, q27.ram_gb, q27.active_b, 64 * g, None, true, false).level, FitLevel::Good);
+        // лёгкая модель идёт везде
+        assert_eq!(run(&MODELS[0], 8, 20, false).level, FitLevel::Good);
     }
 
     #[test]
