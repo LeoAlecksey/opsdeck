@@ -7,6 +7,7 @@ import { mountUpdates } from "./updates";
 import { hlPrefs, setHlPrefs } from "./highlight";
 import { setTermFontSize, termFontSize, setTermFontFamily, termFontFamily, TERM_FONTS, fontInstalled } from "./pty";
 import { setSuggestEnabled, suggestEnabled } from "./suggest";
+import { rightClickMode, setRightClickMode, type RightClick } from "./rightclick";
 import { AI_PROVIDERS, aiAgent, setAiAgent } from "./ai-agents";
 import { addThemes, allThemes, currentThemeName, isWindows, parseSchemes, setTheme } from "./themes";
 import { listen } from "@tauri-apps/api/event";
@@ -168,6 +169,11 @@ export function mountSettings(root: HTMLElement) {
           <label class="check"><input type="checkbox" data-hl="input" /> Подсветка команды при наборе (как в fish: несуществующая команда — красным)</label>
           <label class="check"><input type="checkbox" data-hl="output" /> Подсветка вывода: ERROR/WARN, статусы подов, IP, ссылки, время</label>
           <label class="check"><input type="checkbox" class="term-sugg" /> Подсказывать продолжение команды серым (из истории и заметок), → — принять</label>
+          <label>Правая кнопка мыши в терминале <select class="term-rclick">
+            <option value="menu">Меню (как в системе)</option>
+            <option value="paste">Вставить из буфера (как в PuTTY)</option>
+            <option value="copy-paste">Копировать выделение, иначе вставить (как в Windows Terminal)</option>
+          </select></label>
           <label>Размер шрифта (8–32; ещё Ctrl+= / Ctrl+- / Ctrl+0 и Ctrl+колесо в терминале) <input class="term-font" type="number" min="8" max="32" /></label>
           <label>Шрифт терминала <select class="term-font-family"></select></label>
           <label class="term-font-custom-row" hidden>Название шрифта <input class="term-font-custom" maxlength="128" spellcheck="false" placeholder="например, Iosevka" data-no-i18n /></label>
@@ -298,6 +304,9 @@ export function mountSettings(root: HTMLElement) {
   const sugg = root.querySelector<HTMLInputElement>(".term-sugg")!;
   sugg.checked = suggestEnabled();
   sugg.onchange = () => setSuggestEnabled(sugg.checked);
+  const rclick = root.querySelector<HTMLSelectElement>(".term-rclick")!;
+  rclick.value = rightClickMode();
+  rclick.onchange = () => setRightClickMode(rclick.value as RightClick);
   const agentSel = root.querySelector<HTMLSelectElement>(".ai-agent-sel")!;
   for (const name of Object.keys(AI_PROVIDERS)) agentSel.add(new Option(name, name));
   agentSel.value = aiAgent();

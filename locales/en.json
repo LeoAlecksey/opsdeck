@@ -2093,5 +2093,9 @@
  "🔕 Скрыть такие": "🔕 Hide these",
  "🔺 срочно": "🔺 urgent",
  "🔼 повыше": "🔼 higher",
- "🔽 низкий": "🔽 low"
+ "🔽 низкий": "🔽 low",
+ "Правая кнопка мыши в терминале": "Right mouse button in the terminal",
+ "Меню (как в системе)": "Menu (as in the system)",
+ "Вставить из буфера (как в PuTTY)": "Paste from the clipboard (like PuTTY)",
+ "Копировать выделение, иначе вставить (как в Windows Terminal)": "Copy the selection, otherwise paste (like Windows Terminal)"
 }
