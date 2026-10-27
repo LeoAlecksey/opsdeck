@@ -33,6 +33,8 @@ export class AutoSuggest {
   }
 
   dispose() {
+    clearTimeout(this.timer);
+    this.reqId++; // an answer still on its way must not draw on the closed terminal
     window.removeEventListener("term-suggest", this.onPref);
     this.clear();
   }

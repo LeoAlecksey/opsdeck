@@ -243,6 +243,7 @@ export class PtyTerminal {
     window.removeEventListener("term-font-family", this.onFontFamily);
     window.removeEventListener("term-theme", this.onTheme);
     this.sugg.dispose();
+    this.inHl.dispose();
     this.unlisten.forEach((u) => u());
     this.term.dispose();
     return { id: this.id, screen, launched: this.launched };
@@ -297,6 +298,7 @@ export class PtyTerminal {
     window.removeEventListener("term-font-family", this.onFontFamily);
     window.removeEventListener("term-theme", this.onTheme);
     this.sugg.dispose();
+    this.inHl.dispose();
     this.unlisten.forEach((u) => u());
     invoke("pty_kill", { id: this.id });
     this.term.dispose();

@@ -238,6 +238,7 @@ export class InputHighlighter {
   private decos: IDecoration[] = [];
   private sig = "";
   private queued = false;
+  private disposed = false;
   enabled = true;
 
   constructor(private term: Terminal, private blocks: ShellBlocks) {
@@ -266,12 +267,17 @@ export class InputHighlighter {
     this.sig = "";
   }
 
+  /** The frame already asked for (or the command list still loading) must not touch the closed terminal. */
+  dispose() {
+    this.disposed = true;
+  }
+
   private schedule() {
-    if (!this.enabled || this.queued) return;
+    if (!this.enabled || this.queued || this.disposed) return;
     this.queued = true;
     requestAnimationFrame(() => {
       this.queued = false;
-      this.update();
+      if (!this.disposed) this.update();
     });
   }
 
