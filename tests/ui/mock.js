@@ -4,11 +4,13 @@
 //   window.__demoEmit(e, p)   — fire a backend event
 //   window.__demoListeners    — event -> [callback id] of the listeners still subscribed
 //   window.__DEMO_OVERRIDES   — { command: value | (args) => value } replaces an answer
-//   window.__DEMO_LANG        — "ru" (default) or "en": UI language and demo texts
+//   window.__DEMO_LANG        — "ru" (default) or "en": UI language and demo texts; "auto": the
+//                               app picks the language itself, demo texts follow navigator.language
 //   window.__DEMO_WIN         — метка окна: "main" (по умолчанию) или "pop-<раздел>"
 (() => {
-  const LANG = window.__DEMO_LANG || "ru";
-  try { localStorage.setItem("opsdeck.lang", LANG); } catch {}
+  const AUTO = window.__DEMO_LANG === "auto";
+  const LANG = AUTO ? (/^ru|^be|^uk|^kk/i.test(navigator.language) ? "ru" : "en") : window.__DEMO_LANG || "ru";
+  if (!AUTO) try { localStorage.setItem("opsdeck.lang", LANG); } catch {}
   const L = (ru, en) => (LANG === "ru" ? ru : en);
   const now = Date.now();
   const iso = (msAgo) => new Date(now - msAgo).toISOString();

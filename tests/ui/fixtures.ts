@@ -5,7 +5,9 @@ export type Call = { cmd: string; args: Record<string, unknown> };
 const ALL = ["terminal", "k8s", "web", "alerts", "net", "ssh", "monitor", "sftp", "yc", "code", "db", "notes", "tasks", "vault", "winbox", "agent"];
 
 /** Options for the fake backend, set per test with `test.use({ demo: {...} })`. */
-export type Demo = { lang?: "ru" | "en"; modules?: string[] | null; overrides?: Record<string, unknown>;
+// lang "auto": opsdeck.lang is not set (a fresh install), the storage is cleared only on the first
+// load of the tab, so page.reload() is a restart of the app with what it saved
+export type Demo = { lang?: "ru" | "en" | "auto"; modules?: string[] | null; overrides?: Record<string, unknown>;
   /** Метка окна: «pop-<раздел>» открывает страницу как вынесенное окно одного раздела. */
   win?: string };
 
@@ -21,6 +23,8 @@ export const test = base.extend<{ demo: Demo; app: App }>({
       (window as any).__DEMO_OVERRIDES = overrides;
       (window as any).__DEMO_WIN = win;
       try {
+        if (lang === "auto" && sessionStorage.getItem("demo.started")) return;
+        sessionStorage.setItem("demo.started", "1");
         localStorage.clear();
         if (modules) localStorage.setItem("opsdeck.modules", JSON.stringify(modules));
       } catch { /* ignore */ }
