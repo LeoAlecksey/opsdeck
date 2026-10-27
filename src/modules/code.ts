@@ -1,7 +1,7 @@
 import { relTo } from "./paths";
 import { eolOf, toLf, withEol, type Eol } from "./eol";
 import { locale, t } from "../i18n";
-import { helpBtn } from "./help";
+import { helpBtn } from "./help-btn";
 import { icon } from "./icons";
 import { invoke } from "@tauri-apps/api/core";
 import { ask, esc, popupMenu, toast } from "./ui";

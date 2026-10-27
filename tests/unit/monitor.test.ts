@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
-vi.mock("../../src/modules/help", () => ({ helpBtn: () => "" }));
+vi.mock("../../src/modules/help-btn", () => ({ helpBtn: () => "" }));
 vi.mock("../../src/modules/icons", () => ({ icon: () => "" }));
 vi.mock("../../src/modules/ui", () => ({ esc: (s: string) => s }));
 const m = await import("../../src/modules/monitor");

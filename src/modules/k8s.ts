@@ -1,4 +1,4 @@
-import { helpBtn } from "./help";
+import { helpBtn } from "./help-btn";
 import { icon } from "./icons";
 import { locale, t } from "../i18n";
 import { invoke } from "@tauri-apps/api/core";

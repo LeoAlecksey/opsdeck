@@ -2,9 +2,6 @@ import { overlay } from "./ui";
 import { currentLang } from "../i18n";
 import { HELP_EN } from "./help-en";
 
-/** "!" button for a section header; opens that section's guide. */
-export const helpBtn = (id: string) => `<button type="button" class="help-btn" data-help="${id}" title="Как это работает и что где нажимать">!</button>`;
-
 const kbd = (k: string) => `<kbd>${k}</kbd>`;
 
 const HELP: Record<string, { title: string; html: string }> = {
@@ -394,7 +391,8 @@ const HELP: Record<string, { title: string; html: string }> = {
   },
 };
 
-function show(id: string) {
+/** Open a section's guide (the "!" button is in help-btn.ts, so this text loads only on demand). */
+export function show(id: string) {
   const h = (currentLang() === "en" ? HELP_EN[id] : undefined) ?? HELP[id];
   if (!h) return;
   const dlg = document.createElement("dialog");
@@ -410,8 +408,3 @@ function show(id: string) {
   });
   dlg.showModal();
 }
-
-document.addEventListener("click", (e) => {
-  const id = (e.target as HTMLElement).closest<HTMLElement>("[data-help]")?.dataset.help;
-  if (id) show(id);
-});

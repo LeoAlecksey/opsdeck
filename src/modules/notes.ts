@@ -1,6 +1,6 @@
 import { eolOf, toLf, withEol, type Eol } from "./eol";
 import { t as i18nT } from "../i18n";
-import { helpBtn } from "./help";
+import { helpBtn } from "./help-btn";
 import { icon } from "./icons";
 import { invoke } from "@tauri-apps/api/core";
 import { marked } from "marked";
