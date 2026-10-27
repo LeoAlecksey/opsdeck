@@ -8,7 +8,6 @@ import { mountKeepass } from "./modules/keepass";
 import { mountPassbolt } from "./modules/passbolt";
 import { mountNotes } from "./modules/notes";
 import { mountDb } from "./modules/db";
-import { mountCode } from "./modules/code";
 import { mountTasks } from "./modules/tasks";
 import { mountMikrotik } from "./modules/mikrotik";
 import { mountMonitor } from "./modules/monitor";
@@ -37,7 +36,8 @@ import { registerProvider } from "./modules/palette";
 
 import { icon } from "./modules/icons";
 
-type View = { id: string; svg: string; title: string; mount: (el: HTMLElement) => void; bottom?: boolean };
+// lazy: the module is a separate chunk, imported and mounted on the first open rather than at startup
+type View = { id: string; svg: string; title: string; mount: (el: HTMLElement) => void | Promise<void>; bottom?: boolean; lazy?: boolean };
 
 const views: View[] = [
   { id: "terminal", svg: icon("terminal", 20), title: "Терминал + AI", mount: mountTerminal },
@@ -49,7 +49,8 @@ const views: View[] = [
   { id: "monitor", svg: icon("activity", 20), title: "Мониторинг хостов", mount: mountMonitor },
   { id: "sftp", svg: icon("folderOpen", 20), title: "Файлы на хостах", mount: mountSftp },
   { id: "yc", svg: icon("cloud", 20), title: "Yandex Cloud", mount: mountYc },
-  { id: "code", svg: icon("code", 20), title: "IDE: код и git", mount: mountCode },
+  // CodeMirror and yaml are about half of all the code, and only the IDE needs them
+  { id: "code", svg: icon("code", 20), title: "IDE: код и git", mount: (el) => import("./modules/code").then((m) => m.mountCode(el)), lazy: true },
   { id: "db", svg: icon("db", 20), title: "Базы данных", mount: mountDb },
   { id: "notes", svg: icon("notes", 20), title: "Заметки", mount: mountNotes },
   { id: "tasks", svg: icon("tasks", 20), title: "Задачи и напоминания", mount: mountTasks },
@@ -72,6 +73,10 @@ if (POP) document.body.classList.add("popout");
 const sidebar = document.getElementById("sidebar")!;
 const container = document.getElementById("views")!;
 const panes = new Map<string, HTMLElement>();
+// views whose module is mounted (a lazy one: also loaded) and listens to its events
+const ready = new Set<string>();
+// a lazy view still loading: resolves true when mounted, false if its chunk failed to load
+const loading = new Map<string, Promise<boolean>>();
 
 // ----- modules: which views are on (⊞ menu in the sidebar); off ones are not even mounted -----
 const MODULES_KEY = "opsdeck.modules";
@@ -98,24 +103,45 @@ const isOn = (id: string) => enabled.has(id) || (!POP && !!views.find((v) => v.i
 const firstOn = () => movable().find((b) => !b.hidden)?.dataset.view ?? "settings";
 
 /** Mount a view on first use. */
-function ensure(id: string) {
-  if (panes.has(id)) return;
+function ensure(id: string): Promise<boolean> {
+  if (ready.has(id)) return Promise.resolve(true);
+  const pending = loading.get(id);
+  if (pending) return pending;
+  if (panes.has(id)) return Promise.resolve(false); // its chunk failed to load: the pane says so
   const v = views.find((x) => x.id === id);
-  if (!v) return;
+  if (!v) return Promise.resolve(false);
   const pane = document.createElement("section");
   pane.className = "view";
   pane.hidden = true;
   container.appendChild(pane);
   panes.set(id, pane);
-  v.mount(pane);
+  const r = v.mount(pane);
+  if (!(r instanceof Promise)) {
+    ready.add(id);
+    return Promise.resolve(true);
+  }
+  pane.innerHTML = `<p class="muted pad view-loading">загрузка…</p>`;
+  const done = r.then(() => {
+    ready.add(id);
+    // show() announced the view before its module was there to hear it
+    if (!pane.hidden) window.dispatchEvent(new CustomEvent("view-shown", { detail: id }));
+    return true;
+  }, (err) => {
+    logUi("error", `view ${id}: ${err?.stack ?? err}`);
+    pane.innerHTML = `<p class="pad err">${esc(`Не удалось загрузить раздел «${v.title}»: ${err}`)}</p>`;
+    return false;
+  }).finally(() => loading.delete(id));
+  loading.set(id, done);
+  return done;
 }
+const mountAtStart = (id: string) => !views.find((v) => v.id === id)?.lazy;
 
 function setModule(id: string, on: boolean) {
   if (on) enabled.add(id); else enabled.delete(id);
   saveModules();
   const btn = sidebar.querySelector<HTMLElement>(`button[data-view="${id}"]`);
   if (btn) btn.hidden = !on;
-  if (on) ensure(id);
+  if (on) { if (mountAtStart(id)) ensure(id); }
   else if (panes.get(id)?.hidden === false) show(firstOn());
 }
 
@@ -150,7 +176,7 @@ for (const v of views) {
     btn.classList.add("bottom");
   }
   sidebar.appendChild(btn);
-  if (isOn(v.id)) ensure(v.id);
+  if (isOn(v.id) && mountAtStart(v.id)) ensure(v.id);
 }
 
 // правый клик по иконке модуля: вынести его в отдельное окно
@@ -229,13 +255,14 @@ const ROUTED: Record<string, string> = {
 for (const [type, id] of Object.entries(ROUTED)) {
   if (POP && id === POP) continue; // этот раздел здесь и есть, он обработает событие сам
   window.addEventListener(type, (e) => {
-    if (panes.has(id)) return;
+    if (ready.has(id)) return;
     e.stopImmediatePropagation();
     const detail = (e as CustomEvent).detail;
     // из вынесенного окна событие уезжает в главное вместе с разделом, который его ждёт
     if (POP) return routeToMain(id, type, detail);
     show(id);
-    queueMicrotask(() => window.dispatchEvent(new CustomEvent(type, { detail })));
+    // a lazy module may still be loading: deliver once it listens
+    ensure(id).then((ok) => { if (ok) window.dispatchEvent(new CustomEvent(type, { detail })); });
   }, true);
 }
 

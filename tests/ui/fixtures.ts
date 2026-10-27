@@ -18,6 +18,9 @@ export const test = base.extend<{ demo: Demo; app: App }>({
     const errors: string[] = [];
     page.on("pageerror", (e) => { errors.push(e.message); console.log("pageerror:", e.message, e.stack?.split("\n")[1] ?? ""); });
     page.on("console", (m) => { if (m.type() === "error") console.log("console.error:", m.text()); });
+    // from before the first request: a lazy chunk test must see what the start itself loaded
+    const requests: string[] = [];
+    page.on("request", (r) => requests.push(new URL(r.url()).pathname));
     await page.addInitScript(({ lang, modules, overrides, win }) => {
       (window as any).__DEMO_LANG = lang;
       (window as any).__DEMO_OVERRIDES = overrides;
@@ -34,7 +37,7 @@ export const test = base.extend<{ demo: Demo; app: App }>({
     // вынесенное окно боковой колонки не имеет: ждём сам раздел
     if (demo.win?.startsWith("pop-")) await expect(page.locator("#views .view:not([hidden])")).toBeVisible();
     else await expect(page.locator("#sidebar button[data-view]:visible").first()).toBeVisible();
-    const app = new App(page);
+    const app = new App(page, requests);
     await use(app);
     expect(errors, "uncaught errors in the page").toEqual([]);
   }, { auto: true }],
@@ -42,11 +45,17 @@ export const test = base.extend<{ demo: Demo; app: App }>({
 export { expect };
 
 export class App {
-  constructor(readonly page: Page) {}
+  constructor(readonly page: Page, private readonly requests: string[] = []) {}
+  /** The dev server serves every source module separately: was this one requested since the page started loading? */
+  loaded(file: string) {
+    return this.requests.includes(`/src/modules/${file}`);
+  }
   /** Open a section by its sidebar button. */
   async view(id: string) {
     await this.page.click(`#sidebar button[data-view="${id}"]`);
     await expect(this.page.locator(`#sidebar button[data-view="${id}"]`)).toHaveClass(/active/);
+    // a lazy section (IDE) loads its module on the first open
+    await expect(this.page.locator("section.view:not([hidden]) .view-loading")).toHaveCount(0);
   }
   /** Backend calls made so far (optionally only one command). */
   async calls(cmd?: string): Promise<Call[]> {

@@ -1,4 +1,4 @@
-import { helpBtn } from "./help";
+import { helpBtn } from "./help-btn";
 import { langSetting, locale, setLang, t } from "../i18n";
 import { invoke } from "@tauri-apps/api/core";
 import { ask, esc, toast } from "./ui";

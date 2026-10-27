@@ -1,5 +1,5 @@
 import { locale } from "../i18n";
-import { helpBtn } from "./help";
+import { helpBtn } from "./help-btn";
 import { icon } from "./icons";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";

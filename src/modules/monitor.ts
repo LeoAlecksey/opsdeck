@@ -4,7 +4,7 @@
  * in OpsDeck; the connection is kept for the next refresh. Linux hosts only (/proc).
  */
 import { invoke } from "@tauri-apps/api/core";
-import { helpBtn } from "./help";
+import { helpBtn } from "./help-btn";
 import { icon } from "./icons";
 import { isWindows } from "./themes";
 import { ask, esc } from "./ui";
