@@ -1079,6 +1079,24 @@ dialog.task-dialog { width: 520px; }
 .tk-acts span { color: var(--muted); cursor: pointer; padding: 0 4px; border-radius: 4px; }
 .tk-acts span:hover { color: var(--accent); background: var(--panel-2); }
 .tk-date-pop { font-size: 12px; padding: 1px 4px; }
+/* описание и подзадачи */
+.tk-caret { width: 12px; flex: none; color: var(--muted); cursor: pointer; font-size: 11px; transition: transform .12s; text-align: center; }
+.tk-row.open > .tk-caret { transform: rotate(90deg); color: var(--text); }
+.tk-row .tk-text { cursor: pointer; }
+.tk-progress { flex: none; font-size: 11px; color: var(--muted); padding: 0 6px; border: 1px solid var(--border); border-radius: 8px; }
+.tk-progress.all { color: var(--accent); border-color: var(--accent); }
+.tk-hasdesc { flex: none; color: var(--muted); display: inline-flex; }
+.tk-details { margin: 0 0 6px 30px; padding: 6px 0 4px 12px; border-left: 2px solid var(--border); display: flex; flex-direction: column; gap: 6px; }
+.tk-desc { font-size: 13px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; cursor: text; padding: 4px 8px; border-radius: 6px; }
+.tk-desc:hover { background: var(--panel); }
+.tk-desc.empty { color: var(--muted); font-size: 12px; }
+.tk-desc code { font-size: 12px; background: var(--panel-2); padding: 0 4px; border-radius: 4px; }
+.tk-desc .tk-code { margin: 4px 0; padding: 6px 8px; background: var(--panel-2); border-radius: 6px; overflow-x: auto; white-space: pre; }
+.tk-desc .tk-code code { background: none; padding: 0; }
+.tk-desc-in { width: 100%; box-sizing: border-box; font-size: 13px; resize: vertical; }
+.tk-details .row { display: flex; gap: 8px; align-items: center; }
+.tk-subs:empty { display: none; }
+.tk-sub-in { font-size: 12px; padding: 3px 8px; max-width: 420px; }
 .tk-none { padding: 4px 10px; margin: 0; }
 .tk-empty { padding: 30px 10px; text-align: center; }
 /* calendar */

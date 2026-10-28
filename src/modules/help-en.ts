@@ -294,6 +294,7 @@ export const HELP_EN: Record<string, { title: string; html: string }> = {
       <ul>
         <li><b>＋ Task</b> — a new task: in the “Задачи.md” note by default, another one can be chosen.</li>
         <li>The checkbox — done (✅ date is added), unticking returns the task to work.</li>
+        <li><b>Description and subtasks</b> — ▸ on the left or a click on the text opens a task. The description (what to do and where, links, commands, code blocks) is edited with a click and saved with the button or Ctrl+Enter; subtasks are added in the “＋ subtask” field with Enter, they have their own checkboxes, due dates and subtasks too. Next to a task, ☑ shows how many subtasks are done. In the note these are lines indented under the task, as Obsidian shows them:<br><code>- [ ] Renew the certificate 📅 2026-11-01</code><br><code>&nbsp;&nbsp;&nbsp;&nbsp;Issued with certbot, then nginx -t</code><br><code>&nbsp;&nbsp;&nbsp;&nbsp;- [ ] issue the certificate</code><br>An empty line or a line without indentation ends the task. Deleting a task removes its description and subtasks too.</li>
         <li>Click the due date — change it; on hover <b>→ tomorrow</b> and <b>✎</b> (text, due date, time, priority, tags; or double-click the text). On the right — the note name: open it at this line.</li>
         <li>Tags at the top and in task text are clickable — only tasks with that tag are shown; search — by text, tag and note.</li>
         <li><b>📅 Calendar</b> — a month with each day's tasks; click a day — its list below and <b>＋ task for this day</b>.</li>
