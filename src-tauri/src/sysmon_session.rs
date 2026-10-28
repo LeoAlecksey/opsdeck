@@ -27,8 +27,9 @@ const STDERR_KEEP: usize = 4096;
 
 /// The remote command: `probe` once per line read from stdin. Run by `sh` explicitly, because the
 /// login shell may be fish or csh, where `while … do … done` is not valid; the quoting below is
-/// understood by sh, bash, zsh, fish and csh alike. EOF on stdin (the app closed the session or
-/// exited) ends the loop, and ssh with it.
+/// understood by sh, bash, zsh, fish and csh alike as long as `probe` has no `!` (csh expands
+/// history even inside single quotes), no backslashes (fish unescapes `\\` there) and no newlines.
+/// EOF on stdin (the app closed the session or exited) ends the loop, and ssh with it.
 pub fn remote_loop(probe: &str) -> String {
     let body = format!("while read -r req; do {probe}; echo '{END}'; done");
     format!("sh -c '{}'", body.replace('\'', r"'\''"))
@@ -36,7 +37,7 @@ pub fn remote_loop(probe: &str) -> String {
 
 pub enum Failure {
     /// ssh ended (could not log in, connection lost, the remote side is not a POSIX shell…):
-    /// its stderr since the request
+    /// its stderr since the last good sample
     Exited(String),
     /// no complete sample within the timeout; the session was killed
     Timeout,
@@ -159,9 +160,13 @@ async fn run(mut cmd: Command, mut rx: mpsc::Receiver<Reply>, timeout: Duration,
                 break;
             }
         };
-        errbuf.lock().unwrap().clear();
         match tokio::time::timeout(timeout, exchange(&mut stdin, &mut stdout)).await {
-            Ok(Ok(text)) => answer(reply, Ok(text)),
+            Ok(Ok(text)) => {
+                // cleared only here: ssh may die before the first request, and what it said then
+                // is the answer to that request
+                errbuf.lock().unwrap().clear();
+                answer(reply, Ok(text));
+            }
             Ok(Err(why)) => {
                 // ssh is ending: let it finish writing stderr, which says why
                 match tokio::time::timeout(Duration::from_secs(3), child.wait()).await {
@@ -372,6 +377,29 @@ mod tests {
                     "a dead session is not reused"
                 );
             }
+        });
+    }
+
+    #[test]
+    fn stderr_of_ssh_dead_before_the_request_is_kept() {
+        tauri::async_runtime::block_on(async {
+            let mut cmd = Command::new("sh");
+            cmd.args([
+                "-c",
+                "echo 'user@host: Permission denied (publickey).' >&2; exit 255",
+            ]);
+            let (tx, rx) = mpsc::channel(1);
+            let session =
+                tauri::async_runtime::spawn(run(cmd, rx, Duration::from_secs(5), IDLE));
+            // ssh has exited and its stderr has been read before the poll comes
+            tokio::time::sleep(Duration::from_millis(300)).await;
+            let (reply, answer) = oneshot::channel();
+            tx.send(reply).await.unwrap();
+            match answer.await.unwrap() {
+                Err(Failure::Exited(e)) => assert!(e.contains("Permission denied"), "{e:?}"),
+                _ => panic!("expected the ssh error"),
+            }
+            session.await.unwrap();
         });
     }
 

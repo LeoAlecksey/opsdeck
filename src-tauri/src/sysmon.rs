@@ -195,6 +195,8 @@ async fn probe(state: &SysState, args: Vec<String>, keep: bool) -> Result<Stats,
     parse_probe(&text, &key, &mut prev).ok_or_else(|| ProbeError::Other("не Linux или нет /proc".into()))
 }
 
+const SESSION_TIMEOUT: Duration = Duration::from_secs(12);
+
 /// Board on Windows: the sample comes from the host's long-lived session (sysmon_session.rs)
 /// instead of a new login every refresh.
 async fn session_probe(state: &SysState, key: &str, args: &[String]) -> Result<String, ProbeError> {
@@ -207,9 +209,9 @@ async fn session_probe(state: &SysState, key: &str, args: &[String]) -> Result<S
         crate::process::no_console_tokio(&mut cmd);
         cmd
     };
-    state.sessions.sample(key, ssh, Duration::from_secs(12)).await.map_err(|e| match e {
+    state.sessions.sample(key, ssh, SESSION_TIMEOUT).await.map_err(|e| match e {
         Failure::Exited(e) => ssh_error(&e),
-        Failure::Timeout => ProbeError::Other(format!("удалённая машина не ответила за {} с", 12)),
+        Failure::Timeout => ProbeError::Other(format!("удалённая машина не ответила за {} с", SESSION_TIMEOUT.as_secs())),
         Failure::Other(e) => ProbeError::Other(e),
     })
 }
