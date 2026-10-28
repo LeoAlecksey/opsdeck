@@ -288,6 +288,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(windows, ignore = "needs a POSIX sh")]
     fn remote_loop_quoting_survives_sh() {
         let probe = "echo a; echo ---; cut -d' ' -f1 /proc/uptime | grep -E '^[0-9]'";
         let cmd = remote_loop(probe);
@@ -312,6 +313,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(windows, ignore = "needs a POSIX sh")]
     fn one_process_serves_many_samples() {
         tauri::async_runtime::block_on(async {
             let spawned = Arc::new(AtomicUsize::new(0));
@@ -338,6 +340,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(windows, ignore = "needs a POSIX sh")]
     fn idle_session_closes_and_reopens() {
         tauri::async_runtime::block_on(async {
             let spawned = Arc::new(AtomicUsize::new(0));
@@ -358,6 +361,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(windows, ignore = "needs a POSIX sh")]
     fn failed_login_reports_stderr_and_next_poll_retries() {
         tauri::async_runtime::block_on(async {
             let spawned = Arc::new(AtomicUsize::new(0));
@@ -381,6 +385,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(windows, ignore = "needs a POSIX sh")]
     fn stderr_of_ssh_dead_before_the_request_is_kept() {
         tauri::async_runtime::block_on(async {
             let mut cmd = Command::new("sh");
@@ -404,6 +409,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(windows, ignore = "needs a POSIX sh")]
     fn hung_sample_kills_the_session() {
         tauri::async_runtime::block_on(async {
             let spawned = Arc::new(AtomicUsize::new(0));
