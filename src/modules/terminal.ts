@@ -16,7 +16,7 @@ import { ask, copyText, esc, overlay, toast } from "./ui";
 import { t } from "../i18n";
 import { isWindows } from "./themes";
 import { AI_PROVIDERS, aiAgent, setAiAgent } from "./ai-agents";
-import { LocalChat } from "./aichat";
+import { LocalChat, type ChatTarget } from "./aichat";
 import { isProgramPath, isWsl, shellName, webShareCommand, wslDistro } from "./shellkind";
 import { popoutOpen } from "./popout";
 import { beyondWindow, popoutView, winLabel } from "./winid";
@@ -32,7 +32,8 @@ type Pane = { pty: PtyTerminal; el: HTMLElement; tab: Tab; keepOpen: boolean; re
 
 /** Commands that connect somewhere: when one fails, «⟳ Повторить» / Ctrl+Shift+R run it again. */
 export const CONNECT_CMD = /^\s*(sudo\s+)?(ssh|mosh|telnet|sftp|autossh|kubectl\s+(exec|attach|port-forward|logs\s+-f)|docker\s+(exec|attach)|podman\s+exec|wsl)\b/;
-type Tab = { btn: HTMLElement; host: HTMLElement; label: HTMLElement; panes: Pane[]; active: Pane | null; dir: "row" | "column" };
+/** `id` — для привязки вкладки чата ИИ к вкладке терминала (#97) */
+type Tab = { id: string; btn: HTMLElement; host: HTMLElement; label: HTMLElement; panes: Pane[]; active: Pane | null; dir: "row" | "column" };
 
 /** panes in one tab: two side by side or stacked, three and more form a grid */
 const MAX_PANES = 6;
@@ -133,6 +134,20 @@ export function mountTerminal(root: HTMLElement) {
   const splitter = $(".splitter"), providerSel = $<HTMLSelectElement>(".ai-provider");
 
   const tabs: Tab[] = [];
+  let tabSeq = 0;
+  // AI-панель: объявлено здесь, потому что вкладку из другого окна принимают ещё при монтировании
+  const slots: AiSlot[] = [];
+  let current: AiSlot | null = null;
+  const MAX_AI = 3;
+
+  /** Открытые чаты локального ИИ: им сообщается, какая вкладка терминала открыта или закрыта (#97). */
+  const chats = () => slots.map((s) => s.pane).filter((p): p is LocalChat => p instanceof LocalChat);
+  const tabTitle = (x: Tab) => x.label.textContent || "shell";
+  /** Панель, про которую спрашивает вкладка чата: активная панель привязанной вкладки, иначе текущая. */
+  const paneFor = (target?: ChatTarget): Pane | null => {
+    const bound = target?.tab ? tabs.find((x) => x.id === target.tab) : undefined;
+    return bound ? bound.active ?? bound.panes[0] ?? null : activePane();
+  };
   let activeTab: Tab | null = null;
   /**
    * Вкладка, которую окно открыло себе само при запуске, пока в неё ничего не набрали. Когда окно
@@ -193,6 +208,7 @@ export function mountTerminal(root: HTMLElement) {
 
   function activate(t: Tab) {
     activeTab = t;
+    chats().forEach((c) => c.terminalTabShown(t.id));
     for (const x of tabs) {
       x.host.hidden = x !== t;
       x.btn.classList.toggle("active", x === t);
@@ -392,6 +408,7 @@ export function mountTerminal(root: HTMLElement) {
     moved.forEach((p) => (p.tab = dst));
     dst.panes.forEach((p) => dst.host.appendChild(p.el));
     tabs.splice(tabs.indexOf(src), 1);
+    chats().forEach((c) => c.terminalTabGone(src.id, { id: dst.id, title: tabTitle(dst) }));
     src.btn.remove();
     src.host.remove();
     layoutTab(dst);
@@ -592,6 +609,7 @@ export function mountTerminal(root: HTMLElement) {
     const i = tabs.indexOf(t);
     if (i < 0) return;
     tabs.splice(i, 1);
+    chats().forEach((c) => c.terminalTabGone(t.id));
     t.panes.splice(0).forEach(disposePane);
     t.btn.remove();
     t.host.remove();
@@ -609,7 +627,7 @@ export function mountTerminal(root: HTMLElement) {
     tabsEl.appendChild(btn);
     const label = btn.querySelector<HTMLElement>(".label")!;
     label.textContent = title ?? `shell ${tabs.length + 1}`;
-    const tab: Tab = { btn, host, label, panes: [], active: null, dir: "row" };
+    const tab: Tab = { id: `t${++tabSeq}`, btn, host, label, panes: [], active: null, dir: "row" };
     btn.onclick = () => { if (!justDragged) activate(tab); };
     btn.addEventListener("pointerdown", (e) => startTabDrag(e, tab));
     btn.addEventListener("contextmenu", (e) => { e.preventDefault(); tabMenu(tab, e.clientX, e.clientY); });
@@ -804,19 +822,27 @@ export function mountTerminal(root: HTMLElement) {
 
   /** One agent in the AI panel. Several live at once, so switching between them keeps every conversation. */
   type AiSlot = { provider: string; pane: AiPane; el: HTMLElement; body: HTMLElement };
-  const slots: AiSlot[] = [];
-  let current: AiSlot | null = null;
-  const MAX_AI = 3;
 
   function makePane(provider: string, body: HTMLElement): AiPane {
     const p = AI_PROVIDERS[provider];
     if (p.local) {
       return new LocalChat(body, {
-        context: () => ({ cwd: cwd(), shell: shellName(activePane()?.pty.launched ?? null) }),
+        // вкладка чата, привязанная к вкладке терминала (#97), спрашивает про неё, даже когда открыта другая
+        context: (target) => {
+          const p = paneFor(target)?.pty;
+          return { cwd: p && !isWsl(p.launched) ? p.blocks.cwd || undefined : undefined, shell: shellName(p?.launched ?? null) };
+        },
+        terminalTabs: () => tabs.map((x) => ({ id: x.id, title: tabTitle(x) })),
         // хосты для расследования: те же, что в разделах SSH и «ИИ-агент»
         hosts: async () => targets(await invoke("ssh_list")).map((x) => ({ key: x.key, name: x.name })),
         // into the active pane, as a bracketed paste: multi-line stays one input, no Enter
-        insert: (cmd) => { const pane = activePane(); if (!pane) return; pane.pty.send(`\x1b[200~${cmd}\x1b[201~`); pane.pty.term.focus(); },
+        insert: (cmd, target) => {
+          const pane = paneFor(target);
+          if (!pane) return;
+          if (pane.tab !== activeTab) activate(pane.tab);
+          pane.pty.send(`\x1b[200~${cmd}\x1b[201~`);
+          pane.pty.term.focus();
+        },
       });
     }
     const pty = new PtyTerminal(body, { program: p.program, args: p.args, cwd: cwd() });

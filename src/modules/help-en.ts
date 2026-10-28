@@ -7,6 +7,7 @@ export const HELP_EN: Record<string, { title: string; html: string }> = {
     html: `
       <h4>How it works</h4>
       <p>Every tab is a real shell (bash/zsh) with OpsDeck integration: each command becomes a <b>block</b> with its exit code and duration. On the right is the AI panel: Claude Code (or Codex/Gemini/Aider/OpenCode) runs there in its own terminal, or <b>OpsDeck AI (local)</b> — a chat with the built-in model (or your AI server from ⚙ Settings). The answer is printed as it is generated; commands from it go into the active tab by «▸ To terminal» — without Enter, nothing runs by itself.</p>
+      <p>The chat has <b>tabs</b> (＋, up to 8; double-click to rename). A tab can be <b>bound</b>: to a terminal tab — then the folder and shell come from it, commands are inserted there, and switching to that terminal tab opens the bound chat; or to a <b>server</b> from the SSH list — then the model knows which server it is about, and an investigation runs only there. Conversations and server bindings are <b>kept</b> between launches (⚙ → Local AI, where you can also turn this off and delete them): of investigations, the question and the conclusion are kept, not the steps and command output.</p>
       <h4>What's where</h4>
       <ul>
         <li><b>＋</b> — new tab (opens in the same folder), <b>◫ / ⊟</b> — split right / down. When there are more tabs than fit, scroll the tab bar with the mouse wheel.</li>
@@ -38,7 +39,7 @@ export const HELP_EN: Record<string, { title: string; html: string }> = {
         <li><b>Different hosts in one tab</b>: the ▤ button next to the split buttons (<i>A new pane with an SSH host</i>) — pick a host from the SSH profiles and <code>~/.ssh/config</code>, it opens as a new pane. Or do it the Termius way: open the target tab, take another tab with the mouse and drag it onto the terminal area — an edge (left, right, top, bottom) splits the window, the middle adds to the grid. The sessions keep running, nothing reconnects.</li>
         <li>${kbd("Ctrl+Shift+↑/↓")} to the previous / next command</li>
         <li>${kbd("Ctrl+=")} / ${kbd("Ctrl+-")} / ${kbd("Ctrl+0")} font size</li>
-        <li>${kbd("Ctrl+Shift+C/V")} copy / paste, ${kbd("Ctrl+Shift+A")} selection → AI, ${kbd("Ctrl+Shift+I")} AI panel</li>
+        <li>${kbd("Ctrl+Shift+C/V")} copy / paste (or the right mouse button, if set in ⚙ → Terminal: paste like PuTTY, or “copy the selection, otherwise paste”), ${kbd("Ctrl+Shift+A")} selection → AI, ${kbd("Ctrl+Shift+I")} AI panel</li>
         <li>${kbd("Ctrl+Shift+R")} reconnect: an SSH/kubectl exec tab whose session dropped stays open — «⟳ Reconnect» (or ${kbd("Enter")}); a failed <code>ssh</code> typed in a shell — «⟳ Retry»</li>
         <li>${kbd("Ctrl+Shift+K")} local AI: a command from a description in words</li>
         <li>${kbd("Ctrl+Shift+P")} command palette — search across OpsDeck (clusters, hosts, notes, snippets, command history)</li>
