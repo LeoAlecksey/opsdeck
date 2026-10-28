@@ -2137,5 +2137,19 @@
  "Вместе с ней удалится описание.": "Its description will be deleted too.",
  "Строка «{}» будет удалена из заметки «{}».{} Отменить это можно только в заметке.": "The line «{}» will be removed from the note «{}».{} Only the note itself can undo that.",
  "Готово: {}{}": "Done: {}{}",
- "открытых подзадач": "open subtasks"
+ "открытых подзадач": "open subtasks",
+ "⚠ медленно без видеокарты": "⚠ slow without a GPU",
+ "⚠ памяти впритык": "⚠ tight on memory",
+ "✕ не потянет": "✕ won't run here",
+ "Этот компьютер модель не потянет": "This computer won't run the model",
+ "Потянет с оговоркой": "Will run, with a caveat",
+ "Скачать модель?": "Download the model?",
+ "Скорее всего, она не запустится": "It will most likely not start",
+ "Всё равно скачать": "Download anyway",
+ "Сильная — Qwen3.8 27B": "Strong — Qwen3.8 27B",
+ "на диске свободно {} ГБ, а нужно около {} ГБ": "{} GB free on the disk, about {} GB needed",
+ "модели нужно не меньше {} ГБ памяти, а в компьютере {} ГБ": "the model needs at least {} GB of memory, the computer has {} GB",
+ "памяти впритык: {} ГБ при рекомендованных {} ГБ — остальные программы будут потеснены, ответы медленнее": "tight on memory: {} GB with {} GB recommended — other programs will be squeezed, answers slower",
+ "на процессоре такая модель отвечает медленно — несколько слов в секунду; с ускорением на видеокарте в разы быстрее": "on a CPU such a model answers slowly — a few words a second; with GPU acceleration it is many times faster",
+ "не хватит места: {}": "not enough space: {}"
 }

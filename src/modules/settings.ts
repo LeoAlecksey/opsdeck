@@ -19,7 +19,9 @@ const REPO_URL = "https://github.com/LeoAlecksey/opsdeck";
 const DONATE_URL = "https://yoomoney.ru/to/4100119645604976";
 
 type AiStatus = { engine: boolean; model: boolean; running: boolean; installing: boolean; size: number; download_size: number; dir: string; supported: boolean; model_title: string };
-type AiModels = { models: { id: string; title: string; size: number; ram_gb: number; installed: boolean }[]; selected: string; custom_path: string; ram_total: number; gpu: boolean; gpu_supported: boolean; vulkan_found: boolean; metal: boolean; gpu_failed: boolean };
+/** потянет ли компьютер модель: good — да, slow — медленно на процессоре, tight — памяти впритык, no — нет */
+type Fit = { level: "good" | "slow" | "tight" | "no"; why: string };
+type AiModels = { models: { id: string; title: string; size: number; ram_gb: number; installed: boolean; fit?: Fit }[]; selected: string; custom_path: string; ram_total: number; gpu: boolean; gpu_supported: boolean; vulkan_found: boolean; metal: boolean; gpu_failed: boolean };
 // sizes in decimal GB, like download pages show them; RAM in GiB, like the OS shows it
 const GB = 1e9;
 const GiB = 1073741824;
@@ -35,14 +37,19 @@ function mountAi(el: HTMLElement) {
     if (!st.supported) { el.innerHTML = `<p class="muted">Для этой платформы встроенной модели пока нет.</p>`; return; }
     const ready = st.engine && st.model;
     // the biggest model that fits this machine's RAM (a little slack: the OS reports a bit less)
-    const best = [...ms.models].reverse().find((m) => ms.ram_total >= m.ram_gb * GiB * 0.9)?.id ?? ms.models[0].id;
+    // самая сильная из тех, что идут без оговорок (без проверки — по одной памяти, как раньше)
+    const ok = (m: AiModels["models"][number]) => m.fit ? m.fit.level === "good" : ms.ram_total >= m.ram_gb * GiB * 0.9;
+    const best = [...ms.models].reverse().find(ok)?.id ?? ms.models[0].id;
+    const mark: Record<Fit["level"], string> = { good: "", slow: ` · ${t("⚠ медленно без видеокарты")}`, tight: ` · ${t("⚠ памяти впритык")}`, no: ` · ${t("✕ не потянет")}` };
+    const cur = ms.models.find((m) => m.id === ms.selected);
     const custom = ms.selected === "custom";
     const others = ms.models.filter((m) => m.installed && m.id !== ms.selected);
     el.innerHTML = `
       <label>Модель <select class="ai-model" data-no-i18n ${st.installing ? "disabled" : ""}>
-        ${ms.models.map((m) => `<option value="${m.id}" ${m.id === ms.selected ? "selected" : ""}>${esc(t(m.title))} · ${(m.size / GB).toFixed(1)} ${t("ГБ")} · ${t("ОЗУ от")} ${m.ram_gb} ${t("ГБ")}${m.installed ? ` · ${t("скачана")}` : ""}${m.id === best ? ` · ${t("★ для вашего ПК")}` : ""}</option>`).join("")}
+        ${ms.models.map((m) => `<option value="${m.id}" ${m.id === ms.selected ? "selected" : ""}>${esc(t(m.title))} · ${(m.size / GB).toFixed(1)} ${t("ГБ")} · ${t("ОЗУ от")} ${m.ram_gb} ${t("ГБ")}${m.installed ? ` · ${t("скачана")}` : ""}${m.id === best ? ` · ${t("★ для вашего ПК")}` : m.fit ? mark[m.fit.level] : ""}</option>`).join("")}
         <option value="custom" ${custom ? "selected" : ""}>${t("Свой файл .gguf…")}</option>
       </select></label>
+      ${!custom && cur?.fit && cur.fit.level !== "good" ? `<p class="muted hint ${cur.fit.level === "no" ? "err" : "warn"} ai-fit">${cur.fit.level === "no" ? t("Этот компьютер модель не потянет") : t("Потянет с оговоркой")}: ${esc(t(cur.fit.why))}.</p>` : ""}
       <div class="row ai-custom" ${custom ? "" : "hidden"}>
         <input class="ai-custom-path" placeholder="/путь/к/модели.gguf" spellcheck="false" value="${esc(ms.custom_path)}" />
         <button type="button" class="ghost" data-ai="pick">Выбрать…</button>
@@ -82,7 +89,15 @@ function mountAi(el: HTMLElement) {
     const btn = (e.target as HTMLElement).closest<HTMLElement>("[data-ai]");
     const a = btn?.dataset.ai;
     try {
-      if (a === "install") { await invoke("ai_install"); await draw(); }
+      if (a === "install") {
+        // модель, которую компьютер не потянет, качаем только после явного «да»: это десятки гигабайт
+        const ms = await invoke<AiModels>("ai_models").catch(() => null);
+        const m = ms?.models.find((x) => x.id === ms.selected);
+        if (m?.fit?.level === "no" && !m.installed
+          && (await ask(t("Скачать модель?"), `${t("Скорее всего, она не запустится")}: ${t(m.fit.why)}.`, { ok: t("Всё равно скачать"), danger: true })) === null) return;
+        await invoke("ai_install");
+        await draw();
+      }
       if (a === "cancel") await invoke("ai_cancel");
       if (a === "pick") {
         const p = await invoke<string | null>("ai_pick_model");
