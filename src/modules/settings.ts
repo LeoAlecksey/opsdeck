@@ -1,4 +1,4 @@
-import { helpBtn } from "./help";
+import { helpBtn } from "./help-btn";
 import { langSetting, locale, setLang, t } from "../i18n";
 import { invoke } from "@tauri-apps/api/core";
 import { ask, esc, toast } from "./ui";
@@ -7,6 +7,8 @@ import { mountUpdates } from "./updates";
 import { hlPrefs, setHlPrefs } from "./highlight";
 import { setTermFontSize, termFontSize, setTermFontFamily, termFontFamily, TERM_FONTS, fontInstalled } from "./pty";
 import { setSuggestEnabled, suggestEnabled } from "./suggest";
+import { rightClickMode, setRightClickMode, type RightClick } from "./rightclick";
+import { chatHistoryEnabled, forgetChatHistory, setChatHistoryEnabled } from "./aichat";
 import { AI_PROVIDERS, aiAgent, setAiAgent } from "./ai-agents";
 import { addThemes, allThemes, currentThemeName, isWindows, parseSchemes, setTheme } from "./themes";
 import { listen } from "@tauri-apps/api/event";
@@ -17,7 +19,11 @@ const REPO_URL = "https://github.com/LeoAlecksey/opsdeck";
 const DONATE_URL = "https://yoomoney.ru/to/4100119645604976";
 
 type AiStatus = { engine: boolean; model: boolean; running: boolean; installing: boolean; size: number; download_size: number; dir: string; supported: boolean; model_title: string };
-type AiModels = { models: { id: string; title: string; size: number; ram_gb: number; installed: boolean }[]; selected: string; custom_path: string; ram_total: number; gpu: boolean; gpu_supported: boolean; vulkan_found: boolean; metal: boolean; gpu_failed: boolean };
+/** потянет ли компьютер модель: good — да, slow — медленно на процессоре, tight — памяти впритык, no — нет */
+type Fit = { level: "good" | "slow" | "tight" | "no"; why: string };
+type AiModels = { models: { id: string; title: string; size: number; ram_gb: number; installed: boolean; fit?: Fit }[]; selected: string; custom_path: string; ram_total: number; gpu: boolean; gpu_supported: boolean; vulkan_found: boolean; metal: boolean; gpu_failed: boolean;
+  /** окно контекста встроенного движка, токены, и из чего выбирать */
+  ctx?: number; ctx_options?: number[] };
 // sizes in decimal GB, like download pages show them; RAM in GiB, like the OS shows it
 const GB = 1e9;
 const GiB = 1073741824;
@@ -33,14 +39,19 @@ function mountAi(el: HTMLElement) {
     if (!st.supported) { el.innerHTML = `<p class="muted">Для этой платформы встроенной модели пока нет.</p>`; return; }
     const ready = st.engine && st.model;
     // the biggest model that fits this machine's RAM (a little slack: the OS reports a bit less)
-    const best = [...ms.models].reverse().find((m) => ms.ram_total >= m.ram_gb * GiB * 0.9)?.id ?? ms.models[0].id;
+    // самая сильная из тех, что идут без оговорок (без проверки — по одной памяти, как раньше)
+    const ok = (m: AiModels["models"][number]) => m.fit ? m.fit.level === "good" : ms.ram_total >= m.ram_gb * GiB * 0.9;
+    const best = [...ms.models].reverse().find(ok)?.id ?? ms.models[0].id;
+    const mark: Record<Fit["level"], string> = { good: "", slow: ` · ${t("⚠ медленно без видеокарты")}`, tight: ` · ${t("⚠ памяти впритык")}`, no: ` · ${t("✕ не потянет")}` };
+    const cur = ms.models.find((m) => m.id === ms.selected);
     const custom = ms.selected === "custom";
     const others = ms.models.filter((m) => m.installed && m.id !== ms.selected);
     el.innerHTML = `
       <label>Модель <select class="ai-model" data-no-i18n ${st.installing ? "disabled" : ""}>
-        ${ms.models.map((m) => `<option value="${m.id}" ${m.id === ms.selected ? "selected" : ""}>${esc(t(m.title))} · ${(m.size / GB).toFixed(1)} ${t("ГБ")} · ${t("ОЗУ от")} ${m.ram_gb} ${t("ГБ")}${m.installed ? ` · ${t("скачана")}` : ""}${m.id === best ? ` · ${t("★ для вашего ПК")}` : ""}</option>`).join("")}
+        ${ms.models.map((m) => `<option value="${m.id}" ${m.id === ms.selected ? "selected" : ""}>${esc(t(m.title))} · ${(m.size / GB).toFixed(1)} ${t("ГБ")} · ${t("ОЗУ от")} ${m.ram_gb} ${t("ГБ")}${m.installed ? ` · ${t("скачана")}` : ""}${m.id === best ? ` · ${t("★ для вашего ПК")}` : m.fit ? mark[m.fit.level] : ""}</option>`).join("")}
         <option value="custom" ${custom ? "selected" : ""}>${t("Свой файл .gguf…")}</option>
       </select></label>
+      ${!custom && cur?.fit && cur.fit.level !== "good" ? `<p class="muted hint ${cur.fit.level === "no" ? "err" : "warn"} ai-fit">${cur.fit.level === "no" ? t("Этот компьютер модель не потянет") : t("Потянет с оговоркой")}: ${esc(t(cur.fit.why))}.</p>` : ""}
       <div class="row ai-custom" ${custom ? "" : "hidden"}>
         <input class="ai-custom-path" placeholder="/путь/к/модели.gguf" spellcheck="false" value="${esc(ms.custom_path)}" />
         <button type="button" class="ghost" data-ai="pick">Выбрать…</button>
@@ -53,6 +64,10 @@ function mountAi(el: HTMLElement) {
           </select></label>
           ${ms.gpu && ms.gpu_failed ? `<p class="muted hint warn">Видеокарта не запустилась — модель работает на процессоре. Чтобы попробовать снова, переключите ускорение туда и обратно.</p>` : ""}
           ${ms.gpu && !ms.vulkan_found ? `<p class="muted hint warn">Драйвер Vulkan не найден — установите драйвер видеокарты (Linux: пакет libvulkan1 / vulkan-loader) или выберите «Процессор».</p>` : ""}` : ""}
+      ${ms.ctx_options?.length ? `<label>Контекст <select class="ai-ctx" data-no-i18n ${st.installing ? "disabled" : ""}>
+          ${ms.ctx_options.map((n) => `<option value="${n}" ${n === ms.ctx ? "selected" : ""}>${n.toLocaleString(locale())} ${t("токенов")}${n === 16384 ? ` · ${t("по умолчанию")}` : ""}</option>`).join("")}
+        </select></label>
+        <p class="muted hint">${t("Сколько текста модель держит в голове: инструкция, справка, контекст сервера, разговор и ответ. 4096 хватает для команд; 16–32 тысячи — для длинных разговоров и вставленных логов. Больше контекста — больше памяти и дольше первый ответ. Применяется со следующего запроса.")}</p>` : ""}
       <p class="muted hint">В памяти компьютера: ${(ms.ram_total / GiB).toFixed(0)} ГБ. ${ms.gpu || ms.metal ? "На видеокарте модель отвечает в разы быстрее; если видеопамяти мало, часть модели остаётся на процессоре." : "Модели крупнее 1.5B на процессоре отвечают медленнее (несколько секунд и дольше) — включите ускорение на видеокарте, если она есть."}</p>
       <div class="row"><span>${ready ? `✓ Готов${st.running ? " · модель загружена в память" : ""} · на диске ${gb(st.size)}` : st.installing ? "Скачивается…" : `Не установлен · скачать ≈${gb(st.download_size)}`}</span>
         <span class="spacer"></span>
@@ -70,6 +85,11 @@ function mountAi(el: HTMLElement) {
       try { await invoke("ai_set_gpu", { on: gpu.value === "gpu" }); } catch (err) { toast(String(err), "err"); }
       return draw();
     }
+    const ctx = (e.target as HTMLElement).closest<HTMLSelectElement>(".ai-ctx");
+    if (ctx) {
+      try { await invoke("ai_set_ctx", { ctx: Number(ctx.value) }); } catch (err) { toast(String(err), "err"); }
+      return draw();
+    }
     const sel = (e.target as HTMLElement).closest<HTMLSelectElement>(".ai-model");
     if (!sel) return;
     if (sel.value === "custom") { el.querySelector<HTMLElement>(".ai-custom")!.hidden = false; return; }
@@ -80,7 +100,15 @@ function mountAi(el: HTMLElement) {
     const btn = (e.target as HTMLElement).closest<HTMLElement>("[data-ai]");
     const a = btn?.dataset.ai;
     try {
-      if (a === "install") { await invoke("ai_install"); await draw(); }
+      if (a === "install") {
+        // модель, которую компьютер не потянет, качаем только после явного «да»: это десятки гигабайт
+        const ms = await invoke<AiModels>("ai_models").catch(() => null);
+        const m = ms?.models.find((x) => x.id === ms.selected);
+        if (m?.fit?.level === "no" && !m.installed
+          && (await ask(t("Скачать модель?"), `${t("Скорее всего, она не запустится")}: ${t(m.fit.why)}.`, { ok: t("Всё равно скачать"), danger: true })) === null) return;
+        await invoke("ai_install");
+        await draw();
+      }
       if (a === "cancel") await invoke("ai_cancel");
       if (a === "pick") {
         const p = await invoke<string | null>("ai_pick_model");
@@ -168,6 +196,11 @@ export function mountSettings(root: HTMLElement) {
           <label class="check"><input type="checkbox" data-hl="input" /> Подсветка команды при наборе (как в fish: несуществующая команда — красным)</label>
           <label class="check"><input type="checkbox" data-hl="output" /> Подсветка вывода: ERROR/WARN, статусы подов, IP, ссылки, время</label>
           <label class="check"><input type="checkbox" class="term-sugg" /> Подсказывать продолжение команды серым (из истории и заметок), → — принять</label>
+          <label>Правая кнопка мыши в терминале <select class="term-rclick">
+            <option value="menu">Меню (как в системе)</option>
+            <option value="paste">Вставить из буфера (как в PuTTY)</option>
+            <option value="copy-paste">Копировать выделение, иначе вставить (как в Windows Terminal)</option>
+          </select></label>
           <label>Размер шрифта (8–32; ещё Ctrl+= / Ctrl+- / Ctrl+0 и Ctrl+колесо в терминале) <input class="term-font" type="number" min="8" max="32" /></label>
           <label>Шрифт терминала <select class="term-font-family"></select></label>
           <label class="term-font-custom-row" hidden>Название шрифта <input class="term-font-custom" maxlength="128" spellcheck="false" placeholder="например, Iosevka" data-no-i18n /></label>
@@ -197,6 +230,9 @@ export function mountSettings(root: HTMLElement) {
           <p class="muted hint">Модель и движок llama.cpp скачиваются отдельно (по умолчанию — лёгкая Qwen2.5-Coder 1.5B, ≈1,1 ГБ; для мощных ПК есть модели крупнее, можно указать и свой файл .gguf) и работают только на этом компьютере — запросы никуда не уходят. В терминале ${"Ctrl+Shift+K"} или кнопка «✦ ИИ»: опишите словами, что сделать, — ИИ предложит команду с учётом ваших заметок и истории. Модель запускается при первом запросе и выгружается из памяти через 15 минут без дела. Крупные файлы качаются в четыре соединения — так заметно быстрее; после загрузки считается контрольная сумма. Если загрузка оборвалась, она продолжится с того же места, а не начнётся заново.</p>
         <hr />
           <p class="kb-line muted hint">База знаний: <span class="kb-what">…</span> Проверенные команды по теме запроса уходят в подсказку модели, поэтому флаги настоящие. Свои команды — в файле <code class="kb-path mono"></code>: «Открыть папку» создаст его с примером и описанием формата. <button type="button" class="ghost" data-a="kb-open">Открыть папку</button></p>
+        <hr />
+          <label class="check"><input type="checkbox" class="ai-chat-keep" /> Сохранять историю чата ИИ (вкладки и разговоры) между запусками</label>
+          <p class="muted hint">Хранится только на этом компьютере, в папке настроек OpsDeck (файл ai-chats.json, доступ только у вас): до 8 вкладок по 200 сообщений. От расследований агента остаются вопрос и итог — шаги и вывод команд не сохраняются. Снятая галочка удаляет сохранённое. <button type="button" class="ghost" data-a="ai-chat-forget">Удалить сохранённую историю</button></p>
         <hr />
           <div class="ai-remote">
             <p class="muted">Внешний ИИ-сервер (Ollama, vLLM, LM Studio — любой с OpenAI-совместимым /v1)</p>
@@ -298,6 +334,9 @@ export function mountSettings(root: HTMLElement) {
   const sugg = root.querySelector<HTMLInputElement>(".term-sugg")!;
   sugg.checked = suggestEnabled();
   sugg.onchange = () => setSuggestEnabled(sugg.checked);
+  const rclick = root.querySelector<HTMLSelectElement>(".term-rclick")!;
+  rclick.value = rightClickMode();
+  rclick.onchange = () => setRightClickMode(rclick.value as RightClick);
   const agentSel = root.querySelector<HTMLSelectElement>(".ai-agent-sel")!;
   for (const name of Object.keys(AI_PROVIDERS)) agentSel.add(new Option(name, name));
   agentSel.value = aiAgent();
@@ -312,6 +351,14 @@ export function mountSettings(root: HTMLElement) {
     root.querySelector(".kb-path")!.textContent = kb.path;
   }).catch(() => {});
   root.querySelector<HTMLElement>("[data-a=kb-open]")!.onclick = () => invoke("kb_open").catch((e) => toast(String(e), "err"));
+  // история чата ИИ (#100): применяется сразу, без «Сохранить»
+  const chatKeep = root.querySelector<HTMLInputElement>(".ai-chat-keep")!;
+  chatKeep.checked = chatHistoryEnabled();
+  chatKeep.onchange = () => setChatHistoryEnabled(chatKeep.checked).catch((e) => toast(String(e), "err"));
+  root.querySelector<HTMLElement>("[data-a=ai-chat-forget]")!.onclick = async () => {
+    if (await ask(t("Удалить историю чата?"), t("Все вкладки и разговоры чата ИИ будут удалены — и сохранённые, и открытые сейчас."), { ok: t("Удалить"), danger: true }) === null) return;
+    forgetChatHistory().then(() => toast(t("История чата удалена")), (e) => toast(String(e), "err"));
+  };
   // внешний ИИ-сервер: «Проверить» → список моделей в выпадающий список поля «Модель»
   // (комбо-поле: можно и выбрать из списка, и ввести любую свою модель)
   const aiTest = (host: string, port: string, key: string) => invoke<{ models: string[] }>("ai_test", { host, port, apiKey: key });

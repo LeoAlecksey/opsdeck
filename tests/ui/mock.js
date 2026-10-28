@@ -4,11 +4,13 @@
 //   window.__demoEmit(e, p)   — fire a backend event
 //   window.__demoListeners    — event -> [callback id] of the listeners still subscribed
 //   window.__DEMO_OVERRIDES   — { command: value | (args) => value } replaces an answer
-//   window.__DEMO_LANG        — "ru" (default) or "en": UI language and demo texts
+//   window.__DEMO_LANG        — "ru" (default) or "en": UI language and demo texts; "auto": the
+//                               app picks the language itself, demo texts follow navigator.language
 //   window.__DEMO_WIN         — метка окна: "main" (по умолчанию) или "pop-<раздел>"
 (() => {
-  const LANG = window.__DEMO_LANG || "ru";
-  try { localStorage.setItem("opsdeck.lang", LANG); } catch {}
+  const AUTO = window.__DEMO_LANG === "auto";
+  const LANG = AUTO ? (/^ru|^be|^uk|^kk/i.test(navigator.language) ? "ru" : "en") : window.__DEMO_LANG || "ru";
+  if (!AUTO) try { localStorage.setItem("opsdeck.lang", LANG); } catch {}
   const L = (ru, en) => (LANG === "ru" ? ru : en);
   const now = Date.now();
   const iso = (msAgo) => new Date(now - msAgo).toISOString();
@@ -361,10 +363,11 @@ lint:
     code_git_log: commits, code_git_branches: branches, fs_git_status: { root: proj, branch: "feature/monitoring", files: { "main.tf": "M", "helm/values-prod.yaml": "M", "outputs.tf": "A" } },
     update_check: { available: false, version: "0.5.0", notes: "", date: "" }, releases_list: [],
     ai_status: { engine: true, model: true, running: true, installing: false, size: 5.9e9, download_size: 0, dir: "/home/demo/.local/share/opsdeck/ai", supported: true, model_title: "Мощная — Qwen3.5 9B" },
-    ai_models: { selected: "qwen3.5-9b", custom_path: "", ram_total: 32 * GiB, gpu: true, gpu_supported: true, vulkan_found: true, metal: false, gpu_failed: false, models: [
+    ai_models: { selected: "qwen3.5-9b", custom_path: "", ram_total: 32 * GiB, gpu: true, gpu_supported: true, vulkan_found: true, metal: false, gpu_failed: false, ctx: 16384, ctx_options: [4096, 8192, 16384, 32768, 65536], models: [
       { id: "qwen2.5-coder-1.5b", title: "Лёгкая — Qwen2.5-Coder 1.5B", size: 1117320768, ram_gb: 4, installed: true },
       { id: "qwen3.5-4b", title: "Средняя — Qwen3.5 4B", size: 2740937888, ram_gb: 8, installed: false },
       { id: "qwen3.5-9b", title: "Мощная — Qwen3.5 9B", size: 5680522464, ram_gb: 16, installed: true },
+      { id: "qwen3.8-27b", title: "Сильная — Qwen3.8 27B", size: 16464440224, ram_gb: 24, installed: false, fit: { level: "good", why: "" } },
       { id: "qwen3.6-35b-a3b", title: "Большая — Qwen3.6 35B-A3B (MoE)", size: 22134528992, ram_gb: 32, installed: false } ] },
     ai_command: { command: "kubectl -n shop rollout restart deploy/worker && kubectl -n shop rollout status deploy/worker --timeout=120s", from_notes: ["kubectl -n shop rollout restart deploy/worker", "kubectl -n shop rollout status deploy/worker --timeout=120s"], elapsed_ms: 1840 },
     ports_listening: [], alerts_poll_now: [], kp_copy: null,

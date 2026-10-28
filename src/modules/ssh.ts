@@ -1,10 +1,11 @@
-import { helpBtn } from "./help";
+import { helpBtn } from "./help-btn";
 import { icon } from "./icons";
 import { invoke } from "@tauri-apps/api/core";
 import { kpEntries, kpStatus, pickEntry } from "./keepass";
 import { pbTitles, pickEntry as pickPassbolt } from "./passbolt";
 import { registerProvider } from "./palette";
-import { ask, esc, toast } from "./ui";
+import { ask, esc, overlay, toast } from "./ui";
+import { t } from "../i18n";
 import { natCmp } from "./natsort";
 
 type SshHost = {
@@ -13,7 +14,8 @@ type SshHost = {
 };
 type Effective = { user: string; hostname: string; port: string; identity_files: string[]; proxy_jump: string; proxy_command?: string };
 type ConfigHost = { alias: string; group: string; hostname: string; user: string; port: string; identity_file: string; proxy_jump: string; proxy_command?: string; effective?: Effective };
-type SshList = { hosts: SshHost[]; config: ConfigHost[] };
+/** notes — контекст для ИИ по ключу хоста (`id:<id>` / `alias:<алиас>`) */
+type SshList = { hosts: SshHost[]; config: ConfigHost[]; notes?: Record<string, string> };
 type Spec = { program: string; args: string[]; password_copied: boolean };
 
 const AUTH: Record<string, string> = { key: "ключ / ssh-agent", keepass: "пароль из KeePass", passbolt: "пароль из Passbolt", password: "пароль (keyring)", none: "спросит ssh" };
@@ -33,6 +35,29 @@ registerProvider(async () => {
     ...l.config.map((h) => ({ group: "SSH", title: `SSH: ${h.alias}`, hint: `${h.group ? h.group + " · " : ""}~/.ssh/config${h.hostname ? " · " + h.hostname : ""}`, run: () => connect(`ssh ${h.alias}`, { alias: h.alias }) })),
   ];
 });
+
+/** Контекст для ИИ о хосте из ~/.ssh/config: свой диалог, потому что текст многострочный. */
+function noteDialog(host: string, text: string): Promise<string | null> {
+  const dlg = document.createElement("dialog");
+  dlg.className = "ssh-note-dialog";
+  dlg.innerHTML = `<form method="dialog">
+      <h3>${esc(t("Контекст для ИИ"))} — ${esc(host)}</h3>
+      <textarea name="note" rows="6" spellcheck="false" placeholder="${esc(t("Что тут крутится и что важно: сервисы, пути, кто владелец, что нельзя трогать"))}">${esc(text)}</textarea>
+      <p class="muted hint">${esc(t("ИИ получает это сам — в чате, привязанном к серверу, и в расследовании агента. Пусто — убрать."))}</p>
+      <div class="actions"><button value="cancel" formnovalidate>${esc(t("Отмена"))}</button><button value="ok" class="primary">${esc(t("Сохранить"))}</button></div>
+    </form>`;
+  document.body.appendChild(dlg);
+  overlay(true);
+  return new Promise((resolve) => {
+    dlg.addEventListener("close", () => {
+      overlay(false);
+      resolve(dlg.returnValue === "ok" ? dlg.querySelector("textarea")!.value.trim() : null);
+      dlg.remove();
+    });
+    dlg.showModal();
+    dlg.querySelector("textarea")!.focus();
+  });
+}
 
 export function mountSsh(root: HTMLElement) {
   root.innerHTML = `
@@ -62,6 +87,8 @@ export function mountSsh(root: HTMLElement) {
           <div data-s="keepass" class="kp-bind"><span class="kp-bound muted">запись не выбрана</span><button type="button" data-a="pick">Выбрать запись…</button></div>
           <div data-s="passbolt" class="kp-bind"><span class="pb-bound muted">запись не выбрана</span><button type="button" data-a="pb-pick">Выбрать запись…</button></div>
           <label data-s="password">Пароль <input name="secret" type="password" autocomplete="new-password" /></label>
+          <label>Контекст для ИИ <textarea name="ai_note" rows="3" spellcheck="false" placeholder="Что тут крутится и что важно: «PostgreSQL 16, основная база заказов; бэкапы в 03:00; без согласования не перезапускать»"></textarea></label>
+          <p class="muted hint">ИИ получает это сам — в чате, привязанном к серверу, и в расследовании агента, — описывать сервер в каждом вопросе не нужно. Хранится только на этом компьютере.</p>
           <datalist id="ssh-keys"></datalist><datalist id="ssh-groups"></datalist>
           <p class="err form-err"></p>
           <div class="actions"><button value="cancel" formnovalidate>Отмена</button><button value="save" class="primary">Сохранить</button></div>
@@ -74,6 +101,7 @@ export function mountSsh(root: HTMLElement) {
   const dialog = root.querySelector<HTMLDialogElement>("dialog")!;
   const form = dialog.querySelector("form")!;
   const f = (n: string) => form.elements.namedItem(n) as HTMLInputElement & HTMLSelectElement;
+  const noteField = () => form.elements.namedItem("ai_note") as HTMLTextAreaElement;
   let data: SshList = { hosts: [], config: [] };
   let editing: SshHost | null = null;
   let boundEntry = "";
@@ -116,6 +144,8 @@ export function mountSsh(root: HTMLElement) {
     for (const k of ["name", "group", "host", "user", "identity_file", "jump"] as const) f(k).value = String(h?.[k] ?? "");
     f("port").value = String(h?.port ?? 22);
     f("auth").value = h?.auth ?? "key";
+    // контекст своего хоста; у копии из ~/.ssh/config — контекст алиаса, если он был
+    noteField().value = data.notes?.[isEdit && h?.id ? `id:${h.id}` : `alias:${h?.name ?? ""}`] ?? "";
     setBound(h?.keepass_entry ?? "");
     setPbBound(h?.passbolt_entry ?? "");
     sync();
@@ -161,6 +191,8 @@ export function mountSsh(root: HTMLElement) {
     };
     try {
       await invoke("ssh_save", { host, secret: f("secret").value || null });
+      const note = noteField().value.trim();
+      if (note !== (data.notes?.[`id:${host.id}`] ?? "")) await invoke("ssh_note_set", { key: `id:${host.id}`, text: note });
       dialog.close();
       load();
     } catch (err) { form.querySelector(".form-err")!.textContent = String(err); }
@@ -181,9 +213,15 @@ export function mountSsh(root: HTMLElement) {
   const CFG = "~/.ssh/config";
   const allGroups = () => [...new Set([...data.hosts.map((h) => h.group), ...data.config.map((h) => h.group)].filter(Boolean))].sort(natCmp);
 
+  /** значок «есть контекст для ИИ», в подсказке — сам текст */
+  const noteMark = (key: string) => {
+    const n = data.notes?.[key];
+    return n ? ` <span class="ssh-note" title="${esc(`${t("Контекст для ИИ")}: ${n}`)}">${icon("notes", 13)}</span>` : "";
+  };
+
   const ownRow = (h: SshHost) => `
         <tr data-id="${esc(h.id)}">
-          <td class="mt-name">${esc(h.name)}</td>
+          <td class="mt-name">${esc(h.name)}${noteMark(`id:${h.id}`)}</td>
           <td class="mono">${esc(h.user ? h.user + "@" : "")}${esc(h.host)}${h.port !== 22 ? `<span class="muted">:${h.port}</span>` : ""}</td>
           <td class="muted">${h.jump ? `через ${esc(h.jump)} · ` : ""}${h.auth === "keepass" ? `${icon("key", 14)} ${esc(titles.get(h.keepass_entry) ?? "KeePass")}` : h.auth === "passbolt" ? `${icon("lock", 14)} ${esc(pbLabels.get(h.passbolt_entry)?.split(" · ")[0] ?? "Passbolt")}` : esc(AUTH[h.auth] ?? "")}</td>
           <td class="mt-acts">
@@ -202,12 +240,13 @@ export function mountSsh(root: HTMLElement) {
     const warn = suspicious ? `<span class="ssh-warn" title="ssh подключится как «${esc(localUser)}»: для этого хоста не сработал ни один User. Если он задан в блоке «Match Host …» — замените на «Match originalhost …»: Match Host сравнивает уже подставленный HostName (IP), а не алиас.">⚠ пользователь ${esc(localUser)}?</span>` : "";
     const proxy = (e?.proxy_jump || h.proxy_jump) ? ` через ${esc(e?.proxy_jump || h.proxy_jump)} · ` : (e?.proxy_command || h.proxy_command) ? ` через proxy · ` : "";
     return `<tr data-alias="${esc(h.alias)}">
-          <td class="mt-name">${esc(h.alias)} <span class="ssh-src" title="из ~/.ssh/config">cfg</span></td>
+          <td class="mt-name">${esc(h.alias)} <span class="ssh-src" title="из ~/.ssh/config">cfg</span>${noteMark(`alias:${h.alias}`)}</td>
           <td class="mono">${esc(user ? user + "@" : "")}${esc(host)}${port ? `<span class="muted">:${esc(port)}</span>` : ""}</td>
           <td class="muted">${warn}${proxy}${key ? ` ключ ${esc(key.split("/").pop())}` : ""}</td>
           <td class="mt-acts">
             <button class="primary" data-a="connect-cfg">Подключиться</button>
             <button class="icon" data-a="group-cfg" title="Группа">${icon("folder", 14)}</button>
+            <button class="icon" data-a="note-cfg" title="Контекст для ИИ: что тут крутится и что важно">${icon("notes", 14)}</button>
             <button class="icon" data-a="copy-cfg" title="Сохранить как профиль OpsDeck (можно привязать пароль из KeePass)">⧉</button>
           </td></tr>`;
   };
@@ -265,6 +304,14 @@ export function mountSsh(root: HTMLElement) {
             { input: c.group, placeholder: "prod / стенд", ok: "Сохранить" });
           if (g === null) return;
           await invoke("ssh_config_group", { alias: c.alias, group: g }).catch((err) => toast(String(err), "err"));
+          load();
+        }
+        break;
+      case "note-cfg":
+        if (c) {
+          const text = await noteDialog(c.alias, data.notes?.[`alias:${c.alias}`] ?? "");
+          if (text === null) return;
+          await invoke("ssh_note_set", { key: `alias:${c.alias}`, text }).then(() => toast(t("Контекст сохранён")), (err) => toast(String(err), "err"));
           load();
         }
         break;

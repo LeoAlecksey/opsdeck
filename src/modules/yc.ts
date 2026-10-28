@@ -1,7 +1,7 @@
 import { icon } from "./icons";
 import { invoke } from "@tauri-apps/api/core";
 import { ask, esc, toast } from "./ui";
-import { helpBtn } from "./help";
+import { helpBtn } from "./help-btn";
 import { natCmp } from "./natsort";
 import { fmtSize } from "./paths";
 

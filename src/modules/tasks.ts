@@ -1,4 +1,4 @@
-import { helpBtn } from "./help";
+import { helpBtn } from "./help-btn";
 import { icon } from "./icons";
 import { t as tl, locale } from "../i18n";
 import { invoke } from "@tauri-apps/api/core";
@@ -48,10 +48,21 @@ export function mountTasks(root: HTMLElement) {
   let calMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
   let calDay = ymd(new Date());
   const closed = new Set<string>(JSON.parse(ls.get("opsdeck.tasks.closed") ?? '["done"]') as string[]);
+  // подзадачи по родителю («заметка:строка») и раскрытые задачи (по заметке и тексту: строки сдвигаются)
+  let kids = new Map<string, Task[]>();
+  const expanded = new Set<string>();
+  const keyOf = (t: Task) => `${t.path}:${t.line}`;
+  const openKey = (t: Task) => `${t.path}|${t.text}`;
+  const childrenOf = (t: Task) => kids.get(keyOf(t)) ?? [];
+  /** все подзадачи на любой глубине */
+  const descendants = (t: Task): Task[] => childrenOf(t).flatMap((k) => [k, ...descendants(k)]);
+  let editingDesc = ""; // openKey задачи, чьё описание сейчас правят
 
   async function load() {
     try {
       tasks = await invoke<Task[]>("tasks_list");
+      kids = new Map();
+      for (const t of tasks) if (t.parent) kids.set(`${t.path}:${t.parent}`, [...(kids.get(`${t.path}:${t.parent}`) ?? []), t]);
     } catch (e) {
       listEl.innerHTML = `<p class="muted">${esc(e)}</p>`;
       tasks = [];
@@ -77,14 +88,20 @@ export function mountTasks(root: HTMLElement) {
     return !q || `${t.text} ${t.path}`.toLowerCase().includes(q.replace(/^#/, ""));
   };
 
-  function row(t: Task): string {
+  /** Строка задачи; `nested` — в раскрытой задаче (подзадачи и описание показываются там же). */
+  function row(t: Task, nested = true): string {
     const today = ymd(new Date());
     const overdue = !t.done && t.due && t.due < today;
     const text = esc(t.text).replace(/(^|\s)#([\p{L}\p{N}_\-/]+)/gu, (_m, s, tag) => `${s}<span class="tk-tag" data-tag="${tag}">#${tag}</span>`);
-    return `<div class="tk-row ${t.done ? "done" : ""} ${overdue ? "overdue" : ""}" data-k="${esc(`${t.path}:${t.line}`)}">
+    const subs = descendants(t);
+    const open = nested && expanded.has(openKey(t));
+    const progress = subs.length ? `<span class="tk-progress ${subs.every((x) => x.done) ? "all" : ""}" title="${esc(tl("Подзадачи: выполнено"))}">☑ ${subs.filter((x) => x.done).length}/${subs.length}</span>` : "";
+    const hasDesc = t.desc?.trim() ? `<span class="tk-hasdesc" title="${esc(tl("Есть описание"))}">${icon("notes", 13)}</span>` : "";
+    return `<div class="tk-row ${t.done ? "done" : ""} ${overdue ? "overdue" : ""} ${open ? "open" : ""}" data-k="${esc(keyOf(t))}">
+      ${nested ? `<span class="tk-caret" data-act="expand" title="${esc(tl("Описание и подзадачи"))}">▸</span>` : ""}
       <input type="checkbox" class="tk-check" ${t.done ? "checked" : ""} title="${t.done ? "Вернуть в работу" : "Выполнено"}" />
       ${PRIO_MARK[t.priority] ? `<span class="tk-prio" title="${PRIORITY[String(t.priority)]}">${PRIO_MARK[t.priority]}</span>` : ""}
-      <span class="tk-text">${text}</span>
+      <span class="tk-text">${text}</span>${hasDesc}${progress}
       <span class="tk-meta">
         ${t.due ? `<span class="tk-due" data-act="due" title="Изменить срок">${icon("calendar", 14)} ${esc(human(t.due))}${t.time ? ` ${icon("clock", 14)} ${esc(t.time)}` : ""}</span>` : `<span class="tk-due empty" data-act="due" title="Назначить срок">${icon("plus", 14)} срок</span>`}
         <span class="tk-acts">
@@ -94,12 +111,39 @@ export function mountTasks(root: HTMLElement) {
         </span>
         <span class="tk-note" data-act="open" title="Открыть заметку">${esc(t.path.replace(/\.md$/, ""))}</span>
       </span>
+    </div>${open ? details(t) : ""}`;
+  }
+
+  /** Описание: текст как есть, блоки ``` — кодом, `x` — моноширинно. */
+  function descHtml(d: string): string {
+    return d.split(/^```[^\n]*\n?/m).map((part, i) => i % 2
+      ? `<pre class="tk-code"><code>${esc(part.replace(/\n$/, ""))}</code></pre>`
+      : esc(part).replace(/`([^`\n]+)`/g, "<code>$1</code>")).join("");
+  }
+
+  /** Раскрытая задача: описание (правится на месте) и подзадачи с полем для новой. */
+  function details(t: Task): string {
+    const k = esc(keyOf(t));
+    const editing = editingDesc === openKey(t);
+    const desc = editing
+      ? `<textarea class="tk-desc-in" rows="5" spellcheck="false" placeholder="${esc(tl("Подробности: что и где сделать, ссылки, команды"))}">${esc(t.desc ?? "")}</textarea>
+         <div class="row"><button class="primary" data-act="desc-save">${esc(tl("Сохранить"))}</button><button class="ghost" data-act="desc-cancel">${esc(tl("Отмена"))}</button>
+           <span class="muted small-note">${esc(tl("Ctrl+Enter — сохранить. Пустые строки не сохраняются: в заметке они закончили бы задачу"))}</span></div>`
+      : t.desc?.trim()
+        ? `<div class="tk-desc" data-act="desc-edit" title="${esc(tl("Изменить описание"))}">${descHtml(t.desc)}</div>`
+        : `<div class="tk-desc empty" data-act="desc-edit">${esc(tl("＋ описание: что и где сделать, ссылки, команды"))}</div>`;
+    return `<div class="tk-details" data-k="${k}">
+      ${desc}
+      <div class="tk-subs">${childrenOf(t).map((c) => row(c)).join("")}</div>
+      <input class="tk-sub-in" data-k="${k}" placeholder="${esc(tl("＋ подзадача — Enter"))}" spellcheck="false" />
     </div>`;
   }
 
   function draw() {
     const today = ymd(new Date()), tomorrow = ymd(addDays(new Date(), 1)), week = ymd(addDays(new Date(), 7));
-    const shown = tasks.filter(matches);
+    // в группах — задачи верхнего уровня; подзадачи видны в раскрытой задаче
+    const roots = tasks.filter((t) => !t.parent || !tasks.some((p) => p.path === t.path && p.line === t.parent));
+    const shown = roots.filter((t) => matches(t) || descendants(t).some(matches));
     const open = shown.filter((t) => !t.done);
     const sort = (a: Task, b: Task) => (a.due ?? "9999").localeCompare(b.due ?? "9999") || (a.time ?? "99").localeCompare(b.time ?? "99") || b.priority - a.priority;
     const groups: [string, string, Task[]][] = [
@@ -124,14 +168,41 @@ export function mountTasks(root: HTMLElement) {
     listEl.innerHTML = groups.filter(([id, , ts]) => ts.length || id === "today").map(([id, title, ts]) => `
       <section class="tk-group ${closed.has(id) ? "closed" : ""} tk-${id}" data-g="${id}">
         <h3 class="tk-gh"><span class="tree-caret">▸</span>${title} <span class="muted">${ts.length}</span></h3>
-        <div class="tk-items">${ts.length ? (id === "nodate" || id === "done" ? ts : ts.sort(sort)).map(row).join("") : `<p class="muted tk-none">на сегодня ничего — ＋ Задача</p>`}</div>
+        <div class="tk-items">${ts.length ? (id === "nodate" || id === "done" ? ts : ts.sort(sort)).map((t) => row(t)).join("") : `<p class="muted tk-none">на сегодня ничего — ＋ Задача</p>`}</div>
       </section>`).join("");
   }
 
   const find = (el: HTMLElement) => {
-    const k = el.closest<HTMLElement>(".tk-row")?.dataset.k;
-    return tasks.find((t) => `${t.path}:${t.line}` === k);
+    const k = el.closest<HTMLElement>(".tk-row, .tk-details")?.dataset.k;
+    return tasks.find((t) => keyOf(t) === k);
   };
+
+  async function saveDesc(t: Task, el: HTMLElement) {
+    const text = el.closest(".tk-details")?.querySelector<HTMLTextAreaElement>(".tk-desc-in")?.value ?? "";
+    try {
+      await invoke("task_describe", { path: t.path, line: t.line, raw: t.raw, desc: text });
+      editingDesc = "";
+      toast(tl("Описание сохранено"));
+    } catch (e) { toast(String(e), "err"); }
+    load();
+  }
+
+  async function addSub(t: Task, input: HTMLInputElement) {
+    const text = input.value.trim();
+    if (!text) return;
+    input.disabled = true;
+    try {
+      const line = await invoke<string>("task_format", { text, due: null, time: null, priority: 0, tags: [] });
+      await invoke("task_add_sub", { path: t.path, line: t.line, raw: t.raw, task: line });
+      expanded.add(openKey(t));
+      await load();
+      // поле новой подзадачи — снова в фокусе: подзадачи обычно добавляют пачкой
+      listEl.querySelector<HTMLInputElement>(`.tk-sub-in[data-k="${CSS.escape(keyOf(t))}"]`)?.focus();
+    } catch (e) {
+      toast(String(e), "err");
+      input.disabled = false;
+    }
+  }
   async function update(t: Task, change: Record<string, unknown>, msg?: string) {
     try {
       await invoke("task_update", { path: t.path, line: t.line, raw: t.raw, change });
@@ -142,7 +213,9 @@ export function mountTasks(root: HTMLElement) {
 
   async function deleteTask(t: Task) {
     const where = t.path.replace(/\.md$/, "");
-    if ((await ask("Удалить задачу", `Строка «${t.text}» будет удалена из заметки «${where}». Отменить это можно только в заметке.`, { ok: "Удалить", danger: true })) === null) return;
+    const n = descendants(t).length;
+    const extra = n ? ` ${tl("Вместе с ней удалятся подзадачи")} (${n})${t.desc?.trim() ? ` ${tl("и описание")}` : ""}.` : t.desc?.trim() ? ` ${tl("Вместе с ней удалится описание.")}` : "";
+    if ((await ask("Удалить задачу", `Строка «${t.text}» будет удалена из заметки «${where}».${extra} Отменить это можно только в заметке.`, { ok: "Удалить", danger: true })) === null) return;
     try {
       await invoke("task_delete", { path: t.path, line: t.line, raw: t.raw });
       toast("Задача удалена");
@@ -153,10 +226,15 @@ export function mountTasks(root: HTMLElement) {
   async function editTask(t: Task) {
     const all = [...new Set(tasks.flatMap((x) => x.tags))];
     const textNoTags = t.text.replace(/(^|\s)#[\p{L}\p{N}_\-/]+/gu, "").trim();
-    const r = await taskDialog({ title: "Задача", text: textNoTags, due: t.due, time: t.time, priority: t.priority, tags: t.tags, allTags: all, ok: "Сохранить" });
+    const r = await taskDialog({ title: "Задача", text: textNoTags, due: t.due, time: t.time, priority: t.priority, tags: t.tags, allTags: all, ok: "Сохранить", desc: t.desc ?? "" });
     if (!r) return;
     const tags = t.tags.length || r.line.includes("#") ? (r.line.match(/(?:^|\s)#[\p{L}\p{N}_\-/]+/gu) ?? []).map((s) => s.trim()).join(" ") : "";
-    update(t, { text: `${r.text}${tags ? " " + tags : ""}`, due: r.due, time: r.time, priority: r.priority });
+    try {
+      const upd = await invoke<Task>("task_update", { path: t.path, line: t.line, raw: t.raw, change: { text: `${r.text}${tags ? " " + tags : ""}`, due: r.due, time: r.time, priority: r.priority } });
+      // строка задачи после правки другая — описание меняется уже по ней
+      if (r.desc.trim() !== (t.desc ?? "").trim()) await invoke("task_describe", { path: t.path, line: t.line, raw: upd.raw, desc: r.desc });
+    } catch (e) { toast(String(e), "err"); }
+    load();
   }
 
   async function datePrompt(t: Task, anchor: HTMLElement) {
@@ -191,13 +269,35 @@ export function mountTasks(root: HTMLElement) {
     if (tag) { tagFilter = tagFilter === tag ? "" : tag; draw(); return; }
     const t = find(el);
     if (!t) return;
-    if (el.classList.contains("tk-check")) return update(t, { done: (el as HTMLInputElement).checked }, (el as HTMLInputElement).checked ? `Готово: ${t.text}` : undefined);
+    if (el.classList.contains("tk-check")) {
+      const done = (el as HTMLInputElement).checked;
+      const left = done ? descendants(t).filter((x) => !x.done).length : 0;
+      return update(t, { done }, done ? `Готово: ${t.text}${left ? ` (${tl("открытых подзадач")}: ${left})` : ""}` : undefined);
+    }
     const act = el.closest<HTMLElement>("[data-act]")?.dataset.act;
+    if (act === "expand" || (!act && el.closest(".tk-text") && !el.closest(".tk-tag") && el.closest(".tk-row")?.querySelector(".tk-caret"))) {
+      const k = openKey(t);
+      if (expanded.has(k)) expanded.delete(k); else expanded.add(k);
+      return draw();
+    }
+    if (act === "desc-edit") { editingDesc = openKey(t); draw(); listEl.querySelector<HTMLTextAreaElement>(".tk-desc-in")?.focus(); return; }
+    if (act === "desc-cancel") { editingDesc = ""; return draw(); }
+    if (act === "desc-save") return saveDesc(t, el);
     if (act === "open") openNote(t.path, t.line);
     if (act === "tomorrow") update(t, { due: ymd(addDays(new Date(), 1)) }, "Перенесено на завтра");
     if (act === "edit") editTask(t);
     if (act === "del") deleteTask(t);
     if (act === "due") datePrompt(t, el.closest<HTMLElement>("[data-act]")!);
+  });
+  listEl.addEventListener("keydown", (e) => {
+    const el = e.target as HTMLElement;
+    const t = find(el);
+    if (!t) return;
+    if (el.classList.contains("tk-sub-in") && e.key === "Enter" && !e.isComposing) { e.preventDefault(); addSub(t, el as HTMLInputElement); }
+    if (el.classList.contains("tk-desc-in")) {
+      if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); saveDesc(t, el); }
+      if (e.key === "Escape") { editingDesc = ""; draw(); }
+    }
   });
   listEl.addEventListener("dblclick", (e) => {
     const t = find(e.target as HTMLElement);
@@ -213,10 +313,10 @@ export function mountTasks(root: HTMLElement) {
   async function addTask(due?: string) {
     const all = [...new Set(tasks.flatMap((x) => x.tags))];
     const notes = [...new Set(tasks.map((t) => t.path))].filter((p) => p !== "Задачи.md").slice(0, 30);
-    const r = await taskDialog({ due: due ?? ymd(new Date()), allTags: all, targets: [{ value: "Задачи.md", label: "Задачи.md (общий список)" }, ...notes.map((p) => ({ value: p, label: p.replace(/\.md$/, "") }))] });
+    const r = await taskDialog({ desc: "", due: due ?? ymd(new Date()), allTags: all, targets: [{ value: "Задачи.md", label: "Задачи.md (общий список)" }, ...notes.map((p) => ({ value: p, label: p.replace(/\.md$/, "") }))] });
     if (!r) return;
     try {
-      await invoke("task_add", { path: r.target || null, line: r.line });
+      await invoke("task_add", { path: r.target || null, line: r.line, desc: r.desc || null });
       toast("Задача добавлена");
       load();
     } catch (e) { toast(String(e), "err"); }
@@ -247,7 +347,7 @@ export function mountTasks(root: HTMLElement) {
         <button class="ghost" data-c="today">Сегодня</button><span class="spacer"></span><button class="icon" data-c="close" title="Закрыть">${icon("close", 16)}</button></div>
       <div class="cal-grid">${WD.map((w) => `<div class="cal-wd">${w}</div>`).join("")}${cells.join("")}</div>
       <div class="cal-dayhead"><b>${esc(human(calDay))}</b> <span class="muted">${calDay}</span><span class="spacer"></span><button class="ghost" data-c="add">${icon("plus", 14)} задача на этот день</button></div>
-      <div class="cal-daylist">${dayTasks.length ? dayTasks.map(row).join("") : `<p class="muted">задач нет</p>`}</div>`;
+      <div class="cal-daylist">${dayTasks.length ? dayTasks.map((t) => row(t, false)).join("") : `<p class="muted">задач нет</p>`}</div>`;
   }
   cal.addEventListener("click", (e) => {
     const el = e.target as HTMLElement;

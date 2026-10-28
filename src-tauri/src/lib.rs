@@ -31,6 +31,7 @@ mod settings;
 mod snippets;
 mod ssh;
 mod sysmon;
+mod sysmon_session;
 mod store;
 mod tasks;
 mod tools;
@@ -213,6 +214,7 @@ pub fn run() {
             ai::ai_remove_model,
             ai::ai_pick_model,
             ai::ai_set_gpu,
+            ai::ai_set_ctx,
             ai::ai_command,
             ai::ai_test,
             winshell::win_shells,
@@ -227,6 +229,9 @@ pub fn run() {
             transfer::transfer_import,
             transfer::app_restart,
             aichat::ai_chat_stop,
+            aichat::ai_chat_history_load,
+            aichat::ai_chat_history_save,
+            aichat::ai_chat_history_clear,
             winshell::wt_settings,
             winbox_import::mt_import_scan,
             winbox_import::mt_import,
@@ -261,6 +266,8 @@ pub fn run() {
             tasks::task_delete,
             tasks::task_format,
             tasks::task_add,
+            tasks::task_describe,
+            tasks::task_add_sub,
             tasks::task_snooze,
             notes::note_search,
             notes::note_open_obsidian,
@@ -326,6 +333,7 @@ pub fn run() {
             ssh::ssh_key_fix_perms,
             ssh::ssh_save,
             ssh::ssh_delete,
+            ssh::ssh_note_set,
             ssh::ssh_connect,
             ssh::ssh_local_user,
             ssh::ssh_config_group,

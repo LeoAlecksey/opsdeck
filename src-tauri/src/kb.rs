@@ -17,6 +17,7 @@ pub struct Topic {
 }
 
 const BUNDLED: &str = include_str!("../knowledge/devops.md");
+const PRACTICE: &str = include_str!("../knowledge/practice.md");
 
 /// Разбор файла базы: `# инструмент`, строка `алиасы:` и строки `- команда — описание`.
 /// Комментарии HTML и пустые строки пропускаются.
@@ -96,10 +97,11 @@ pub fn pick<'a>(topics: &'a [Topic], request: &str, limit: usize) -> Vec<&'a Top
 
 /// Строки темы, самые подходящие запросу первыми: в подсказку идёт немного строк, и лучше те,
 /// в которых есть слова запроса.
-fn best_lines<'a>(t: &'a Topic, qs: &[String], limit: usize) -> Vec<&'a str> {
+fn best_lines<'a>(t: &'a Topic, qs: &[String], limit: usize, keep: fn(&str) -> bool) -> Vec<&'a str> {
     let mut lines: Vec<(usize, &str)> = t
         .lines
         .iter()
+        .filter(|l| keep(l))
         .map(|l| {
             let low = l.to_lowercase();
             (qs.iter().filter(|q| low.contains(q.as_str())).count(), l.as_str())
@@ -116,19 +118,67 @@ fn best_lines<'a>(t: &'a Topic, qs: &[String], limit: usize) -> Vec<&'a str> {
 /// Кусок подсказки для ИИ: «Справка по инструментам» с подобранными строками. Пусто — если тема
 /// запроса в базе не нашлась.
 pub fn hint(topics: &[Topic], request: &str, topics_limit: usize, lines_limit: usize) -> String {
-    let picked = pick(topics, request, topics_limit);
-    if picked.is_empty() {
-        return String::new();
-    }
+    hint_where(topics, request, topics_limit, lines_limit, |_| true)
+}
+
+/// Справка для агента расследований: только строки, которые он может выполнить. Агент запускает
+/// одну команду без шелла, и строка с трубой или перенаправлением научила бы его тому, что
+/// политика всё равно отклонит, — шаг впустую.
+pub fn agent_hint(topics: &[Topic], request: &str, topics_limit: usize, lines_limit: usize) -> String {
+    hint_where(topics, request, topics_limit, lines_limit, single_command)
+}
+
+/// Команда из строки базы (до « — ») — одна, без трубы, перенаправления, подстановки и `sh -c`.
+/// Заглушки вида `<pod>` перенаправлением не считаются.
+pub fn single_command(line: &str) -> bool {
+    let cmd = line.split(" — ").next().unwrap_or(line);
+    let joined = ["|", ";", "&&", "$(", "`", " > ", ">>", "2>", "&>", " < ", "sh -c", "bash -c"];
+    !joined.iter().any(|j| cmd.contains(j))
+}
+
+fn hint_where(topics: &[Topic], request: &str, topics_limit: usize, lines_limit: usize, keep: fn(&str) -> bool) -> String {
     let qs = words(request);
-    let mut s = String::from("Справка по инструментам (проверенные команды, подставь реальные значения вместо <…>):\n");
-    for t in picked {
+    let mut s = String::new();
+    for t in pick(topics, request, topics_limit) {
+        let lines = best_lines(t, &qs, lines_limit, keep);
+        if lines.is_empty() {
+            continue;
+        }
         s += &format!("  {}:\n", t.tool);
-        for l in best_lines(t, &qs, lines_limit) {
+        for l in lines {
             s += &format!("    {l}\n");
         }
     }
-    s
+    if s.is_empty() {
+        return s;
+    }
+    format!("Справка по инструментам (проверенные команды, подставь реальные значения вместо <…>):\n{s}")
+}
+
+/// Привычки DevOps-инженера (knowledge/practice.md) без служебного комментария — общая часть
+/// инструкции чата и агента: порядок диагностики, осторожность с изменениями, секреты.
+pub fn practice() -> String {
+    strip_comments(PRACTICE)
+}
+
+fn strip_comments(text: &str) -> String {
+    let mut out = Vec::new();
+    let mut in_comment = false;
+    for line in text.lines() {
+        let t = line.trim();
+        if in_comment {
+            in_comment = !t.contains("-->");
+            continue;
+        }
+        if t.starts_with("<!--") {
+            in_comment = !t.contains("-->");
+            continue;
+        }
+        if !t.is_empty() {
+            out.push(t);
+        }
+    }
+    out.join("\n")
 }
 
 /// База из файла рядом с приложением (если пользователь свою положил) или встроенная.
@@ -251,6 +301,30 @@ mod tests {
         assert!(h.contains("rollout restart"), "{h}");
         assert_eq!(h.lines().count(), 1 + 1 + 4, "заголовок, инструмент и четыре строки");
         assert_eq!(hint(&t, "спой песню", 2, 4), "", "не про инструменты — подсказки нет");
+    }
+
+    #[test]
+    fn the_agent_hint_has_only_commands_it_can_run() {
+        let t = parse(BUNDLED);
+        assert!(single_command("kubectl -n <ns> logs <pod> --previous — логи упавшего контейнера"), "заглушки — не перенаправление");
+        for l in ["kubectl get pods -A | grep -v Running — не Running", "du -sh * 2>/dev/null — размер", "a && b — два шага", "sh -c 'ps' — шелл"] {
+            assert!(!single_command(l), "{l}");
+        }
+        let h = agent_hint(&t, "почему поды в неймспейсе shop перезапускаются", 2, 6);
+        assert!(h.contains("kubectl"), "{h}");
+        assert!(h.lines().skip(1).filter(|l| l.starts_with("    ")).all(single_command), "{h}");
+        assert_eq!(agent_hint(&t, "спой песню", 2, 6), "");
+    }
+
+    #[test]
+    fn practice_is_the_text_without_the_comment() {
+        let p = practice();
+        assert!(p.starts_with("Как работает DevOps-инженер"), "{p}");
+        assert!(!p.contains("<!--") && !p.contains("-->") && !p.contains("4096"), "служебный комментарий не уходит модели");
+        assert!(p.contains("Сначала смотреть, потом менять") && p.contains("секреты"));
+        // инструкция идёт в каждый запрос при контексте 4096 токенов — разрастаться ей нельзя
+        assert!(p.chars().count() < 1800, "привычки разрослись: {} символов", p.chars().count());
+        assert_eq!(strip_comments("<!-- a\nb -->\n\nтекст\n<!-- c -->\n- d\n"), "текст\n- d");
     }
 
     #[test]

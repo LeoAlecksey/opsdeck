@@ -66,13 +66,13 @@ impl Default for AlertsConfig {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, Default)]
+#[derive(Serialize, Deserialize, Clone, Default, PartialEq)]
 pub struct Link {
     pub title: String,
     pub url: String,
 }
 
-#[derive(Serialize, Deserialize, Clone, Default)]
+#[derive(Serialize, Deserialize, Clone, Default, PartialEq)]
 #[serde(default)]
 pub struct Alert {
     /// "alert" (Alertmanager/Grafana) or "ai" (finding from an analyzer)
@@ -101,7 +101,7 @@ pub struct Alert {
     pub acked: bool,
 }
 
-#[derive(Serialize, Deserialize, Default)]
+#[derive(Serialize, Deserialize, Default, Clone)]
 struct Data {
     current: HashMap<String, Alert>,
     history: VecDeque<Alert>,
@@ -110,6 +110,8 @@ struct Data {
 #[derive(Default)]
 pub struct AlertsState {
     data: Mutex<Data>,
+    /// one writer of alerts.json at a time, see `persist`
+    save: Mutex<()>,
     ingest_stop: Mutex<Option<oneshot::Sender<()>>>,
     poll_stop: Mutex<Option<oneshot::Sender<()>>>,
 }
@@ -220,7 +222,8 @@ fn parse_finding(v: &Value, source: &str) -> Option<Alert> {
         severity: s(&v["severity"]),
         summary: s(&v["summary"]).chars().take(1000).collect(),
         description: s(&v["details"]).chars().take(20000).collect(),
-        starts_at: if time.is_empty() { now() } else { time },
+        // empty: `merge` dates it when first seen
+        starts_at: time,
         received_at: now(),
         labels,
         ..Default::default()
@@ -251,9 +254,21 @@ fn items_of(v: &Value) -> Vec<&Value> {
 
 // ---------- state updates ----------
 
-fn persist(data: &Data) {
-    // компактный JSON: файл машинный, а в истории тысяча записей — ради читаемости его никто не открывает
-    let _ = store::save_json_compact(DATA_FILE, data);
+/// Writes alerts.json outside the data lock: alerts_get (main thread) must not wait for the disk.
+/// Writers queue up and each takes the state as it is now, so an older snapshot never lands last.
+fn persist(state: &AlertsState) {
+    let _writer = state.save.lock().unwrap();
+    let snapshot = state.data.lock().unwrap().clone();
+    // compact: a machine file, ~1000 history records — indentation only multiplied what is written and parsed
+    if let Err(e) = store::save_json_compact(DATA_FILE, &snapshot) {
+        log::warn!("alerts: saving {DATA_FILE}: {e}");
+    }
+}
+
+fn emit_changed(app: &AppHandle, count: usize) {
+    if let Err(e) = app.emit("alerts-changed", count) {
+        log::warn!("alerts: alerts-changed event: {e}");
+    }
 }
 
 /// Запись для истории: в списке видно время, состояние, имя, важность, краткое описание и источник.
@@ -280,9 +295,11 @@ pub fn load_data(state: &AlertsState) {
     let fat = d.history.iter().any(|a| !a.annotations.is_empty() || !a.labels.is_empty() || !a.links.is_empty());
     if fat {
         d.history = d.history.iter().map(for_history).collect();
-        persist(&d);
     }
     *state.data.lock().unwrap() = d;
+    if fat {
+        persist(state);
+    }
 }
 
 fn firing_count(d: &Data) -> usize {
@@ -290,34 +307,64 @@ fn firing_count(d: &Data) -> usize {
     d.current.values().filter(|a| a.status == "firing" && !a.acked && !a.silenced && !is_muted(&cfg, a)).count()
 }
 
-/// Applies alerts; returns the ones that are news (newly firing or just resolved).
+/// Same alert as stored. A poll stamps `received_at` anew, and while an alert fires, Alertmanager's
+/// `endsAt` is only "valid until": Prometheus moves it forward at every resend (once a minute by
+/// default). Neither alone is a change.
+fn same(stored: &Alert, a: &Alert) -> bool {
+    let mut a = a.clone();
+    a.received_at.clone_from(&stored.received_at);
+    if a.status == "firing" {
+        a.ends_at.clone_from(&stored.ends_at);
+    }
+    *stored == a
+}
+
+/// Merges alerts into the state. Returns the news (newly firing or just resolved) and whether
+/// anything changed at all — a poll that brought the same alerts again changes nothing.
+fn merge(d: &mut Data, incoming: Vec<Alert>) -> (Vec<Alert>, bool) {
+    let mut news: Vec<Alert> = Vec::new();
+    let mut dirty = false;
+    for mut a in incoming {
+        let prev = d.current.get(&a.fingerprint);
+        // a finding without its own time is dated when first seen, not at every poll
+        if a.kind == "ai" && a.starts_at.is_empty() {
+            a.starts_at = prev.map_or_else(now, |p| p.starts_at.clone());
+        }
+        let changed = prev.is_none_or(|p| p.status != a.status);
+        if let Some(p) = prev {
+            // ack sticks while the same incident keeps firing
+            a.acked = p.acked && p.status == a.status && p.starts_at == a.starts_at;
+        }
+        let unchanged = prev.is_some_and(|p| same(p, &a));
+        if changed {
+            d.history.push_front(for_history(&a));
+            news.push(a.clone());
+            dirty = true;
+        }
+        if a.status == "resolved" {
+            dirty |= d.current.remove(&a.fingerprint).is_some();
+        } else if !unchanged {
+            d.current.insert(a.fingerprint.clone(), a);
+            dirty = true;
+        }
+    }
+    d.history.truncate(HISTORY_CAP);
+    (news, dirty)
+}
+
+/// Applies alerts; saves them and tells the UI only when something changed.
 fn apply(app: &AppHandle, incoming: Vec<Alert>) {
     let state = app.state::<AlertsState>();
-    let mut news: Vec<Alert> = Vec::new();
-    let count = {
+    let (news, count) = {
         let mut d = state.data.lock().unwrap();
-        for mut a in incoming {
-            let prev = d.current.get(&a.fingerprint);
-            let changed = prev.is_none_or(|p| p.status != a.status);
-            if let Some(p) = prev {
-                // ack sticks while the same incident keeps firing
-                a.acked = p.acked && p.status == a.status && p.starts_at == a.starts_at;
-            }
-            if changed {
-                d.history.push_front(for_history(&a));
-                news.push(a.clone());
-            }
-            if a.status == "resolved" {
-                d.current.remove(&a.fingerprint);
-            } else {
-                d.current.insert(a.fingerprint.clone(), a);
-            }
+        let (news, dirty) = merge(&mut d, incoming);
+        if !dirty {
+            return;
         }
-        d.history.truncate(HISTORY_CAP);
-        persist(&d);
-        firing_count(&d)
+        (news, firing_count(&d))
     };
-    let _ = app.emit("alerts-changed", count);
+    persist(&state);
+    emit_changed(app, count);
     notify(app, &news);
 }
 
@@ -642,11 +689,12 @@ async fn fetch_zabbix(
     c: &connectors::Connector,
     user: &str,
     pass: &str,
+    used: keepass::Use,
 ) -> Result<Vec<Alert>, String> {
     let api = ZabbixApi {
         client,
         url: zabbix_api(c.url.trim_end_matches('/')),
-        basic: connectors::basic_credentials(c)?,
+        basic: connectors::basic_credentials(c, used)?,
     };
     zabbix_problems(&api, c, user, pass).await
 }
@@ -752,7 +800,7 @@ async fn fetch_source(
     let url = poll_url(c).ok_or("этот тип коннектора не является источником алертов")?;
     let (user, pass) = connectors::credentials(kp, pb, c, used).await?;
     if c.kind == "zabbix" {
-        return fetch_zabbix(client, c, &user, &pass).await;
+        return fetch_zabbix(client, c, &user, &pass, used).await;
     }
     if c.kind == "grafana" && pass.is_empty() {
         return Err("не задан пароль или токен — Grafana не отдаёт алерты без авторизации".into());
@@ -941,6 +989,8 @@ pub async fn restart(app: &AppHandle) -> Result<(), String> {
     if let Some(tx) = state.poll_stop.lock().unwrap().take() {
         let _ = tx.send(());
     }
+    // a stopped poll needs no passwords in memory; a restarted one reads them anew
+    connectors::forget_all_secrets();
     let cfg = config();
     if cfg.poll_enabled {
         let (tx, rx) = oneshot::channel();
@@ -982,10 +1032,10 @@ pub fn alerts_ack(app: AppHandle, state: State<AlertsState>, fingerprint: String
         if let Some(a) = d.current.get_mut(&fingerprint) {
             a.acked = acked;
         }
-        persist(&d);
         firing_count(&d)
     };
-    let _ = app.emit("alerts-changed", count);
+    persist(&state);
+    emit_changed(&app, count);
 }
 
 /// Forget current alerts (e.g. stale ones from a source that stopped sending) and/or history.
@@ -999,10 +1049,10 @@ pub fn alerts_clear(app: AppHandle, state: State<AlertsState>, current: bool, hi
         if history {
             d.history.clear();
         }
-        persist(&d);
         firing_count(&d)
     };
-    let _ = app.emit("alerts-changed", count);
+    persist(&state);
+    emit_changed(&app, count);
 }
 
 #[tauri::command]
@@ -1027,7 +1077,7 @@ pub fn alerts_mute(app: AppHandle, state: State<AlertsState>, source: String, na
     }
     store::save_json(CONFIG_FILE, &cfg)?;
     let count = firing_count(&state.data.lock().unwrap());
-    let _ = app.emit("alerts-changed", count);
+    emit_changed(&app, count);
     Ok(())
 }
 
@@ -1181,6 +1231,72 @@ mod tests {
         assert_eq!(items_of(&json!({ "items": [1, 2, 3, 4] })).len(), 4);
         assert_eq!(items_of(&json!({ "title": "one" })).len(), 1);
         assert!(items_of(&json!("text")).is_empty());
+    }
+
+    fn firing(fp: &str, received: &str) -> Alert {
+        Alert { kind: "alert".into(), fingerprint: fp.into(), status: "firing".into(), source: "s".into(), name: fp.into(), starts_at: "t0".into(), received_at: received.into(), ..Default::default() }
+    }
+
+    #[test]
+    fn same_poll_again_changes_nothing() {
+        let mut d = Data::default();
+        let (news, dirty) = merge(&mut d, vec![firing("a", "r1"), firing("b", "r1")]);
+        assert!(dirty);
+        assert_eq!(news.len(), 2);
+        let before = serde_json::to_string(&d).unwrap();
+        let (news, dirty) = merge(&mut d, vec![firing("a", "r2"), firing("b", "r2")]);
+        assert!(!dirty, "only received_at differs: nothing to save or announce");
+        assert!(news.is_empty());
+        assert_eq!(serde_json::to_string(&d).unwrap(), before, "the state stays exactly as saved");
+    }
+
+    #[test]
+    fn firing_alert_moved_valid_until_changes_nothing() {
+        let mut d = Data::default();
+        let mut a = firing("a", "r1");
+        a.ends_at = "2026-10-27T19:59:20Z".into();
+        merge(&mut d, vec![a.clone()]);
+        a.ends_at = "2026-10-27T20:00:35Z".into();
+        a.received_at = "r2".into();
+        assert!(!merge(&mut d, vec![a]).1, "Prometheus resent the same alert");
+    }
+
+    #[test]
+    fn real_changes_are_noticed() {
+        let mut d = Data::default();
+        merge(&mut d, vec![firing("a", "r1")]);
+        d.current.get_mut("a").unwrap().acked = true;
+
+        let mut v = firing("a", "r2");
+        v.value = "97 %".into();
+        let (news, dirty) = merge(&mut d, vec![v]);
+        assert!(dirty, "a new value is shown in the card");
+        assert!(news.is_empty(), "but it is no news");
+        assert!(d.current["a"].acked, "ack sticks");
+        assert_eq!(d.history.len(), 1);
+
+        let mut r = firing("a", "r3");
+        r.status = "resolved".into();
+        let (news, dirty) = merge(&mut d, vec![r]);
+        assert!(dirty);
+        assert_eq!(news.len(), 1);
+        assert!(d.current.is_empty());
+        assert_eq!(d.history.len(), 2);
+    }
+
+    #[test]
+    fn finding_without_time_keeps_first_seen() {
+        let mut d = Data::default();
+        let f = || parse_finding(&json!({ "id": "1", "title": "T" }), "ai").unwrap();
+        merge(&mut d, vec![f()]);
+        let fp = d.current.keys().next().unwrap().clone();
+        let first = d.current[&fp].starts_at.clone();
+        assert!(!first.is_empty());
+        d.current.get_mut(&fp).unwrap().acked = true;
+        std::thread::sleep(Duration::from_millis(5));
+        assert!(!merge(&mut d, vec![f()]).1, "the next poll is no change");
+        assert_eq!(d.current[&fp].starts_at, first);
+        assert!(d.current[&fp].acked, "and keeps the ack");
     }
 
     #[test]

@@ -4,7 +4,7 @@
  */
 import { invoke } from "@tauri-apps/api/core";
 import { icon } from "./icons";
-import { helpBtn } from "./help";
+import { helpBtn } from "./help-btn";
 import { targets, type Target } from "./monitor";
 import { esc, toast } from "./ui";
 import { natCmp } from "./natsort";

@@ -9,6 +9,7 @@ use crate::{
     store,
 };
 use serde::{Deserialize, Serialize};
+use std::{collections::HashMap, sync::LazyLock, sync::Mutex};
 use tauri::{AppHandle, Manager, State, Url, WebviewUrl, WebviewWindowBuilder};
 
 const FILE: &str = "connectors.json";
@@ -51,12 +52,83 @@ fn default_auth() -> String {
     "password".into()
 }
 
-fn secret_key(id: &str) -> String {
+fn keyring_entry(id: &str) -> String {
     format!("connector:{id}")
 }
 
-fn basic_key(id: &str) -> String {
+fn keyring_entry_basic(id: &str) -> String {
     format!("connector:{id}:basic")
+}
+
+enum Cached {
+    Found(zeroize::Zeroizing<String>),
+    Missing,
+    /// the keyring could not be read: asked again next time, but warned about once
+    Failed,
+}
+
+// Keyring secrets of connectors for background polls: on Linux every read is a D-Bus session
+// with the Secret Service, once a minute per source. KeePass and Passbolt are not cached here —
+// their reads follow the lock state of the vault.
+static SECRETS: LazyLock<Mutex<HashMap<String, Cached>>> = LazyLock::new(Default::default);
+
+fn keyring_secret(key: &str, used: keepass::Use) -> Option<String> {
+    keyring_secret_with(key, used, store::secret_lookup)
+}
+
+/// A user's action reads the keyring itself (and drops what the polls keep, in case the secret was
+/// changed outside the app); a background read is served from memory after the first one.
+fn keyring_secret_with(key: &str, used: keepass::Use, read: impl FnOnce(&str) -> Result<Option<String>, String>) -> Option<String> {
+    if used == keepass::Use::User {
+        let got = read(key);
+        SECRETS.lock().unwrap().remove(key);
+        return got.unwrap_or_else(|e| {
+            log::warn!("keyring {key}: {e}");
+            None
+        });
+    }
+    // held across the read: a save that forgets the key after writing it cannot be overtaken by an older value
+    let mut cache = SECRETS.lock().unwrap();
+    let warned = match cache.get(key) {
+        Some(Cached::Found(s)) => return Some(s.to_string()),
+        Some(Cached::Missing) => return None,
+        Some(Cached::Failed) => true,
+        None => false,
+    };
+    match read(key) {
+        Ok(got) => {
+            cache.insert(key.to_string(), got.clone().map_or(Cached::Missing, |s| Cached::Found(s.into())));
+            got
+        }
+        Err(e) => {
+            if !warned {
+                log::warn!("keyring {key}: {e}");
+            }
+            cache.insert(key.to_string(), Cached::Failed);
+            None
+        }
+    }
+}
+
+/// Drops the kept secrets of a connector; after its secrets are written or deleted.
+fn forget_secrets(id: &str) {
+    let mut cache = SECRETS.lock().unwrap();
+    cache.remove(&keyring_entry(id));
+    cache.remove(&keyring_entry_basic(id));
+}
+
+/// Drops all kept secrets: the poll stopped or restarted.
+pub fn forget_all_secrets() {
+    SECRETS.lock().unwrap().clear();
+}
+
+/// Forgets on every return path of a save, also when it fails after writing some of the secrets.
+struct ForgetOnDrop(String);
+
+impl Drop for ForgetOnDrop {
+    fn drop(&mut self) {
+        forget_secrets(&self.0);
+    }
 }
 
 fn load() -> Result<Vec<Connector>, String> {
@@ -114,17 +186,18 @@ pub fn connector_save(
     let basic_secret = basic_secret.filter(|s| !s.is_empty());
     if !connector.basic_user.is_empty()
         && basic_secret.is_none()
-        && store::secret_get(&basic_key(&connector.id)).is_none()
+        && store::secret_get(&keyring_entry_basic(&connector.id)).is_none()
     {
         return Err("задайте пароль Basic auth".into());
     }
+    let _forget = ForgetOnDrop(connector.id.clone());
     if let Some(s) = secret.filter(|s| !s.is_empty()) {
-        store::secret_set(&secret_key(&connector.id), &s)?;
+        store::secret_set(&keyring_entry(&connector.id), &s)?;
     }
     if connector.basic_user.is_empty() {
-        store::secret_delete(&basic_key(&connector.id));
+        store::secret_delete(&keyring_entry_basic(&connector.id));
     } else if let Some(s) = basic_secret {
-        store::secret_set(&basic_key(&connector.id), &s)?;
+        store::secret_set(&keyring_entry_basic(&connector.id), &s)?;
     }
     let mut list = load()?;
     match list.iter_mut().find(|c| c.id == connector.id) {
@@ -149,17 +222,18 @@ pub fn connector_regen_token(id: String) -> Result<String, String> {
 pub fn connector_delete(id: String) -> Result<(), String> {
     let mut list = load()?;
     list.retain(|c| c.id != id);
-    store::secret_delete(&secret_key(&id));
-    store::secret_delete(&basic_key(&id));
+    store::secret_delete(&keyring_entry(&id));
+    store::secret_delete(&keyring_entry_basic(&id));
+    forget_secrets(&id);
     store::save_json(FILE, &list)
 }
 
 /// HTTP Basic auth of the web server in front of the connector, if configured.
-pub fn basic_credentials(c: &Connector) -> Result<Option<(String, String)>, String> {
+pub fn basic_credentials(c: &Connector, used: keepass::Use) -> Result<Option<(String, String)>, String> {
     if c.basic_user.is_empty() {
         return Ok(None);
     }
-    let pass = store::secret_get(&basic_key(&c.id))
+    let pass = keyring_secret(&keyring_entry_basic(&c.id), used)
         .ok_or("не задан пароль Basic auth — откройте коннектор и введите его")?;
     Ok(Some((c.basic_user.clone(), pass)))
 }
@@ -193,7 +267,7 @@ pub async fn credentials(
                 pass,
             )
         }
-        _ => (c.username.clone(), store::secret_get(&secret_key(&c.id)).unwrap_or_default()),
+        _ => (c.username.clone(), keyring_secret(&keyring_entry(&c.id), used).unwrap_or_default()),
     })
 }
 
@@ -223,7 +297,7 @@ pub async fn prepare(
             c.auth = "password".into();
             pass
         }
-        _ => store::secret_get(&secret_key(&c.id)).unwrap_or_default(),
+        _ => store::secret_get(&keyring_entry(&c.id)).unwrap_or_default(),
     };
     let script = (!secret.is_empty()).then(|| login_script(&c, &url, &secret));
     Ok((c, url, script))
@@ -322,6 +396,104 @@ if (cfg.kind === 'gitlab') {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // the kept secrets are one map for the process, and one test clears all of it
+    static SECRETS_TESTS: Mutex<()> = Mutex::new(());
+
+    #[test]
+    fn background_reads_keep_a_keyring_secret_until_it_is_forgotten() {
+        let _one = SECRETS_TESTS.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        use crate::keepass::Use::{Background, User};
+        let (id, reads, stored) = ("cache-reads", std::cell::Cell::new(0), std::cell::RefCell::new(Some("old".to_string())));
+        let key = keyring_entry(id);
+        let read = |_: &str| {
+            reads.set(reads.get() + 1);
+            Ok(stored.borrow().clone())
+        };
+        assert_eq!(keyring_secret_with(&key, Background, read).as_deref(), Some("old"));
+        assert_eq!(keyring_secret_with(&key, Background, read).as_deref(), Some("old"));
+        assert_eq!(reads.get(), 1, "every poll read the keyring");
+        // changed in the connector dialog: the save forgets what the polls kept
+        *stored.borrow_mut() = Some("new".into());
+        drop(ForgetOnDrop(id.into()));
+        assert_eq!(keyring_secret_with(&key, Background, read).as_deref(), Some("new"));
+        assert_eq!(reads.get(), 2);
+        // a user's action reads the keyring itself and makes the next poll read it too
+        *stored.borrow_mut() = Some("outside".into());
+        assert_eq!(keyring_secret_with(&key, User, read).as_deref(), Some("outside"));
+        assert_eq!(keyring_secret_with(&key, Background, read).as_deref(), Some("outside"));
+        assert_eq!(reads.get(), 4);
+        // no password at all is kept too: an Alertmanager without auth is not a keyring read a minute
+        let none = keyring_entry_basic(id);
+        let missing = |_: &str| {
+            reads.set(reads.get() + 1);
+            Ok(None)
+        };
+        assert_eq!(keyring_secret_with(&none, Background, missing), None);
+        assert_eq!(keyring_secret_with(&none, Background, missing), None);
+        assert_eq!(reads.get(), 5);
+        // an unreadable keyring (locked, no Secret Service) is asked again, not taken for "no password"
+        let failing = |_: &str| {
+            reads.set(reads.get() + 1);
+            Err::<Option<String>, _>("locked".to_string())
+        };
+        let locked = keyring_entry("cache-locked");
+        assert_eq!(keyring_secret_with(&locked, Background, failing), None);
+        assert_eq!(keyring_secret_with(&locked, Background, read).as_deref(), Some("outside"));
+        assert_eq!(reads.get(), 7);
+        forget_all_secrets();
+        assert_eq!(keyring_secret_with(&key, Background, read).as_deref(), Some("outside"));
+        assert_eq!(reads.get(), 8, "a restarted poll reads anew");
+    }
+
+    // connector_save and connector_delete themselves are not called here: they reach the keyring,
+    // and settings::tests count keyring calls of the whole process in parallel
+    #[test]
+    fn a_saved_or_deleted_connector_has_no_kept_secrets() {
+        let _one = SECRETS_TESTS.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let (id, other) = ("cache-save", "cache-other");
+        let kept = |key: &str| SECRETS.lock().unwrap().contains_key(key);
+        let fill = || {
+            for key in [keyring_entry(id), keyring_entry_basic(id), keyring_entry(other)] {
+                keyring_secret_with(&key, keepass::Use::Background, |_| Ok(Some("old".into())));
+                assert!(kept(&key));
+            }
+        };
+        let gone = || !kept(&keyring_entry(id)) && !kept(&keyring_entry_basic(id));
+        fill();
+        // what connector_save holds over its keyring writes, on every return path
+        let failed_save = || -> Result<(), String> {
+            let _forget = ForgetOnDrop(id.into());
+            Err("secret_set failed half way".into())
+        };
+        failed_save().unwrap_err();
+        assert!(gone(), "a save that failed after writing some secrets left the old ones to the polls");
+        assert!(kept(&keyring_entry(other)), "another connector's secret was dropped");
+        fill();
+        forget_secrets(id);
+        assert!(gone(), "a deleted connector's secrets stayed in memory");
+    }
+
+    #[test]
+    fn keepass_and_passbolt_secrets_follow_the_vault_lock() {
+        let _one = SECRETS_TESTS.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let c = |auth: &str| -> Connector {
+            serde_json::from_value(serde_json::json!({
+                "id": format!("cache-{auth}"), "kind": "alertmanager", "name": "am", "url": "http://am.example.com:9093", "auth": auth,
+                "keepass_entry": "3f2b9c1e-7a4d-4f6b-9a1e-0c2d3e4f5a6b", "passbolt_entry": "3f2b9c1e-7a4d-4f6b-9a1e-0c2d3e4f5a6b"
+            }))
+            .unwrap()
+        };
+        let (kp, pb) = (KeepassState::default(), PassboltState::default());
+        tauri::async_runtime::block_on(async {
+            for auth in ["keepass", "passbolt"] {
+                let e = credentials(&kp, &pb, &c(auth), keepass::Use::Background).await.expect_err(auth);
+                assert!(e.contains("заблокирован"), "{auth}: {e}");
+            }
+        });
+        let cache = SECRETS.lock().unwrap();
+        assert!(!cache.keys().any(|k| k.starts_with("connector:cache-keepass") || k.starts_with("connector:cache-passbolt")));
+    }
 
     #[test]
     fn login_script_embeds_values_safely() {

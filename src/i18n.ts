@@ -22,6 +22,9 @@ export function langSetting(): Lang | "auto" {
       localStorage.setItem(KEY, "ru");
       return "ru";
     }
+    // a fresh install remembers "auto" at once: right after start the app writes its own opsdeck.*
+    // keys, and the next call (the guide, a restart) would take it for an old Russian-only one
+    localStorage.setItem(KEY, "auto");
     return "auto";
   } catch { return "auto"; }
 }

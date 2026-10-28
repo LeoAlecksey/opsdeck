@@ -6,6 +6,8 @@ import { esc, overlay, toast } from "./ui";
 export type Task = {
   path: string; line: number; raw: string; text: string; done: boolean;
   due: string | null; time: string | null; priority: number; tags: string[]; done_date: string | null;
+  /** line of the parent task in the same note (a subtask), and the lines indented under the task */
+  parent?: number | null; desc?: string;
 };
 
 export const PRIORITY: Record<string, string> = { "0": "обычный", "1": "🔼 повыше", "2": "⏫ высокий", "3": "🔺 срочно", "-1": "🔽 низкий" };
@@ -75,7 +77,9 @@ export function setFrontTags(text: string, tags: string[]): string {
 export function taskDialog(opts: {
   title?: string; text?: string; due?: string | null; time?: string | null; priority?: number; tags?: string[];
   allTags?: string[]; targets?: { value: string; label: string }[]; ok?: string;
-} = {}): Promise<{ line: string; target: string; text: string; due: string; time: string; priority: number } | null> {
+  /** показать поле «Описание» (раздел «Задачи»; в заметке описание пишется прямо под строкой) */
+  desc?: string | null;
+} = {}): Promise<{ line: string; target: string; text: string; due: string; time: string; priority: number; desc: string } | null> {
   const dlg = document.createElement("dialog");
   dlg.className = "task-dialog";
   const today = new Date();
@@ -93,6 +97,7 @@ export function taskDialog(opts: {
         <label>Приоритет <select name="priority">${Object.entries(PRIORITY).map(([k, v]) => `<option value="${k}" ${String(opts.priority ?? 0) === k ? "selected" : ""}>${v}</option>`).join("")}</select></label>
         <label>Теги <input name="tags" list="td-tags" value="${esc((opts.tags ?? []).join(" "))}" placeholder="infra срочно" autocomplete="off" /></label>
       </div>
+      ${opts.desc != null ? `<label>Описание <textarea name="desc" rows="4" spellcheck="false" placeholder="Подробности: что и где сделать, ссылки, команды. Записывается строками с отступом под задачей">${esc(opts.desc)}</textarea></label>` : ""}
       <datalist id="td-tags">${(opts.allTags ?? []).map((t) => `<option value="${esc(t)}">`).join("")}</datalist>
       ${opts.targets?.length ? `<label>Куда записать <select name="target">${opts.targets.map((t) => `<option value="${esc(t.value)}">${esc(t.label)}</option>`).join("")}</select></label>` : ""}
       <p class="muted hint">Напоминание всплывёт в указанное время срока, пока OpsDeck запущен. Задача записывается строкой в заметку и видна в Obsidian.</p>
@@ -117,7 +122,8 @@ export function taskDialog(opts: {
           text: f("text").value, due: f("due").value || null, time: f("due").value ? f("time").value || null : null,
           priority: Number(f("priority").value), tags,
         });
-        result = { line, target: dlg.querySelector<HTMLSelectElement>("[name=target]")?.value ?? "", text: f("text").value.trim(), due: f("due").value, time: f("time").value, priority: Number(f("priority").value) };
+        result = { line, target: dlg.querySelector<HTMLSelectElement>("[name=target]")?.value ?? "", text: f("text").value.trim(), due: f("due").value, time: f("time").value, priority: Number(f("priority").value),
+          desc: dlg.querySelector<HTMLTextAreaElement>("[name=desc]")?.value ?? "" };
         dlg.close("ok");
       } catch (err) { dlg.querySelector(".form-err")!.textContent = String(err); }
     });
