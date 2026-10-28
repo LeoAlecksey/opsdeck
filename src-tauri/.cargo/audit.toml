@@ -8,6 +8,15 @@ ignore = [
   # RSA, and then only locally — the advisory: "Local use on a non-compromised computer is fine".
   # Re-check when the rsa crate gets a fix (RustCrypto/RSA#626).
   "RUSTSEC-2023-0071",
+  # crypto-bigint 0.5.5 (via pgp 0.21 → elliptic-curve 0.13 / cx448, Passbolt integration): some
+  # operations meant to be constant-time (subtraction, division, Montgomery multiplication) may
+  # branch on secret data, depending on the compiler and CPU. Patched only in 0.7.6, which pgp has
+  # not moved to yet (0.21.0 is the newest release). OpsDeck uses it only for the user's own
+  # Passbolt key when that key is on a NIST/secp curve or X448 (not Curve25519, not RSA): decrypting
+  # secrets and signing the login, locally. Measuring that timing takes code on the same computer or
+  # a very large number of logins observed by the server; the same accepted risk as the rsa entry
+  # above. Re-check when pgp moves to crypto-bigint ≥ 0.7.6 (cargo tree -i crypto-bigint@0.5.5).
+  "RUSTSEC-2026-0387",
   # zip 4.6 (через tauri-plugin-updater): распаковка архива обновления может переставлять права по
   # симлинкам, сохранять SUID/SGID и создавать симлинки за пределы папки (patched только в zip 9,
   # на который плагин ещё не перешёл). Свой код OpsDeck распаковывает уже на zip 9; у плагина этот
