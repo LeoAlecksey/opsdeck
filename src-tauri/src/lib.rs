@@ -31,6 +31,7 @@ mod settings;
 mod snippets;
 mod ssh;
 mod sysmon;
+mod sysmon_session;
 mod store;
 mod tasks;
 mod tools;
