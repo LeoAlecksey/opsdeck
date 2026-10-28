@@ -136,26 +136,39 @@ pub async fn fs_git_status(path: String) -> GitStatus {
         let dir = expand(&path);
         let git = |args: &[&str]| {
             let mut cmd = Command::new("git");
-            cmd.arg("-C").arg(&dir).args(args).stdin(Stdio::null()).stderr(Stdio::null());
+            // a status in the background must not take index.lock: a git command the user runs at
+            // that moment would fail on it (git-status(1), "Background refresh")
+            cmd.arg("-C").arg(&dir).args(args).stdin(Stdio::null()).env("GIT_OPTIONAL_LOCKS", "0");
             process::no_console(&mut cmd);
-            cmd.output().ok().filter(|o| o.status.success())
+            cmd.output()
         };
-        let Some(root) = git(&["rev-parse", "--show-toplevel"]) else {
-            // say why, when it is not just "not a repository"
-            let mut cmd = Command::new("git");
-            cmd.arg("-C").arg(&dir).args(["rev-parse", "--show-toplevel"]).stdin(Stdio::null());
-            process::no_console(&mut cmd);
-            let error = match cmd.output() {
-                Err(e) if e.kind() == std::io::ErrorKind::NotFound => "git не найден — установите Git (на Windows: Git for Windows) и перезапустите OpsDeck".to_string(),
-                Ok(o) if String::from_utf8_lossy(&o.stderr).contains("dubious ownership") =>
-                    "git не доверяет этой папке (dubious ownership): выполните git config --global --add safe.directory <папка>".to_string(),
-                _ => String::new(),
-            };
-            return GitStatus { error, ..Default::default() };
+        // one rev-parse: its stderr also says why there is no repository
+        let root = match git(&["rev-parse", "--show-toplevel"]) {
+            Ok(o) if o.status.success() => o,
+            res => {
+                let error = match res {
+                    Err(e) if e.kind() == std::io::ErrorKind::NotFound => "git не найден — установите Git (на Windows: Git for Windows) и перезапустите OpsDeck".to_string(),
+                    Ok(o) if String::from_utf8_lossy(&o.stderr).contains("dubious ownership") =>
+                        "git не доверяет этой папке (dubious ownership): выполните git config --global --add safe.directory <папка>".to_string(),
+                    // not a repository: no error to show
+                    _ => String::new(),
+                };
+                return GitStatus { error, ..Default::default() };
+            }
         };
         let root = String::from_utf8_lossy(&root.stdout).trim().to_string();
         let mut st = GitStatus { root, ..Default::default() };
-        let Some(out) = git(&["status", "--porcelain=v1", "-b", "-z", "--untracked-files=normal"]) else { return st };
+        let out = match git(&["status", "--porcelain=v1", "-b", "-z", "--untracked-files=normal"]) {
+            Ok(o) if o.status.success() => o,
+            Ok(o) => {
+                log::warn!("files: git status in {}: {}", dir.display(), String::from_utf8_lossy(&o.stderr).trim());
+                return st;
+            }
+            Err(e) => {
+                log::warn!("files: git status in {}: {e}", dir.display());
+                return st;
+            }
+        };
         let text = String::from_utf8_lossy(&out.stdout);
         let mut parts = text.split('\0');
         while let Some(rec) = parts.next() {
@@ -177,6 +190,59 @@ pub async fn fs_git_status(path: String) -> GitStatus {
     })
     .await
     .unwrap_or_default()
+}
+
+#[derive(Serialize)]
+pub struct GitStamp {
+    /// branch, refs and index of the repository the folder is in (empty outside a repository)
+    repo: String,
+    /// one per folder asked: names, sizes and modification times of its entries
+    dirs: Vec<String>,
+}
+
+const STAMP_DIRS: usize = 256;
+
+/// What `git status` of the files panel depends on, read from the file system without running git.
+/// The panel asks for it every few seconds and runs `git status` only when it differs: in a big
+/// repository a status takes seconds, and on Windows every start of git.exe costs tens of ms.
+#[tauri::command]
+pub async fn fs_git_stamp(path: String, dirs: Vec<String>) -> Result<GitStamp, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        use std::hash::{Hash, Hasher};
+        let start = expand(&path);
+        let repo = start
+            .ancestors()
+            .find(|d| d.join(".git").exists())
+            .map(|d| crate::code::code_git_stamp(d.to_string_lossy().into_owned()))
+            .unwrap_or_default();
+        let dirs = dirs
+            .iter()
+            .take(STAMP_DIRS)
+            .map(|d| {
+                let dir = expand(d);
+                let rd = match std::fs::read_dir(&dir) {
+                    Ok(rd) => rd,
+                    // gone or unreadable: that is its state, and its parent's entry has changed with it
+                    Err(e) => return format!("{:?}", e.kind()),
+                };
+                // order-independent: read_dir promises no order
+                let mut sum = 0u64;
+                for e in rd.take(MAX_ENTRIES) {
+                    let mut h = std::collections::hash_map::DefaultHasher::new();
+                    match e.and_then(|e| Ok((e.file_name(), e.metadata()?))) {
+                        Ok((name, m)) => (name, m.len(), m.is_dir(), m.modified().map_err(|e| e.kind())).hash(&mut h),
+                        // vanished between the listing and its metadata: still a change to notice
+                        Err(e) => format!("{:?}", e.kind()).hash(&mut h),
+                    }
+                    sum = sum.wrapping_add(h.finish());
+                }
+                format!("{sum:x}")
+            })
+            .collect();
+        GitStamp { repo, dirs }
+    })
+    .await
+    .map_err(err)
 }
 
 /// Which of `candidates` (as printed in the terminal, relative to `cwd` or absolute) exist.
@@ -404,5 +470,88 @@ mod tests {
         assert_eq!(expand("rel/path"), PathBuf::from("rel/path"));
         assert_eq!(expand("  \"~/notes/a.md\"  "), home.join("notes/a.md"));
         assert_eq!(expand("'/etc/hosts'"), PathBuf::from("/etc/hosts"));
+    }
+
+    fn repo(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("opsdeck-files-{name}-{}", std::process::id()));
+        if dir.exists() {
+            std::fs::remove_dir_all(&dir).unwrap();
+        }
+        std::fs::create_dir_all(dir.join("src/deep")).unwrap();
+        std::fs::write(dir.join("a.txt"), "a").unwrap();
+        std::fs::write(dir.join("src/deep/b.txt"), "b").unwrap();
+        git_in(&dir, &["init", "-q", "-b", "main"]);
+        git_in(&dir, &["add", "."]);
+        git_in(&dir, &["-c", "user.name=t", "-c", "user.email=t@example.invalid", "commit", "-qm", "init"]);
+        dir
+    }
+
+    fn git_in(dir: &Path, args: &[&str]) {
+        let st = Command::new("git").arg("-C").arg(dir).args(args).status().unwrap();
+        assert!(st.success(), "git {args:?}");
+    }
+
+    fn stamp(dir: &Path, dirs: &[&Path]) -> (String, Vec<String>) {
+        let s = tauri::async_runtime::block_on(fs_git_stamp(
+            dir.to_string_lossy().into_owned(),
+            dirs.iter().map(|d| d.to_string_lossy().into_owned()).collect(),
+        ))
+        .unwrap();
+        (s.repo, s.dirs)
+    }
+
+    #[test]
+    fn git_stamp_changes_only_with_the_working_copy() {
+        let dir = repo("stamp");
+        let src = dir.join("src");
+        let first = stamp(&dir, &[&dir, &src]);
+        assert!(!first.0.is_empty(), "inside a repository");
+        assert_eq!(stamp(&dir, &[&dir, &src]), first, "nothing changed — same stamp, git not needed");
+        assert_eq!(stamp(&src, &[&src]).0, first.0, "a subfolder finds its repository");
+
+        // an edit of a shown file, same size
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        std::fs::write(dir.join("a.txt"), "A").unwrap();
+        let edited = stamp(&dir, &[&dir, &src]);
+        assert_ne!(edited.1[0], first.1[0]);
+
+        // a new file in a folder not expanded: the folder's own mtime in the shown one
+        std::fs::write(src.join("deep/new.txt"), "n").unwrap();
+        let created = stamp(&dir, &[&dir, &src]);
+        assert_ne!(created.1[1], edited.1[1]);
+        assert_eq!(created.1[0], edited.1[0]);
+
+        // git add and commit: the index and refs
+        git_in(&dir, &["add", "."]);
+        let added = stamp(&dir, &[&dir, &src]);
+        assert_ne!(added.0, created.0);
+
+        let gone = dir.join("no-such");
+        assert_eq!(stamp(&dir, &[&gone]).1, ["NotFound"]);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn background_status_leaves_the_index_alone() {
+        let dir = repo("locks");
+        // stale stat info in the index: a plain `git status` would refresh and rewrite it
+        std::thread::sleep(std::time::Duration::from_millis(1100));
+        std::fs::write(dir.join("a.txt"), "a").unwrap();
+        let index = || std::fs::metadata(dir.join(".git/index")).unwrap().modified().unwrap();
+        let before = index();
+        let st = tauri::async_runtime::block_on(fs_git_status(dir.to_string_lossy().into_owned()));
+        assert!(!st.root.is_empty());
+        assert!(st.files.is_empty(), "same content: no change");
+        assert_eq!(index(), before, "the index is not rewritten (and not locked) by the panel");
+
+        let outside = std::env::temp_dir().join(format!("opsdeck-files-none-{}", std::process::id()));
+        std::fs::create_dir_all(&outside).unwrap();
+        let none = tauri::async_runtime::block_on(fs_git_status(outside.to_string_lossy().into_owned()));
+        // a temp dir inside some repository would be a test environment problem, not ours
+        if none.root.is_empty() {
+            assert_eq!(none.error, "", "not a repository is no error");
+        }
+        std::fs::remove_dir_all(&dir).unwrap();
+        std::fs::remove_dir_all(&outside).unwrap();
     }
 }
