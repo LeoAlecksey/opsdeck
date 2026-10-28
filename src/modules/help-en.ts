@@ -7,6 +7,7 @@ export const HELP_EN: Record<string, { title: string; html: string }> = {
     html: `
       <h4>How it works</h4>
       <p>Every tab is a real shell (bash/zsh) with OpsDeck integration: each command becomes a <b>block</b> with its exit code and duration. On the right is the AI panel: Claude Code (or Codex/Gemini/Aider/OpenCode) runs there in its own terminal, or <b>OpsDeck AI (local)</b> — a chat with the built-in model (or your AI server from ⚙ Settings). The answer is printed as it is generated; commands from it go into the active tab by «▸ To terminal» — without Enter, nothing runs by itself.</p>
+      <p>The chat has <b>tabs</b> (＋, up to 8; double-click to rename). A tab can be <b>bound</b>: to a terminal tab — then the folder and shell come from it, commands are inserted there, and switching to that terminal tab opens the bound chat; or to a <b>server</b> from the SSH list — then the model knows which server it is about, and an investigation runs only there. Conversations and server bindings are <b>kept</b> between launches (⚙ → Local AI, where you can also turn this off and delete them): of investigations, the question and the conclusion are kept, not the steps and command output.</p>
       <h4>What's where</h4>
       <ul>
         <li><b>＋</b> — new tab (opens in the same folder), <b>◫ / ⊟</b> — split right / down. When there are more tabs than fit, scroll the tab bar with the mouse wheel.</li>
@@ -38,7 +39,7 @@ export const HELP_EN: Record<string, { title: string; html: string }> = {
         <li><b>Different hosts in one tab</b>: the ▤ button next to the split buttons (<i>A new pane with an SSH host</i>) — pick a host from the SSH profiles and <code>~/.ssh/config</code>, it opens as a new pane. Or do it the Termius way: open the target tab, take another tab with the mouse and drag it onto the terminal area — an edge (left, right, top, bottom) splits the window, the middle adds to the grid. The sessions keep running, nothing reconnects.</li>
         <li>${kbd("Ctrl+Shift+↑/↓")} to the previous / next command</li>
         <li>${kbd("Ctrl+=")} / ${kbd("Ctrl+-")} / ${kbd("Ctrl+0")} font size</li>
-        <li>${kbd("Ctrl+Shift+C/V")} copy / paste, ${kbd("Ctrl+Shift+A")} selection → AI, ${kbd("Ctrl+Shift+I")} AI panel</li>
+        <li>${kbd("Ctrl+Shift+C/V")} copy / paste (or the right mouse button, if set in ⚙ → Terminal: paste like PuTTY, or “copy the selection, otherwise paste”), ${kbd("Ctrl+Shift+A")} selection → AI, ${kbd("Ctrl+Shift+I")} AI panel</li>
         <li>${kbd("Ctrl+Shift+R")} reconnect: an SSH/kubectl exec tab whose session dropped stays open — «⟳ Reconnect» (or ${kbd("Enter")}); a failed <code>ssh</code> typed in a shell — «⟳ Retry»</li>
         <li>${kbd("Ctrl+Shift+K")} local AI: a command from a description in words</li>
         <li>${kbd("Ctrl+Shift+P")} command palette — search across OpsDeck (clusters, hosts, notes, snippets, command history)</li>
@@ -293,6 +294,7 @@ export const HELP_EN: Record<string, { title: string; html: string }> = {
       <ul>
         <li><b>＋ Task</b> — a new task: in the “Задачи.md” note by default, another one can be chosen.</li>
         <li>The checkbox — done (✅ date is added), unticking returns the task to work.</li>
+        <li><b>Description and subtasks</b> — ▸ on the left or a click on the text opens a task. The description (what to do and where, links, commands, code blocks) is edited with a click and saved with the button or Ctrl+Enter; subtasks are added in the “＋ subtask” field with Enter, they have their own checkboxes, due dates and subtasks too. Next to a task, ☑ shows how many subtasks are done. In the note these are lines indented under the task, as Obsidian shows them:<br><code>- [ ] Renew the certificate 📅 2026-11-01</code><br><code>&nbsp;&nbsp;&nbsp;&nbsp;Issued with certbot, then nginx -t</code><br><code>&nbsp;&nbsp;&nbsp;&nbsp;- [ ] issue the certificate</code><br>An empty line or a line without indentation ends the task. Deleting a task removes its description and subtasks too.</li>
         <li>Click the due date — change it; on hover <b>→ tomorrow</b> and <b>✎</b> (text, due date, time, priority, tags; or double-click the text). On the right — the note name: open it at this line.</li>
         <li>Tags at the top and in task text are clickable — only tasks with that tag are shown; search — by text, tag and note.</li>
         <li><b>📅 Calendar</b> — a month with each day's tasks; click a day — its list below and <b>＋ task for this day</b>.</li>

@@ -642,11 +642,12 @@ async fn fetch_zabbix(
     c: &connectors::Connector,
     user: &str,
     pass: &str,
+    used: keepass::Use,
 ) -> Result<Vec<Alert>, String> {
     let api = ZabbixApi {
         client,
         url: zabbix_api(c.url.trim_end_matches('/')),
-        basic: connectors::basic_credentials(c)?,
+        basic: connectors::basic_credentials(c, used)?,
     };
     zabbix_problems(&api, c, user, pass).await
 }
@@ -752,7 +753,7 @@ async fn fetch_source(
     let url = poll_url(c).ok_or("этот тип коннектора не является источником алертов")?;
     let (user, pass) = connectors::credentials(kp, pb, c, used).await?;
     if c.kind == "zabbix" {
-        return fetch_zabbix(client, c, &user, &pass).await;
+        return fetch_zabbix(client, c, &user, &pass, used).await;
     }
     if c.kind == "grafana" && pass.is_empty() {
         return Err("не задан пароль или токен — Grafana не отдаёт алерты без авторизации".into());
@@ -941,6 +942,8 @@ pub async fn restart(app: &AppHandle) -> Result<(), String> {
     if let Some(tx) = state.poll_stop.lock().unwrap().take() {
         let _ = tx.send(());
     }
+    // a stopped poll needs no passwords in memory; a restarted one reads them anew
+    connectors::forget_all_secrets();
     let cfg = config();
     if cfg.poll_enabled {
         let (tx, rx) = oneshot::channel();
