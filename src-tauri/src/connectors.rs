@@ -52,11 +52,11 @@ fn default_auth() -> String {
     "password".into()
 }
 
-fn secret_key(id: &str) -> String {
+fn keyring_entry(id: &str) -> String {
     format!("connector:{id}")
 }
 
-fn basic_key(id: &str) -> String {
+fn keyring_entry_basic(id: &str) -> String {
     format!("connector:{id}:basic")
 }
 
@@ -113,8 +113,8 @@ fn keyring_secret_with(key: &str, used: keepass::Use, read: impl FnOnce(&str) ->
 /// Drops the kept secrets of a connector; after its secrets are written or deleted.
 fn forget_secrets(id: &str) {
     let mut cache = SECRETS.lock().unwrap();
-    cache.remove(&secret_key(id));
-    cache.remove(&basic_key(id));
+    cache.remove(&keyring_entry(id));
+    cache.remove(&keyring_entry_basic(id));
 }
 
 /// Drops all kept secrets: the poll stopped or restarted.
@@ -186,18 +186,18 @@ pub fn connector_save(
     let basic_secret = basic_secret.filter(|s| !s.is_empty());
     if !connector.basic_user.is_empty()
         && basic_secret.is_none()
-        && store::secret_get(&basic_key(&connector.id)).is_none()
+        && store::secret_get(&keyring_entry_basic(&connector.id)).is_none()
     {
         return Err("задайте пароль Basic auth".into());
     }
     let _forget = ForgetOnDrop(connector.id.clone());
     if let Some(s) = secret.filter(|s| !s.is_empty()) {
-        store::secret_set(&secret_key(&connector.id), &s)?;
+        store::secret_set(&keyring_entry(&connector.id), &s)?;
     }
     if connector.basic_user.is_empty() {
-        store::secret_delete(&basic_key(&connector.id));
+        store::secret_delete(&keyring_entry_basic(&connector.id));
     } else if let Some(s) = basic_secret {
-        store::secret_set(&basic_key(&connector.id), &s)?;
+        store::secret_set(&keyring_entry_basic(&connector.id), &s)?;
     }
     let mut list = load()?;
     match list.iter_mut().find(|c| c.id == connector.id) {
@@ -222,8 +222,8 @@ pub fn connector_regen_token(id: String) -> Result<String, String> {
 pub fn connector_delete(id: String) -> Result<(), String> {
     let mut list = load()?;
     list.retain(|c| c.id != id);
-    store::secret_delete(&secret_key(&id));
-    store::secret_delete(&basic_key(&id));
+    store::secret_delete(&keyring_entry(&id));
+    store::secret_delete(&keyring_entry_basic(&id));
     forget_secrets(&id);
     store::save_json(FILE, &list)
 }
@@ -233,7 +233,7 @@ pub fn basic_credentials(c: &Connector, used: keepass::Use) -> Result<Option<(St
     if c.basic_user.is_empty() {
         return Ok(None);
     }
-    let pass = keyring_secret(&basic_key(&c.id), used)
+    let pass = keyring_secret(&keyring_entry_basic(&c.id), used)
         .ok_or("не задан пароль Basic auth — откройте коннектор и введите его")?;
     Ok(Some((c.basic_user.clone(), pass)))
 }
@@ -267,7 +267,7 @@ pub async fn credentials(
                 pass,
             )
         }
-        _ => (c.username.clone(), keyring_secret(&secret_key(&c.id), used).unwrap_or_default()),
+        _ => (c.username.clone(), keyring_secret(&keyring_entry(&c.id), used).unwrap_or_default()),
     })
 }
 
@@ -297,7 +297,7 @@ pub async fn prepare(
             c.auth = "password".into();
             pass
         }
-        _ => store::secret_get(&secret_key(&c.id)).unwrap_or_default(),
+        _ => store::secret_get(&keyring_entry(&c.id)).unwrap_or_default(),
     };
     let script = (!secret.is_empty()).then(|| login_script(&c, &url, &secret));
     Ok((c, url, script))
@@ -405,7 +405,7 @@ mod tests {
         let _one = SECRETS_TESTS.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         use crate::keepass::Use::{Background, User};
         let (id, reads, stored) = ("cache-reads", std::cell::Cell::new(0), std::cell::RefCell::new(Some("old".to_string())));
-        let key = secret_key(id);
+        let key = keyring_entry(id);
         let read = |_: &str| {
             reads.set(reads.get() + 1);
             Ok(stored.borrow().clone())
@@ -424,7 +424,7 @@ mod tests {
         assert_eq!(keyring_secret_with(&key, Background, read).as_deref(), Some("outside"));
         assert_eq!(reads.get(), 4);
         // no password at all is kept too: an Alertmanager without auth is not a keyring read a minute
-        let none = basic_key(id);
+        let none = keyring_entry_basic(id);
         let missing = |_: &str| {
             reads.set(reads.get() + 1);
             Ok(None)
@@ -437,7 +437,7 @@ mod tests {
             reads.set(reads.get() + 1);
             Err::<Option<String>, _>("locked".to_string())
         };
-        let locked = secret_key("cache-locked");
+        let locked = keyring_entry("cache-locked");
         assert_eq!(keyring_secret_with(&locked, Background, failing), None);
         assert_eq!(keyring_secret_with(&locked, Background, read).as_deref(), Some("outside"));
         assert_eq!(reads.get(), 7);
@@ -454,12 +454,12 @@ mod tests {
         let (id, other) = ("cache-save", "cache-other");
         let kept = |key: &str| SECRETS.lock().unwrap().contains_key(key);
         let fill = || {
-            for key in [secret_key(id), basic_key(id), secret_key(other)] {
+            for key in [keyring_entry(id), keyring_entry_basic(id), keyring_entry(other)] {
                 keyring_secret_with(&key, keepass::Use::Background, |_| Ok(Some("old".into())));
                 assert!(kept(&key));
             }
         };
-        let gone = || !kept(&secret_key(id)) && !kept(&basic_key(id));
+        let gone = || !kept(&keyring_entry(id)) && !kept(&keyring_entry_basic(id));
         fill();
         // what connector_save holds over its keyring writes, on every return path
         let failed_save = || -> Result<(), String> {
@@ -468,7 +468,7 @@ mod tests {
         };
         failed_save().unwrap_err();
         assert!(gone(), "a save that failed after writing some secrets left the old ones to the polls");
-        assert!(kept(&secret_key(other)), "another connector's secret was dropped");
+        assert!(kept(&keyring_entry(other)), "another connector's secret was dropped");
         fill();
         forget_secrets(id);
         assert!(gone(), "a deleted connector's secrets stayed in memory");
