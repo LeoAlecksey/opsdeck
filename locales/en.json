@@ -2159,5 +2159,9 @@
  "ИИ получает это сам — в чате, привязанном к серверу, и в расследовании агента, — описывать сервер в каждом вопросе не нужно. Хранится только на этом компьютере.": "The AI gets this by itself — in a chat bound to the server and in agent investigations — no need to describe the server in every question. Stored only on this computer.",
  "Что тут крутится и что важно: «PostgreSQL 16, основная база заказов; бэкапы в 03:00; без согласования не перезапускать»": "What runs here and what matters: “PostgreSQL 16, the main orders database; backups at 03:00; no restarts without approval”",
  "Контекст для ИИ: что тут крутится и что важно": "Context for the AI: what runs here and what matters",
- "Контекст сохранён": "Context saved"
+ "Контекст сохранён": "Context saved",
+ "Контекст": "Context",
+ "токенов": "tokens",
+ "Сколько текста модель держит в голове: инструкция, справка, контекст сервера, разговор и ответ. 4096 хватает для команд; 16–32 тысячи — для длинных разговоров и вставленных логов. Больше контекста — больше памяти и дольше первый ответ. Применяется со следующего запроса.": "How much text the model keeps in mind: the instructions, the reference, the server context, the conversation and the answer. 4096 is enough for commands; 16–32 thousand — for long conversations and pasted logs. More context takes more memory and a longer first answer. Applies from the next request.",
+ "такого размера контекста нет в списке": "no such context size in the list"
 }

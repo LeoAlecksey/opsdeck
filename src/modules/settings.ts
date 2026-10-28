@@ -21,7 +21,9 @@ const DONATE_URL = "https://yoomoney.ru/to/4100119645604976";
 type AiStatus = { engine: boolean; model: boolean; running: boolean; installing: boolean; size: number; download_size: number; dir: string; supported: boolean; model_title: string };
 /** потянет ли компьютер модель: good — да, slow — медленно на процессоре, tight — памяти впритык, no — нет */
 type Fit = { level: "good" | "slow" | "tight" | "no"; why: string };
-type AiModels = { models: { id: string; title: string; size: number; ram_gb: number; installed: boolean; fit?: Fit }[]; selected: string; custom_path: string; ram_total: number; gpu: boolean; gpu_supported: boolean; vulkan_found: boolean; metal: boolean; gpu_failed: boolean };
+type AiModels = { models: { id: string; title: string; size: number; ram_gb: number; installed: boolean; fit?: Fit }[]; selected: string; custom_path: string; ram_total: number; gpu: boolean; gpu_supported: boolean; vulkan_found: boolean; metal: boolean; gpu_failed: boolean;
+  /** окно контекста встроенного движка, токены, и из чего выбирать */
+  ctx?: number; ctx_options?: number[] };
 // sizes in decimal GB, like download pages show them; RAM in GiB, like the OS shows it
 const GB = 1e9;
 const GiB = 1073741824;
@@ -62,6 +64,10 @@ function mountAi(el: HTMLElement) {
           </select></label>
           ${ms.gpu && ms.gpu_failed ? `<p class="muted hint warn">Видеокарта не запустилась — модель работает на процессоре. Чтобы попробовать снова, переключите ускорение туда и обратно.</p>` : ""}
           ${ms.gpu && !ms.vulkan_found ? `<p class="muted hint warn">Драйвер Vulkan не найден — установите драйвер видеокарты (Linux: пакет libvulkan1 / vulkan-loader) или выберите «Процессор».</p>` : ""}` : ""}
+      ${ms.ctx_options?.length ? `<label>Контекст <select class="ai-ctx" data-no-i18n ${st.installing ? "disabled" : ""}>
+          ${ms.ctx_options.map((n) => `<option value="${n}" ${n === ms.ctx ? "selected" : ""}>${n.toLocaleString(locale())} ${t("токенов")}${n === 16384 ? ` · ${t("по умолчанию")}` : ""}</option>`).join("")}
+        </select></label>
+        <p class="muted hint">${t("Сколько текста модель держит в голове: инструкция, справка, контекст сервера, разговор и ответ. 4096 хватает для команд; 16–32 тысячи — для длинных разговоров и вставленных логов. Больше контекста — больше памяти и дольше первый ответ. Применяется со следующего запроса.")}</p>` : ""}
       <p class="muted hint">В памяти компьютера: ${(ms.ram_total / GiB).toFixed(0)} ГБ. ${ms.gpu || ms.metal ? "На видеокарте модель отвечает в разы быстрее; если видеопамяти мало, часть модели остаётся на процессоре." : "Модели крупнее 1.5B на процессоре отвечают медленнее (несколько секунд и дольше) — включите ускорение на видеокарте, если она есть."}</p>
       <div class="row"><span>${ready ? `✓ Готов${st.running ? " · модель загружена в память" : ""} · на диске ${gb(st.size)}` : st.installing ? "Скачивается…" : `Не установлен · скачать ≈${gb(st.download_size)}`}</span>
         <span class="spacer"></span>
@@ -77,6 +83,11 @@ function mountAi(el: HTMLElement) {
     const gpu = (e.target as HTMLElement).closest<HTMLSelectElement>(".ai-gpu");
     if (gpu) {
       try { await invoke("ai_set_gpu", { on: gpu.value === "gpu" }); } catch (err) { toast(String(err), "err"); }
+      return draw();
+    }
+    const ctx = (e.target as HTMLElement).closest<HTMLSelectElement>(".ai-ctx");
+    if (ctx) {
+      try { await invoke("ai_set_ctx", { ctx: Number(ctx.value) }); } catch (err) { toast(String(err), "err"); }
       return draw();
     }
     const sel = (e.target as HTMLElement).closest<HTMLSelectElement>(".ai-model");

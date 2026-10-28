@@ -248,6 +248,19 @@ struct Choice {
     /// run on the GPU (Vulkan build of the engine)
     #[serde(default)]
     gpu: bool,
+    /// context window, tokens; 0 — not chosen yet (DEFAULT_CTX)
+    #[serde(default)]
+    ctx: u32,
+}
+
+/// Context sizes offered in Settings. More context fits longer conversations and pasted logs, but
+/// takes more memory (the KV cache) and makes the first answer slower.
+pub const CTX_OPTIONS: [u32; 5] = [4096, 8192, 16384, 32768, 65536];
+pub const DEFAULT_CTX: u32 = 16384;
+
+/// The context the engine starts with: the saved choice if it is one of the offered sizes.
+fn ctx_size(c: &Choice) -> u32 {
+    if CTX_OPTIONS.contains(&c.ctx) { c.ctx } else { DEFAULT_CTX }
 }
 
 enum Selected {
@@ -391,6 +404,9 @@ pub struct AiModels {
     metal: bool,
     /// the GPU did not start this session, the model runs on the CPU
     gpu_failed: bool,
+    /// context window, tokens, and the sizes to choose from
+    ctx: u32,
+    ctx_options: Vec<u32>,
 }
 
 #[tauri::command]
@@ -422,7 +438,23 @@ pub fn ai_models(state: tauri::State<AiState>) -> AiModels {
         vulkan_found: vulkan_found(),
         metal: cfg!(target_os = "macos"),
         gpu_failed,
+        ctx: ctx_size(&c),
+        ctx_options: CTX_OPTIONS.to_vec(),
     }
+}
+
+/// Context window of the built-in engine (Settings → Local AI); the running engine is stopped.
+#[tauri::command]
+pub fn ai_set_ctx(state: tauri::State<AiState>, ctx: u32) -> Result<(), String> {
+    if !CTX_OPTIONS.contains(&ctx) {
+        return Err("такого размера контекста нет в списке".into());
+    }
+    let mut c = choice();
+    c.ctx = ctx;
+    store::save_json(CHOICE_FILE, &c)?;
+    // the next request starts the engine with the new context
+    stop_server(&state);
+    Ok(())
 }
 
 /// GPU acceleration on/off. The engine for the new mode is downloaded by "Установить".
@@ -995,7 +1027,7 @@ async fn launch(app: &AppHandle, bin: &Path, model: &Path, device: Device) -> Re
     let mut cmd = Command::new(bin);
     cmd.arg("-m")
         .arg(model)
-        .args(["--host", "127.0.0.1", "--port", &port.to_string(), "-c", "4096", "-t", &threads.to_string()])
+        .args(["--host", "127.0.0.1", "--port", &port.to_string(), "-c", &ctx_size(&choice()).to_string(), "-t", &threads.to_string()])
         .args(["--reasoning-budget", "0"])
         .current_dir(bin.parent().unwrap_or(Path::new(".")))
         .stdin(Stdio::null())
@@ -1615,6 +1647,19 @@ mod tests {
         assert_eq!(MODELS[0].id, "qwen2.5-coder-1.5b", "the light model stays the default");
         assert!(MODELS.windows(2).all(|w| w[0].ram_gb <= w[1].ram_gb && w[0].size < w[1].size), "ordered from light to large");
         assert!(MODELS.iter().all(|m| m.active_b > 0.0), "активные параметры указаны у всех");
+    }
+
+    #[test]
+    fn context_size() {
+        let c = |ctx| Choice { ctx, ..Default::default() };
+        assert_eq!(ctx_size(&c(0)), 16384, "не выбран — 16K по умолчанию");
+        assert_eq!(ctx_size(&c(4096)), 4096);
+        assert_eq!(ctx_size(&c(65536)), 65536);
+        assert_eq!(ctx_size(&c(12345)), DEFAULT_CTX, "не из списка — по умолчанию");
+        // старый ai.json без поля ctx читается как «не выбран»
+        let old: Choice = serde_json::from_str(r#"{"model":"qwen3.5-9b","custom_path":"","gpu":true}"#).unwrap();
+        assert_eq!(ctx_size(&old), DEFAULT_CTX);
+        assert!(CTX_OPTIONS.windows(2).all(|w| w[0] < w[1]) && CTX_OPTIONS[0] == 4096 && CTX_OPTIONS[4] == 65536);
     }
 
     #[test]

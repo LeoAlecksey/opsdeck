@@ -214,6 +214,7 @@ pub fn run() {
             ai::ai_remove_model,
             ai::ai_pick_model,
             ai::ai_set_gpu,
+            ai::ai_set_ctx,
             ai::ai_command,
             ai::ai_test,
             winshell::win_shells,
