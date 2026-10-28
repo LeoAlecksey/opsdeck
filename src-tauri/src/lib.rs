@@ -331,6 +331,7 @@ pub fn run() {
             ssh::ssh_key_fix_perms,
             ssh::ssh_save,
             ssh::ssh_delete,
+            ssh::ssh_note_set,
             ssh::ssh_connect,
             ssh::ssh_local_user,
             ssh::ssh_config_group,

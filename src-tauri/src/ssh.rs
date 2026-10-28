@@ -19,6 +19,11 @@ use tauri::{AppHandle, State};
 const FILE: &str = "ssh.json";
 /// Groups for ~/.ssh/config hosts (alias → group): OpsDeck never writes to the ssh config itself.
 const GROUPS_FILE: &str = "ssh_groups.json";
+/// Контекст для ИИ по хостам: что на сервере крутится и что там важно. Ключ — как у агента и
+/// мониторинга: `id:<id>` для своих хостов, `alias:<алиас>` для хостов из ~/.ssh/config.
+const NOTES_FILE: &str = "ssh_notes.json";
+/// Длина одной заметки: она уходит в подсказку модели, а контекст у локальной модели короткий.
+pub const NOTE_MAX: usize = 2000;
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct SshHost {
@@ -71,6 +76,8 @@ pub struct ConfigHost {
 pub struct SshList {
     hosts: Vec<SshHost>,
     config: Vec<ConfigHost>,
+    /// контекст для ИИ по ключу хоста
+    notes: HashMap<String, String>,
 }
 
 fn secret_key(id: &str) -> String {
@@ -509,7 +516,57 @@ pub async fn ssh_list() -> Result<SshList, String> {
     })
     .await
     .map_err(|e| e.to_string())?;
-    Ok(SshList { hosts, config })
+    Ok(SshList { hosts, config, notes: store::load_json(NOTES_FILE)? })
+}
+
+fn note_key_ok(key: &str) -> bool {
+    key.strip_prefix("id:").or_else(|| key.strip_prefix("alias:")).is_some_and(|rest| !rest.trim().is_empty() && !rest.contains(['\n', '\r']))
+}
+
+/// Заметка как её хранить: без пустых строк по краям, не длиннее NOTE_MAX символов.
+pub fn clean_note(text: &str) -> String {
+    let t = text.trim();
+    if t.chars().count() <= NOTE_MAX {
+        return t.to_string();
+    }
+    t.chars().take(NOTE_MAX).collect::<String>().trim_end().to_string()
+}
+
+/// Контекст для ИИ о хосте; пустой текст убирает его.
+#[tauri::command]
+pub fn ssh_note_set(key: String, text: String) -> Result<(), String> {
+    if !note_key_ok(&key) {
+        return Err("неизвестный хост".into());
+    }
+    let mut notes: HashMap<String, String> = store::load_json(NOTES_FILE)?;
+    let text = clean_note(&text);
+    if text.is_empty() {
+        notes.remove(&key);
+    } else {
+        notes.insert(key, text);
+    }
+    store::save_json(NOTES_FILE, &notes)
+}
+
+/// Контекст хостов по именам, как их видит модель (агент получает хосты по имени): свои хосты —
+/// по названию, хосты из ~/.ssh/config — по алиасу. При совпадении имён свой хост главнее.
+pub fn notes_by_name() -> HashMap<String, String> {
+    let notes: HashMap<String, String> = store::load_json(NOTES_FILE).unwrap_or_default();
+    if notes.is_empty() {
+        return notes;
+    }
+    let mut out = HashMap::new();
+    for (key, note) in &notes {
+        if let Some(alias) = key.strip_prefix("alias:") {
+            out.insert(alias.to_string(), note.clone());
+        }
+    }
+    for h in load().unwrap_or_default() {
+        if let Some(note) = notes.get(&format!("id:{}", h.id)) {
+            out.insert(h.name.clone(), note.clone());
+        }
+    }
+    out
 }
 
 /// Local login name — ssh falls back to it when no User applies (a common misconfiguration).
@@ -749,7 +806,10 @@ pub fn ssh_delete(id: String) -> Result<(), String> {
     let mut list = load()?;
     list.retain(|h| h.id != id);
     store::secret_delete(&secret_key(&id));
-    store::save_json(FILE, &list)
+    store::save_json(FILE, &list)?;
+    // контекст удалённого хоста не нужен; ошибка тут не повод считать удаление несостоявшимся
+    let _ = ssh_note_set(format!("id:{id}"), String::new());
+    Ok(())
 }
 
 #[derive(Serialize)]
@@ -829,6 +889,42 @@ fn profile_args(h: &SshHost, user: &str) -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
+    /// Контекст для ИИ: ключи только наших видов, заметка обрезается, а по имени свой хост
+    /// главнее одноимённого алиаса из ~/.ssh/config.
+    #[test]
+    fn host_notes() {
+        assert!(super::note_key_ok("id:h1") && super::note_key_ok("alias:web-1"));
+        for bad in ["", "h1", "id:", "alias: ", "path:../x", "id:a\nb"] {
+            assert!(!super::note_key_ok(bad), "{bad:?}");
+        }
+        assert_eq!(super::clean_note("  \n nginx + certbot \n\n"), "nginx + certbot");
+        assert_eq!(super::clean_note(&"я".repeat(super::NOTE_MAX + 50)).chars().count(), super::NOTE_MAX);
+
+        let _guard = crate::store::SETTINGS_TEST_LOCK.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let host = |id: &str, name: &str| super::SshHost {
+            id: id.into(), name: name.into(), group: String::new(), host: "192.0.2.1".into(), port: 22, user: String::new(),
+            identity_file: String::new(), jump: String::new(), auth: "key".into(), keepass_entry: String::new(), passbolt_entry: String::new(),
+        };
+        crate::store::save_json(super::FILE, &vec![host("h1", "web-1"), host("h2", "db-1")]).unwrap();
+        crate::store::save_json(super::NOTES_FILE, &std::collections::HashMap::<String, String>::new()).unwrap();
+        super::ssh_note_set("alias:web-1".into(), "из ssh config".into()).unwrap();
+        super::ssh_note_set("alias:cache".into(), "redis".into()).unwrap();
+        super::ssh_note_set("id:h1".into(), "свой хост".into()).unwrap();
+        super::ssh_note_set("id:h2".into(), "PostgreSQL".into()).unwrap();
+        assert!(super::ssh_note_set("../x".into(), "y".into()).is_err());
+        let by_name = super::notes_by_name();
+        assert_eq!(by_name.get("web-1").map(String::as_str), Some("свой хост"));
+        assert_eq!(by_name.get("cache").map(String::as_str), Some("redis"));
+        // пустой текст убирает заметку (так её убирает и ssh_delete — сам он тут не вызывается:
+        // он ходит в хранилище паролей, а settings::tests считают такие обращения во всём процессе)
+        super::ssh_note_set("alias:cache".into(), "  ".into()).unwrap();
+        super::ssh_note_set("id:h2".into(), String::new()).unwrap();
+        let by_name = super::notes_by_name();
+        assert!(!by_name.contains_key("cache") && !by_name.contains_key("db-1"), "{by_name:?}");
+        let _ = std::fs::remove_file(crate::store::config_dir().unwrap().join(super::NOTES_FILE));
+        let _ = std::fs::remove_file(crate::store::config_dir().unwrap().join(super::FILE));
+    }
+
     /// Права на ключ: ssh отвергает ключ, доступный не только владельцу (#86). Разбор `icacls`
     /// проверяется на любой ОС — на Windows его видно только на самой Windows.
     #[test]

@@ -30,7 +30,7 @@ struct PartDef {
 
 const PARTS: &[PartDef] = &[
     PartDef { id: "settings", label: "Настройки и интерфейс", files: &["settings.json", "ai.json", "alerts-config.json", "k8s.json", "vaults.json"], dirs: &[], default: true, warn: "" },
-    PartDef { id: "ssh", label: "SSH-хосты и группы", files: &["ssh.json", "ssh_groups.json"], dirs: &[], default: true, warn: "" },
+    PartDef { id: "ssh", label: "SSH-хосты и группы", files: &["ssh.json", "ssh_groups.json", "ssh_notes.json"], dirs: &[], default: true, warn: "" },
     PartDef { id: "connectors", label: "Веб-панели и источники алертов", files: &["connectors.json"], dirs: &[], default: true, warn: "" },
     PartDef { id: "databases", label: "Базы данных", files: &["databases.json"], dirs: &[], default: true, warn: "" },
     PartDef { id: "mikrotik", label: "MikroTik", files: &["mikrotik.json"], dirs: &[], default: true, warn: "" },

@@ -2151,5 +2151,12 @@
  "модели нужно не меньше {} ГБ памяти, а в компьютере {} ГБ": "the model needs at least {} GB of memory, the computer has {} GB",
  "памяти впритык: {} ГБ при рекомендованных {} ГБ — остальные программы будут потеснены, ответы медленнее": "tight on memory: {} GB with {} GB recommended — other programs will be squeezed, answers slower",
  "на процессоре такая модель отвечает медленно — несколько слов в секунду; с ускорением на видеокарте в разы быстрее": "on a CPU such a model answers slowly — a few words a second; with GPU acceleration it is many times faster",
- "не хватит места: {}": "not enough space: {}"
+ "не хватит места: {}": "not enough space: {}",
+ "Контекст для ИИ": "Context for the AI",
+ "Что тут крутится и что важно: сервисы, пути, кто владелец, что нельзя трогать": "What runs here and what matters: services, paths, who owns it, what not to touch",
+ "ИИ получает это сам — в чате, привязанном к серверу, и в расследовании агента. Пусто — убрать.": "The AI gets this by itself — in a chat bound to the server and in agent investigations. Empty — remove.",
+ "ИИ получает это сам — в чате, привязанном к серверу, и в расследовании агента, — описывать сервер в каждом вопросе не нужно. Хранится только на этом компьютере.": "The AI gets this by itself — in a chat bound to the server and in agent investigations — no need to describe the server in every question. Stored only on this computer.",
+ "Что тут крутится и что важно: «PostgreSQL 16, основная база заказов; бэкапы в 03:00; без согласования не перезапускать»": "What runs here and what matters: “PostgreSQL 16, the main orders database; backups at 03:00; no restarts without approval”",
+ "Контекст для ИИ: что тут крутится и что важно": "Context for the AI: what runs here and what matters",
+ "Контекст сохранён": "Context saved"
 }
