@@ -7,6 +7,8 @@ import { mountUpdates } from "./updates";
 import { hlPrefs, setHlPrefs } from "./highlight";
 import { setTermFontSize, termFontSize, setTermFontFamily, termFontFamily, TERM_FONTS, fontInstalled } from "./pty";
 import { setSuggestEnabled, suggestEnabled } from "./suggest";
+import { rightClickMode, setRightClickMode, type RightClick } from "./rightclick";
+import { chatHistoryEnabled, forgetChatHistory, setChatHistoryEnabled } from "./aichat";
 import { AI_PROVIDERS, aiAgent, setAiAgent } from "./ai-agents";
 import { addThemes, allThemes, currentThemeName, isWindows, parseSchemes, setTheme } from "./themes";
 import { listen } from "@tauri-apps/api/event";
@@ -168,6 +170,11 @@ export function mountSettings(root: HTMLElement) {
           <label class="check"><input type="checkbox" data-hl="input" /> Подсветка команды при наборе (как в fish: несуществующая команда — красным)</label>
           <label class="check"><input type="checkbox" data-hl="output" /> Подсветка вывода: ERROR/WARN, статусы подов, IP, ссылки, время</label>
           <label class="check"><input type="checkbox" class="term-sugg" /> Подсказывать продолжение команды серым (из истории и заметок), → — принять</label>
+          <label>Правая кнопка мыши в терминале <select class="term-rclick">
+            <option value="menu">Меню (как в системе)</option>
+            <option value="paste">Вставить из буфера (как в PuTTY)</option>
+            <option value="copy-paste">Копировать выделение, иначе вставить (как в Windows Terminal)</option>
+          </select></label>
           <label>Размер шрифта (8–32; ещё Ctrl+= / Ctrl+- / Ctrl+0 и Ctrl+колесо в терминале) <input class="term-font" type="number" min="8" max="32" /></label>
           <label>Шрифт терминала <select class="term-font-family"></select></label>
           <label class="term-font-custom-row" hidden>Название шрифта <input class="term-font-custom" maxlength="128" spellcheck="false" placeholder="например, Iosevka" data-no-i18n /></label>
@@ -197,6 +204,9 @@ export function mountSettings(root: HTMLElement) {
           <p class="muted hint">Модель и движок llama.cpp скачиваются отдельно (по умолчанию — лёгкая Qwen2.5-Coder 1.5B, ≈1,1 ГБ; для мощных ПК есть модели крупнее, можно указать и свой файл .gguf) и работают только на этом компьютере — запросы никуда не уходят. В терминале ${"Ctrl+Shift+K"} или кнопка «✦ ИИ»: опишите словами, что сделать, — ИИ предложит команду с учётом ваших заметок и истории. Модель запускается при первом запросе и выгружается из памяти через 15 минут без дела. Крупные файлы качаются в четыре соединения — так заметно быстрее; после загрузки считается контрольная сумма. Если загрузка оборвалась, она продолжится с того же места, а не начнётся заново.</p>
         <hr />
           <p class="kb-line muted hint">База знаний: <span class="kb-what">…</span> Проверенные команды по теме запроса уходят в подсказку модели, поэтому флаги настоящие. Свои команды — в файле <code class="kb-path mono"></code>: «Открыть папку» создаст его с примером и описанием формата. <button type="button" class="ghost" data-a="kb-open">Открыть папку</button></p>
+        <hr />
+          <label class="check"><input type="checkbox" class="ai-chat-keep" /> Сохранять историю чата ИИ (вкладки и разговоры) между запусками</label>
+          <p class="muted hint">Хранится только на этом компьютере, в папке настроек OpsDeck (файл ai-chats.json, доступ только у вас): до 8 вкладок по 200 сообщений. От расследований агента остаются вопрос и итог — шаги и вывод команд не сохраняются. Снятая галочка удаляет сохранённое. <button type="button" class="ghost" data-a="ai-chat-forget">Удалить сохранённую историю</button></p>
         <hr />
           <div class="ai-remote">
             <p class="muted">Внешний ИИ-сервер (Ollama, vLLM, LM Studio — любой с OpenAI-совместимым /v1)</p>
@@ -298,6 +308,9 @@ export function mountSettings(root: HTMLElement) {
   const sugg = root.querySelector<HTMLInputElement>(".term-sugg")!;
   sugg.checked = suggestEnabled();
   sugg.onchange = () => setSuggestEnabled(sugg.checked);
+  const rclick = root.querySelector<HTMLSelectElement>(".term-rclick")!;
+  rclick.value = rightClickMode();
+  rclick.onchange = () => setRightClickMode(rclick.value as RightClick);
   const agentSel = root.querySelector<HTMLSelectElement>(".ai-agent-sel")!;
   for (const name of Object.keys(AI_PROVIDERS)) agentSel.add(new Option(name, name));
   agentSel.value = aiAgent();
@@ -312,6 +325,14 @@ export function mountSettings(root: HTMLElement) {
     root.querySelector(".kb-path")!.textContent = kb.path;
   }).catch(() => {});
   root.querySelector<HTMLElement>("[data-a=kb-open]")!.onclick = () => invoke("kb_open").catch((e) => toast(String(e), "err"));
+  // история чата ИИ (#100): применяется сразу, без «Сохранить»
+  const chatKeep = root.querySelector<HTMLInputElement>(".ai-chat-keep")!;
+  chatKeep.checked = chatHistoryEnabled();
+  chatKeep.onchange = () => setChatHistoryEnabled(chatKeep.checked).catch((e) => toast(String(e), "err"));
+  root.querySelector<HTMLElement>("[data-a=ai-chat-forget]")!.onclick = async () => {
+    if (await ask(t("Удалить историю чата?"), t("Все вкладки и разговоры чата ИИ будут удалены — и сохранённые, и открытые сейчас."), { ok: t("Удалить"), danger: true }) === null) return;
+    forgetChatHistory().then(() => toast(t("История чата удалена")), (e) => toast(String(e), "err"));
+  };
   // внешний ИИ-сервер: «Проверить» → список моделей в выпадающий список поля «Модель»
   // (комбо-поле: можно и выбрать из списка, и ввести любую свою модель)
   const aiTest = (host: string, port: string, key: string) => invoke<{ models: string[] }>("ai_test", { host, port, apiKey: key });

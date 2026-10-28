@@ -11,6 +11,7 @@ import { AutoSuggest } from "./suggest";
 import type { Launched } from "./shellkind";
 import { copyText } from "./ui";
 import { uid } from "./winid";
+import { rightClickAction, rightClickMode, type RightClick } from "./rightclick";
 
 export type SpawnOpts = { program?: string; args?: string[]; cwd?: string; env?: Record<string, string> };
 
@@ -114,6 +115,25 @@ export class PtyTerminal {
     this.term.options.theme = (e as CustomEvent).detail;
     this.host.style.background = this.term.options.theme?.background ?? "";
   };
+  /** Right click (#99): xterm selects a word on it (macOS), which a copy-or-paste click must not do. */
+  private onRightClickMode = (e: Event) => this.applyRightClick((e as CustomEvent<RightClick>).detail);
+  private applyRightClick(mode: RightClick) {
+    this.term.options.rightClickSelectsWord = mode === "menu" && navigator.platform.startsWith("Mac");
+  }
+  private onContextMenu = (e: MouseEvent) => {
+    const action = rightClickAction(rightClickMode(), this.term.hasSelection());
+    if (action === "menu") return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (action === "copy") {
+      copyText(this.term.getSelection());
+      this.term.clearSelection();
+    } else {
+      // the same way as Ctrl+Shift+V: the system clipboard, pasted as bracketed paste
+      invoke<string>("clip_read").then((t) => t && this.term.paste(t)).catch(() => {});
+    }
+    this.term.focus();
+  };
   private onFontFamily = (e: Event) => {
     this.term.options.fontFamily = termFontStack((e as CustomEvent<string>).detail);
     this.resize();
@@ -139,6 +159,9 @@ export class PtyTerminal {
     window.addEventListener("term-font", this.onFont);
     window.addEventListener("term-font-family", this.onFontFamily);
     window.addEventListener("term-theme", this.onTheme);
+    window.addEventListener("term-right-click", this.onRightClickMode);
+    this.applyRightClick(rightClickMode());
+    host.addEventListener("contextmenu", this.onContextMenu, { capture: true });
     host.style.background = this.term.options.theme?.background ?? "";
     // Ctrl+wheel: font size
     host.addEventListener("wheel", (e) => {
@@ -242,6 +265,7 @@ export class PtyTerminal {
     window.removeEventListener("term-font", this.onFont);
     window.removeEventListener("term-font-family", this.onFontFamily);
     window.removeEventListener("term-theme", this.onTheme);
+    window.removeEventListener("term-right-click", this.onRightClickMode);
     this.sugg.dispose();
     this.inHl.dispose();
     this.unlisten.forEach((u) => u());
@@ -297,6 +321,7 @@ export class PtyTerminal {
     window.removeEventListener("term-font", this.onFont);
     window.removeEventListener("term-font-family", this.onFontFamily);
     window.removeEventListener("term-theme", this.onTheme);
+    window.removeEventListener("term-right-click", this.onRightClickMode);
     this.sugg.dispose();
     this.inHl.dispose();
     this.unlisten.forEach((u) => u());
