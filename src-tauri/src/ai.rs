@@ -419,6 +419,8 @@ pub fn ai_models(state: tauri::State<AiState>) -> AiModels {
     let gpu_failed = state.gpu_failed.load(std::sync::atomic::Ordering::Relaxed);
     // видеокарта работает: на ней и плотная модель отвечает быстро
     let accel = cfg!(target_os = "macos") || (c.gpu && vulkan_found() && !gpu_failed);
+    // до того, как c.custom_path уйдёт в ответ
+    let ctx = ctx_size(&c);
     AiModels {
         models: MODELS
             .iter()
@@ -438,7 +440,7 @@ pub fn ai_models(state: tauri::State<AiState>) -> AiModels {
         vulkan_found: vulkan_found(),
         metal: cfg!(target_os = "macos"),
         gpu_failed,
-        ctx: ctx_size(&c),
+        ctx,
         ctx_options: CTX_OPTIONS.to_vec(),
     }
 }
