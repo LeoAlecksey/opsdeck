@@ -38,7 +38,7 @@ fn quote(path: &str) -> String {
     format!("\"{}\"", path.replace('\\', "\\\\").replace('"', "\\\""))
 }
 
-/// Опции ssh под sftp/scp: порт у них `-P`, остальное (`-i`, `-J`) совпадает.
+/// Опции ssh под sftp/scp: порт у них `-P`, остальное (`-i`, `-J`, безопасный `-o`) совпадает.
 fn sftp_args(dest: &[String]) -> Vec<String> {
     let mut out = Vec::with_capacity(dest.len());
     let mut it = dest.iter();
@@ -318,8 +318,8 @@ mod tests {
     /// молча ходил бы на 22-й порт.
     #[test]
     fn the_port_option_is_translated() {
-        let dest = vec!["-p".to_string(), "2222".into(), "-i".into(), "~/.ssh/id".into(), "-J".into(), "bastion".into(), "ops@h".into()];
-        assert_eq!(sftp_args(&dest), ["-P", "2222", "-i", "~/.ssh/id", "-J", "bastion", "ops@h"]);
+        let dest = vec!["-p".to_string(), "2222".into(), "-o".into(), "IdentitiesOnly=yes".into(), "-i".into(), "~/.ssh/id".into(), "-J".into(), "bastion".into(), "ops@h".into()];
+        assert_eq!(sftp_args(&dest), ["-P", "2222", "-o", "IdentitiesOnly=yes", "-i", "~/.ssh/id", "-J", "bastion", "ops@h"]);
         assert_eq!(sftp_args(&["h".to_string()]), ["h"]);
     }
 
