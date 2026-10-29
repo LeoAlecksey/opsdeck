@@ -4,10 +4,11 @@ import { icon } from "./icons";
 import { invoke } from "@tauri-apps/api/core";
 import { findUrls, siteTarget, type Target } from "./urls";
 import type { PtyTerminal } from "./pty";
-import { ask, esc, toast } from "./ui";
+import { ask, esc, logUi, toast } from "./ui";
 
 type Entry = { name: string; dir: boolean; link: boolean; size: number };
 type Git = { root: string; branch: string; files: Record<string, string> };
+type Stamp = { repo: string; dirs: string[] };
 type Editor = { id: string; name: string; tui: boolean };
 type TermSpec = { program: string; args: string[]; cwd: string; title: string };
 
@@ -125,6 +126,8 @@ export type FilesHost = {
   /** cwd of the active terminal pane (from the shell integration), if known */
   cwd(): string | undefined;
   paste(text: string): void;
+  /** the last command finished in the active terminal pane (shell integration): it may have changed files */
+  lastCommand?(): unknown;
 };
 
 export function mountFiles(panel: HTMLElement, host: FilesHost) {
@@ -182,8 +185,52 @@ export function mountFiles(panel: HTMLElement, host: FilesHost) {
     listing.set(dir, r);
   }
 
-  async function refreshGit() {
-    git = root ? await invoke<Git>("fs_git_status", { path: root }) : { root: "", branch: "", files: {} };
+  // `git status` runs only when the stamp of what it depends on has changed since the last run, and
+  // one at a time: in a big repository it takes seconds, and the 5-second timer used to pile them up
+  let gitRun: Promise<void> | null = null;
+  let gitAgain = false;
+  let stamp: { repo: string; dirs: Map<string, string> } | null = null;
+  // folders git said are outside a repository: asked again on ⟳ or after a command in the terminal
+  const notRepo = new Set<string>();
+  let seenCommand: unknown;
+  const shownDirs = () => [root, ...expanded];
+
+  async function readStamp() {
+    const dirs = shownDirs();
+    const s = await invoke<Stamp>("fs_git_stamp", { path: root, dirs });
+    return { repo: s.repo, dirs: new Map(dirs.map((d, i) => [d, s.dirs[i]])) };
+  }
+
+  /** Whether anything git status shows may have changed since the last run. A folder expanded since
+   *  then has nothing to compare with: its own entry in the parent's stamp covers it. */
+  async function gitChanged(): Promise<boolean> {
+    if (!stamp) return true;
+    const now = await readStamp().catch((e) => { logUi("warn", `files: fs_git_stamp: ${e}`); return null; });
+    if (!now) return true;
+    return now.repo !== stamp.repo || [...now.dirs].some(([d, h]) => stamp!.dirs.has(d) && stamp!.dirs.get(d) !== h);
+  }
+
+  function refreshGit(): Promise<void> {
+    if (gitRun) { gitAgain = true; return gitRun; }
+    gitRun = (async () => {
+      do { gitAgain = false; await readGit(); } while (gitAgain);
+    })().finally(() => { gitRun = null; });
+    return gitRun;
+  }
+
+  async function readGit() {
+    const dir = root;
+    seenCommand = host.lastCommand?.();
+    if (!dir || notRepo.has(dir)) {
+      git = { root: "", branch: "", files: {} };
+      stamp = null;
+    } else {
+      // taken before the status: a change made while it runs differs from it and is read next time
+      const before = await readStamp().catch((e) => { logUi("warn", `files: fs_git_stamp: ${e}`); return null; });
+      git = await invoke<Git>("fs_git_status", { path: dir });
+      stamp = before;
+      if (!git.root) notRepo.add(dir);
+    }
     dirty = new Set();
     for (const f of Object.keys(git.files)) {
       const parts = f.split("/");
@@ -278,20 +325,28 @@ export function mountFiles(panel: HTMLElement, host: FilesHost) {
     if (f === "up" && root) { follow = false; save("opsdeck.files.follow", "0"); setRoot(parent(root)); }
     if (f === "follow") { follow = !follow; save("opsdeck.files.follow", follow ? "1" : "0"); if (follow) setRoot(host.cwd() ?? root); }
     if (f === "hidden") { hidden = !hidden; save("opsdeck.files.hidden", hidden ? "1" : "0"); reload(); }
-    if (f === "refresh") reload();
+    if (f === "refresh") { notRepo.clear(); reload(); }
     syncButtons();
   });
   // the project = the git repository when inside one, else the shown folder
   $("[data-f=open-root]").onclick = () => root && openInEditor(git.root || root);
 
-  // follow the active pane's cwd; refresh git marks now and then while visible
+  // follow the active pane's cwd; refresh git marks while visible, when something has changed
   let lastCwd = "";
   let tick = 0;
-  setInterval(() => {
+  setInterval(async () => {
     if (panel.hidden || panel.offsetParent === null) return;
     const c = host.cwd() ?? "";
     if (follow && c && c !== lastCwd) { lastCwd = c; setRoot(c); return; }
-    if (++tick % 5 === 0 && root) refreshGit().then(draw);
+    if (++tick % 5 !== 0 || !root || gitRun) return;
+    // a command in the terminal (git init, git clone, an edit deep in a folder not shown) changes
+    // what the stamp of the shown folders does not see
+    const cmd = host.lastCommand?.();
+    const ran = cmd !== seenCommand;
+    seenCommand = cmd;
+    if (ran) notRepo.clear();
+    if (notRepo.has(root)) return;
+    if (ran || await gitChanged()) { await refreshGit(); draw(); }
   }, 1000);
 
   syncButtons();
