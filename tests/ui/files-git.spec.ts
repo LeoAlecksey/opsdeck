@@ -88,4 +88,36 @@ test.describe("files panel: git status", () => {
     await expect(page.locator(".fx-git")).toContainText("main");
     expect(await statuses(app)).toBe(n + 1);
   });
+
+  test("a command finished in the terminal: git status again, even outside a repository", async ({ app, page }) => {
+    await setup(app, page);
+    const id = ((await app.called("pty_spawn")).args as any).req.id;
+    const command = (cmd: string) => app.emit(`pty-data-${id}`, b64(block(cmd)));
+
+    // an edit deep in a collapsed folder: the stamp of the shown folders stays the same
+    const first = await statuses(app);
+    await command("sed -i s/old/new/ modules/net/deep/main.tf");
+    await seconds(page, 6);
+    expect(await statuses(app), "the finished command is the change").toBe(first + 1);
+    await seconds(page, 11);
+    expect(await statuses(app), "the same command does not count twice").toBe(first + 1);
+
+    // not a repository yet: remembered until a command runs, then asked again
+    await set(page, "__repo", false);
+    await page.locator(".fx-head [data-f=refresh]").click();
+    await expect(page.locator(".fx-git")).toHaveText("");
+    const n = await statuses(app);
+    await seconds(page, 11);
+    expect(await statuses(app)).toBe(n);
+    await set(page, "__repo", true);
+    await command("git init");
+    await seconds(page, 6);
+    expect(await statuses(app), "git init in the terminal is noticed without ⟳").toBe(n + 1);
+    await expect(page.locator(".fx-git")).toContainText("main");
+  });
 });
+
+const b64 = (s: string) => Buffer.from(s, "utf8").toString("base64");
+/** what the shell integration prints around a finished command (as in reconnect.spec.ts) */
+const block = (cmd: string) =>
+  `\x1b]133;A\x07$ \x1b]133;B\x07${cmd}\r\n\x1b]133;E;${b64(cmd)}\x07\x1b]133;C\x07\r\n\x1b]133;D;0\x07`;
