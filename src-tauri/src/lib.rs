@@ -119,6 +119,7 @@ pub fn run() {
             pty::shell_commands,
             editor::fs_list,
             editor::fs_git_status,
+            editor::fs_git_stamp,
             editor::fs_resolve,
             editor::fs_reveal,
             editor::editors_detect,

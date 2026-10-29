@@ -807,6 +807,7 @@ export function mountTerminal(root: HTMLElement) {
   const files = mountFiles(filesPanel, {
     cwd: () => cwd(),
     paste: (text) => { const t = activePane()?.pty; if (t) { t.term.paste(text); t.term.focus(); } },
+    lastCommand: () => activePane()?.pty.blocks.blocks.at(-1),
   });
 
   function toggleFiles(force?: boolean) {
