@@ -229,7 +229,15 @@ pub async fn fs_git_stamp(path: String, dirs: Vec<String>) -> Result<GitStamp, S
                 let mut sum = 0u64;
                 for e in rd.take(MAX_ENTRIES) {
                     let mut h = std::collections::hash_map::DefaultHasher::new();
-                    match e.and_then(|e| Ok((e.file_name(), e.metadata()?))) {
+                    // a folder's times come from the folder itself: on Windows the listing keeps a copy of
+                    // them in the parent, and NTFS refreshes it lazily, so a file created in a collapsed
+                    // folder would not change the stamp (on Unix both are the same lstat)
+                    let meta = |e: std::fs::DirEntry| {
+                        let m = e.metadata()?;
+                        let m = if m.is_dir() { std::fs::symlink_metadata(e.path())? } else { m };
+                        Ok((e.file_name(), m))
+                    };
+                    match e.and_then(meta) {
                         Ok((name, m)) => (name, m.len(), m.is_dir(), m.modified().map_err(|e| e.kind())).hash(&mut h),
                         // vanished between the listing and its metadata: still a change to notice
                         Err(e) => format!("{:?}", e.kind()).hash(&mut h),
