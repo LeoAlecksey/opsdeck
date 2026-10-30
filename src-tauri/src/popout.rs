@@ -109,13 +109,15 @@ pub async fn window_popout(app: AppHandle, view: String) -> Result<(), String> {
     }
     let spot = saved_spot(&app, &view);
     let mut builder = WebviewWindowBuilder::new(&app, &label, WebviewUrl::App("index.html".into()))
-        .title(format!("{} — OpsDeck", crate::i18n::tr(title, &[])))
+        .title(format!("{} — {}", crate::i18n::tr(title, &[]), crate::profile::app_title()))
         .inner_size(spot.map_or(1100.0, |s| s.w), spot.map_or(720.0, |s| s.h))
         .min_inner_size(MIN_W, MIN_H);
     builder = match spot {
         Some(s) => builder.position(s.x, s.y),
         None => builder.center(),
     };
+    // та же страница, что у главного окна: ей нужны то же окружение и те же данные вебвью
+    builder = crate::profile::isolate_window(builder).initialization_script(crate::profile::init_script());
     let window = builder.build().map_err(crate::store::err)?;
     let (handle, id, lbl) = (app.clone(), view.clone(), label.clone());
     window.on_window_event(move |e| {

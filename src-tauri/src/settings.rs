@@ -106,6 +106,10 @@ fn from_file() -> Settings {
     let mut s = load();
     // first run: pre-fill from what's on disk so things work without visiting settings
     let first_run = !store::exists(FILE);
+    // новое окружение: заметки по умолчанию те же, что в основном, дальше их можно сменить здесь
+    if first_run && s.obsidian_vault.is_empty() {
+        s.obsidian_vault = inherited_vault(store::load_main_json::<Settings>(FILE));
+    }
     if first_run && (s.keepass_path.is_empty() || s.obsidian_vault.is_empty() || s.winbox_path.is_empty()) {
         let d = detect();
         if s.keepass_path.is_empty() {
@@ -121,6 +125,11 @@ fn from_file() -> Settings {
         let _ = store::save_json(FILE, &s);
     }
     s
+}
+
+/// Папка заметок основного окружения для нового ("" — её нет).
+fn inherited_vault(main: Option<Settings>) -> String {
+    main.map(|m| m.obsidian_vault.trim().to_string()).unwrap_or_default()
 }
 
 /// Settings with auto-detected defaults filled in (may scan $HOME on first use), without the AI key:
@@ -250,6 +259,14 @@ mod tests {
         let back: Settings = serde_json::from_str(r#"{"ai_api_key":"typed","ai_key_saved":true}"#).unwrap();
         assert_eq!(back.ai_api_key, "typed");
         assert!(!back.ai_key_saved);
+    }
+
+    /// Новое окружение по умолчанию работает с теми же заметками, что и основное.
+    #[test]
+    fn a_new_profile_shares_the_notes_folder() {
+        let main = Settings { obsidian_vault: " /home/u/Notes ".into(), keepass_path: "/home/u/db.kdbx".into(), ..Default::default() };
+        assert_eq!(inherited_vault(Some(main)), "/home/u/Notes");
+        assert_eq!(inherited_vault(None), "");
     }
 
     #[test]

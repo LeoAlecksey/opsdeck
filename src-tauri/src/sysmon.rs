@@ -39,10 +39,15 @@ pub struct Stats {
 /// A short path without spaces: the config dir on macOS is "Library/Application Support" (the space
 /// broke ssh's option parsing) and sockets there must stay under 104 bytes.
 pub fn control_path() -> Option<String> {
-    let dir = match dirs::runtime_dir() {
+    let mut dir = match dirs::runtime_dir() {
         Some(run) => run.join("opsdeck"),
         None => dirs::home_dir()?.join(".opsdeck").join("run"),
     };
+    // своё окружение — свои мастер-соединения: иначе второе окружение зашло бы на тот же хост
+    // под тем же пользователем через сессию, открытую первым, с его ключом
+    if let Some(id) = crate::profile::current() {
+        dir = dir.join(crate::profile::short_tag(id));
+    }
     std::fs::create_dir_all(&dir).ok()?;
     crate::store::restrict(&dir, 0o700).ok()?;
     Some(dir.join("ssh-%C").to_string_lossy().into_owned())

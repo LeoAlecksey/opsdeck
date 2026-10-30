@@ -35,7 +35,7 @@ pub fn log_plugin() -> tauri::plugin::TauriPlugin<tauri::Wry> {
     use tauri_plugin_log::{RotationStrategy, Target, TargetKind};
     tauri_plugin_log::Builder::new()
         .clear_targets()
-        .target(Target::new(TargetKind::LogDir { file_name: Some("opsdeck".into()) }))
+        .target(Target::new(TargetKind::LogDir { file_name: Some(crate::profile::log_name(crate::profile::current())) }))
         .target(Target::new(TargetKind::Stdout))
         .level(log::LevelFilter::Info)
         // chatty dependencies: keep their warnings only
@@ -155,7 +155,7 @@ pub fn log_ui(level: String, message: String) {
 }
 
 fn log_file(app: &AppHandle) -> Result<std::path::PathBuf, String> {
-    Ok(app.path().app_log_dir().map_err(err)?.join("opsdeck.log"))
+    Ok(app.path().app_log_dir().map_err(err)?.join(format!("{}.log", crate::profile::log_name(crate::profile::current()))))
 }
 
 #[tauri::command]

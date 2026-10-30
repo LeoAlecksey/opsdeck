@@ -7,6 +7,7 @@
 //   window.__DEMO_LANG        — "ru" (default) or "en": UI language and demo texts; "auto": the
 //                               app picks the language itself, demo texts follow navigator.language
 //   window.__DEMO_WIN         — метка окна: "main" (по умолчанию) или "pop-<раздел>"
+//   window.__DEMO_PROFILE     — окружение окна, как его отдаёт profile.rs ({ id, name, color, several, picker, notice })
 (() => {
   const AUTO = window.__DEMO_LANG === "auto";
   const LANG = AUTO ? (/^ru|^be|^uk|^kk/i.test(navigator.language) ? "ru" : "en") : window.__DEMO_LANG || "ru";
@@ -267,6 +268,15 @@ lint:
 
   const settings = { keepass_path: "/home/demo/Passwords.kdbx", keepass_keyfile: "", keepass_lock_minutes: 0, keepass_keep_open: true, obsidian_vault: "/home/demo/notes", winbox_path: "", k8s_include_system: false, update_auto_check: true, ai_host: "", ai_port: "", ai_model: "", ai_key_saved: false, term_shell: "" };
 
+  // ---- окружения ----
+  const PROFILE = window.__DEMO_PROFILE || { id: "default" };
+  const profiles = [
+    { id: "default", name: "", color: "", open: false },
+    { id: "stage", name: L("Стенд", "Stage"), color: "#f2b65c", open: false },
+    { id: "prod", name: L("Прод", "Prod"), color: "#ef5f6b", open: true },
+  ];
+  let profileStart = "";
+
   const R = {
     transfer_parts: [
       { id: "settings", label: "Настройки и интерфейс", files: 5, bytes: 9000, default: true, warn: "" },
@@ -282,6 +292,11 @@ lint:
       notes_here: "/home/demo/notes" },
     transfer_import: { files: 1845, backup: "/home/demo/.config/opsdeck/backup-20261008-101500", ui: JSON.stringify({ "opsdeck.term.theme": "Dracula" }) },
     win_shells: [], wt_settings: JSON.stringify({ profiles: {}, schemes: [{ name: "Demo WT", background: "#101820", foreground: "#e0e0e0", purple: "#aa66ff", cursorColor: "#ffcc00" }] }),
+    // окружения: список живёт в моке, создание добавляет в него (profile.rs)
+    profiles_list: () => ({ profiles: profiles.map((p) => ({ ...p, current: !PROFILE.picker && p.id === PROFILE.id })), start: profileStart, picker: !!PROFILE.picker }),
+    profile_create: ({ name, color }) => { const id = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "env"; profiles.push({ id, name, color, open: false }); return id; },
+    profile_start_set: ({ id }) => { profileStart = id; return null; },
+    profile_open: null, profile_pick: null, profile_update: null,
     app_version: "0.5.0", set_lang: null, log_ui: null, settings_get: settings, settings_detect: { keepass: [], obsidian: [], winbox: [] }, logs_path: "/home/demo/.local/share/opsdeck/logs",
     k8s_contexts: [ctx, ctx2], k8s_system_contexts: [], k8s_prefs_get: { hidden: [], readonly: [`${ctx.file}|prod-eu`] }, k8s_crds: [], k8s_metrics: usage, k8s_helm_releases: [], k8s_object_events: [],
     ssh_list: { hosts: sshHosts, config: sshConfig }, ssh_keys: ["~/.ssh/id_ed25519"], ssh_local_user: "demo",
@@ -404,6 +419,8 @@ lint:
     return want.slice(1).every((w) => { while (i < args.length && args[i] !== w) i++; return i++ < args.length; });
   };
 
+  // окружение окна: бэкенд кладёт его скриптом инициализации до загрузки страницы
+  if (window.__DEMO_PROFILE) window.__OPSDECK_PROFILE__ = window.__DEMO_PROFILE;
   window.__TAURI_INTERNALS__ = {
     metadata: { currentWindow: { label: WIN }, currentWebview: { label: WIN, windowLabel: WIN } },
     transformCallback: (cb) => { const id = ++cbid; window[`_${id}`] = cb; return id; },
