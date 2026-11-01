@@ -205,7 +205,8 @@ pub async fn web_embed_show(
     }
     let url = target.unwrap_or(base);
     let window = app.get_window("main").ok_or("no main window")?;
-    let mut builder = tauri::webview::WebviewBuilder::new(label(&id), WebviewUrl::External(url)).zoom_hotkeys_enabled(true);
+    // входы в веб-панели у каждого окружения свои
+    let mut builder = crate::profile::isolate_webview(tauri::webview::WebviewBuilder::new(label(&id), WebviewUrl::External(url)).zoom_hotkeys_enabled(true));
     if let Some(js) = script {
         builder = builder.initialization_script(&js);
     }

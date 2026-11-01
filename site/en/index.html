@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="google-site-verification" content="cknvYyARy4cgVtKZoS14W9AitFT1oyCq935yXwtR8Fw">
   <title>OpsDeck — a DevOps engineer's workspace in one window</title>
-  <meta name="description" content="A free open-source desktop app for DevOps: a terminal with local AI, Kubernetes, SSH, databases, an IDE with git, alerts, notes with tasks and KeePass in one window. Linux, Windows, macOS.">
+  <meta name="description" content="A free open-source desktop app for DevOps: a terminal with local AI and an AI agent, Kubernetes, SSH, databases, an IDE with git, alerts, notes with tasks and KeePass in one window. Linux, Windows, macOS.">
   <meta property="og:title" content="OpsDeck — a DevOps engineer's workspace in one window">
   <meta property="og:description" content="Terminal with AI, Kubernetes, SSH, databases, IDE, alerts, notes and KeePass — in one free app.">
   <link rel="canonical" href="https://leoalecksey.github.io/opsdeck/en/">
@@ -21,7 +21,7 @@
   <meta property="og:image:height" content="630">
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:title" content="OpsDeck — a DevOps engineer's workspace in one window">
-  <meta name="twitter:description" content="A free open-source desktop app for DevOps: a terminal with local AI, Kubernetes, SSH, databases, an IDE with git, alerts, notes with tasks and KeePass in one window. Linux, Windows, macOS.">
+  <meta name="twitter:description" content="A free open-source desktop app for DevOps: a terminal with local AI and an AI agent, Kubernetes, SSH, databases, an IDE with git, alerts, notes with tasks and KeePass in one window. Linux, Windows, macOS.">
   <meta name="twitter:image" content="https://leoalecksey.github.io/opsdeck/assets/og-en.jpg">
   <script type="application/ld+json">
 {
@@ -30,7 +30,7 @@
   "name": "OpsDeck",
   "applicationCategory": "DeveloperApplication",
   "operatingSystem": "Linux, Windows, macOS",
-  "description": "A free open-source desktop app for DevOps: a terminal with local AI, Kubernetes, SSH, databases, an IDE with git, alerts, notes with tasks and KeePass in one window. Linux, Windows, macOS.",
+  "description": "A free open-source desktop app for DevOps: a terminal with local AI and an AI agent, Kubernetes, SSH, databases, an IDE with git, alerts, notes with tasks and KeePass in one window. Linux, Windows, macOS.",
   "url": "https://leoalecksey.github.io/opsdeck/en/",
   "image": "https://leoalecksey.github.io/opsdeck/assets/og-en.jpg",
   "downloadUrl": "https://github.com/LeoAlecksey/opsdeck/releases/latest",
@@ -100,6 +100,14 @@
     },
     {
       "@type": "Question",
+      "name": "Can the AI agent break something?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Only what you allowed. The agent is off by default, and the access level is set per host: on “read only” a changing command doesn't run even with permission, on “change with permission” each one is shown as the exact command line and waits for a click. Redirections, interpreters, rm, dd, reboot and the like don't run at any level, and every command goes to the section's log."
+      }
+    },
+    {
+      "@type": "Question",
       "name": "The local AI is slow",
       "acceptedAnswer": {
         "@type": "Answer",
@@ -138,7 +146,7 @@
 <div class="hero wrap">
   <div class="badge">Free · open source · MIT</div>
   <h1>A DevOps engineer's workspace <span>in one window</span></h1>
-  <p class="lead">A terminal with local AI, Kubernetes, SSH and host monitoring, files between hosts, Yandex Cloud, databases, an IDE with git, alerts, notes with tasks, KeePass and MikroTik — together, and aware of each other. Turn on only the sections you need.</p>
+  <p class="lead">A terminal with local AI and an AI agent, Kubernetes, SSH and host monitoring, files between hosts, Yandex Cloud, databases, an IDE with git, alerts, notes with tasks, KeePass, Passbolt and MikroTik — together, and aware of each other. Turn on only the sections you need.</p>
   <div class="actions">
     <a class="btn primary" href="https://github.com/LeoAlecksey/opsdeck/releases/latest">Download</a>
     <a class="btn" href="https://github.com/LeoAlecksey/opsdeck">Source on GitHub</a>
@@ -188,6 +196,7 @@
           <li>Reorder the icons by dragging them with the mouse.</li>
           <li>If another section needs one, it turns on by itself: for example, SSH opens a terminal tab even if the terminal was off.</li>
           <li>If you update from an older version, all sections stay on — nothing disappears.</li>
+          <li>Any section can open in a window of its own — right-click its icon, say, to keep the terminal on a second monitor.</li>
         </ul>
       </div>
       <img class="shot" src="../img/en/modules.jpg" alt="Modules menu with checkboxes" loading="lazy" width="2160" height="1350">
@@ -196,7 +205,7 @@
       <table>
         <thead><tr><th>Module</th><th>What for</th><th>On a fresh install</th></tr></thead>
         <tbody>
-          <tr><td>Terminal + AI</td><td>Tabs and splits with bash/zsh/PowerShell/WSL, colour schemes, local AI, an AI panel with Claude Code, Codex, Gemini, Aider, OpenCode and a chat with the built-in model</td><td><span class="tag on">on</span></td></tr>
+          <tr><td>Terminal + AI</td><td>Tabs and splits with bash/zsh/PowerShell/WSL, colour schemes, local AI, an AI panel with Claude Code, Codex, Gemini, Aider, OpenCode and a tabbed chat with the built-in model</td><td><span class="tag on">on</span></td></tr>
           <tr><td>Kubernetes</td><td>Clusters, pods, logs, YAML, shell, port-forward, Helm, Argo CD, label filter, live node load</td><td><span class="tag on">on</span></td></tr>
           <tr><td>SSH</td><td>Your own profiles and hosts from <code>~/.ssh/config</code>, groups, jump hosts</td><td><span class="tag on">on</span></td></tr>
           <tr><td>KeePass</td><td>Passwords from a .kdbx database for every section</td><td><span class="tag on">on</span></td></tr>
@@ -204,7 +213,7 @@
           <tr><td>Grafana · ArgoCD · GitLab</td><td>Web panels in tabs with auto-login</td><td><span class="tag">checkbox</span></td></tr>
           <tr><td>Alerts</td><td>Grafana Alerting, Alertmanager, Zabbix and your own log analyzers</td><td><span class="tag">checkbox</span></td></tr>
           <tr><td>Network &amp; DNS</td><td>ping, mtr, traceroute, dig, port scan</td><td><span class="tag">checkbox</span></td></tr>
-          <tr><td>IDE: code &amp; git</td><td>Highlighting editor, YAML/Terraform checks, commit graph, branches</td><td><span class="tag">checkbox</span></td></tr>
+          <tr><td>IDE: code &amp; git</td><td>Highlighting editor, YAML/Terraform checks, project search, CI pipeline graph, commit graph, branches</td><td><span class="tag">checkbox</span></td></tr>
           <tr><td>Databases</td><td>PostgreSQL, MySQL/MariaDB, ClickHouse, Redis, MongoDB</td><td><span class="tag">checkbox</span></td></tr>
           <tr><td>Tasks &amp; reminders</td><td>Tasks from notes by due date, calendar, notifications</td><td><span class="tag">checkbox</span></td></tr>
           <tr><td>MikroTik / WinBox</td><td>WinBox and SSH to routers in one click, import of the router list from WinBox</td><td><span class="tag">checkbox</span></td></tr>
@@ -212,6 +221,7 @@
           <tr><td>Files on hosts</td><td>Two panes: this machine and a host over SSH, drag and drop, host → host transfer</td><td><span class="tag">checkbox</span></td></tr>
           <tr><td>Yandex Cloud</td><td>Instances, networks, security groups, addresses, access and billing through the <code>yc</code> CLI</td><td><span class="tag">checkbox</span></td></tr>
           <tr><td>Passbolt</td><td>Passwords from Passbolt 5.x for every section, read only</td><td><span class="tag">checkbox</span></td></tr>
+          <tr><td>AI agent</td><td>Rules for an agent that investigates problems on hosts itself: access levels, your own command lists, a log</td><td><span class="tag">checkbox</span></td></tr>
         </tbody>
       </table>
     </div>
@@ -231,10 +241,12 @@
           <li><kbd>Ctrl+Shift+T</kbd> — new tab, <kbd>Ctrl+Shift+D</kbd> / <kbd>Ctrl+Shift+E</kbd> — split right / down.</li>
           <li>While you type, the rest of the command is suggested in grey from history and notes: <kbd>→</kbd> accepts it.</li>
           <li>Hover a command to copy it or its output, save it as a snippet or send it to AI. A failed command shows an “ask AI” chip.</li>
-          <li><kbd>Ctrl</kbd>+click on a path like <code>src/main.rs:42</code> opens the file at that line.</li>
+          <li><kbd>Ctrl</kbd>+click on a path like <code>src/main.rs:42</code> opens the file at that line, on an address like <code>http://0.0.0.0:8000</code> — the page. If the server runs on a host in an SSH session, OpsDeck sets up an <code>ssh -L</code> tunnel by itself.</li>
+          <li><b>Open folder in web</b> — a button on the terminal tab bar: serves the current folder of an SSH session with <code>python3 -m http.server</code> on the host's 127.0.0.1 and opens it in the browser: grab files without sftp, the folder is never exposed to the network.</li>
+          <li>A tab can move to a separate window (right-click the tab or drag it past the edge) — the session moves with it, the process isn't restarted.</li>
           <li>⏺ records the session to a text file; the bottom bar shows CPU, RAM and disk — of this machine or of the remote one in SSH.</li>
         </ul>
-        <div class="where"><b>Settings:</b> ⚙ → Terminal — highlighting, suggestions, font size and family (MesloLGS NF and Nerd Fonts for Powerlevel10k included), colour scheme (OpsDeck, Campbell, One Half Dark, Solarized, Dracula or your own from JSON). On Windows there is also a “Windows” block: the shell for new tabs — PowerShell 5.1/7, Git Bash, cmd or WSL, and importing schemes from Windows Terminal; the <b>WSL</b> button next to ＋ opens a tab of a distribution.</div>
+        <div class="where"><b>Settings:</b> ⚙ → Terminal — highlighting, suggestions, font size and family (MesloLGS NF and Nerd Fonts for Powerlevel10k included), the right mouse button (menu, PuTTY-style or Windows Terminal-style paste), colour scheme (OpsDeck, Campbell, One Half Dark, Solarized, Dracula or your own from JSON). On Windows there is also a “Windows” block: the shell for new tabs — PowerShell 5.1/7, Git Bash, cmd or WSL, and importing schemes from Windows Terminal; the <b>WSL</b> button next to ＋ opens a tab of a distribution.</div>
       </div>
       <img class="shot" src="../img/en/terminal.jpg" alt="Terminal with command blocks" loading="lazy" width="2160" height="1350">
     </div>
@@ -246,9 +258,10 @@
         <ul>
           <li><b>Paste</b> (<kbd>Enter</kbd>) puts the command on the line without running it, <b>Run</b> (<kbd>Ctrl+Enter</kbd>) runs it.</li>
           <li>The model runs only on your computer; requests go nowhere.</li>
+          <li>A built-in reference — 23 topics and over 250 verified commands (kubectl, helm, terraform, PostgreSQL, PromQL, Yandex Cloud…) — goes along with matching requests so the flags are real. Your own commands go into <code>knowledge.md</code> next to the settings.</li>
           <li>Need a bigger AI — <b>AI ▸</b> on the right opens a panel with Claude Code, Codex, Gemini, Aider or OpenCode. “OpsDeck AI (local)” there is a chat with the same built-in model, see below.</li>
         </ul>
-        <div class="where"><b>How to turn on:</b> ⚙ → Local AI → choose a model → “Install”. Models: the light Qwen2.5-Coder 1.5B (≈1.1 GB), Qwen3.5 4B and 9B, Qwen3.6 35B-A3B or your own <code>.gguf</code> file. There is also “Acceleration: GPU (Vulkan)” — without a GPU the AI switches to the CPU by itself. Already run Ollama, vLLM or LM Studio? Set it in the “External AI server” block.</div>
+        <div class="where"><b>How to turn on:</b> ⚙ → Local AI → choose a model → “Install”. Models: the light Qwen2.5-Coder 1.5B (≈1.1 GB), Qwen3.5 4B and 9B, Qwen3.8 27B, Qwen3.6 35B-A3B or your own <code>.gguf</code> file. There is also “Acceleration: GPU (Vulkan)” — without a GPU the AI switches to the CPU by itself. Already run Ollama, vLLM or LM Studio? Set it in the “External AI server” block.</div>
       </div>
       <img class="shot" src="../img/en/ai.jpg" alt="Local AI suggests a command from a description" loading="lazy" width="2160" height="1350">
     </div>
@@ -259,9 +272,12 @@
         <p>In the AI panel (<b>AI ▸</b>) choose “OpsDeck AI (local)” and work with the built-in model as a full assistant next to the terminal.</p>
         <ul>
           <li>The answer is printed as it is generated, <b>Stop</b> ends it. The model knows the OS, the shell and the terminal's current folder.</li>
+          <li><b>Tabs</b> — up to eight conversations side by side. A tab can be bound to a terminal tab (the chat takes its folder and shell) or to a server from the SSH list — the model knows which server you're asking about.</li>
+          <li>Conversations are kept between launches on this computer only; turn it off in ⚙ → Local AI, where you can also delete the saved history.</li>
           <li>Commands from an answer: <b>▸ To terminal</b> inserts into the active tab without Enter — nothing runs by itself; <b>Copy</b>.</li>
           <li><kbd>Ctrl+Shift+A</kbd>, pod logs and alerts (⇢ AI) land in the question box; the “@” button in notes sends the note's text.</li>
           <li>The default agent is chosen in ⚙ → AI agent — it opens in the panel and gets everything you send to AI.</li>
+          <li>The <b>Investigation</b> checkbox hands the question to the AI agent — it runs the commands on the host itself, see below.</li>
         </ul>
       </div>
       <img class="shot" src="../img/en/ai-chat.jpg" alt="Chat with the local AI next to the terminal" loading="lazy" width="2160" height="1350">
@@ -271,13 +287,28 @@
       <div class="text">
         <h3>AI settings</h3>
         <ul>
-          <li>★ in the model list marks the biggest model that fits your computer's RAM.</li>
+          <li>Each model shows whether this computer can run it: ★ — the strongest that runs without caveats, ⚠ — tight on memory or slow without a GPU, ✕ — won't run. The reason is shown under the selected one.</li>
+          <li>A download that won't fit on the disk doesn't start. An interrupted one resumes where it stopped.</li>
+          <li>The context size is selectable: more means longer conversations and pasted logs, but more memory. 16384 tokens by default.</li>
           <li>Models are downloaded with a checksum check and can be removed one by one.</li>
           <li>The model starts on the first request and is unloaded from memory after 15 minutes idle.</li>
           <li>For an external server the API key is kept in the system password store. OpsDeck warns you when requests leave the computer or go unencrypted.</li>
         </ul>
       </div>
       <img class="shot" src="../img/en/settings-ai.jpg" alt="Local AI settings: model, acceleration, external server" loading="lazy" width="2160" height="1350">
+    </div>
+
+    <div class="card" id="agent" style="margin:8px 0 12px">
+      <h3>AI agent</h3>
+      <p>The agent doesn't suggest a command — it goes to the host itself: picks a command, runs it, reads the output and takes the next step, until it reaches a “cause — evidence — what to do” conclusion. Ask in plain words: “go to app-1 and see what's up with the disk”. Every step is visible: host, command, read or change, exit code and output.</p>
+      <ul>
+        <li><b>Access level per host</b>: stay away, read only, change with permission, change freely. On a read-only host a changing command doesn't run at all; a change is shown as the exact command line and goes nowhere without a click.</li>
+        <li><b>Never runs</b>: redirections and compound commands (<code>&gt;</code>, <code>;</code>, <code>&amp;&amp;</code>), interpreters (<code>sh</code>, <code>python</code>, <code>awk</code>) and the irreversible (<code>rm</code>, <code>dd</code>, <code>mkfs</code>, <code>reboot</code>). <code>sudo</code> is off by a separate checkbox.</li>
+        <li><b>Your own rules</b> in three lists — count as reading, always ask, forbid completely — and a <b>log</b> of every command run. “Check a command” shows what would happen without running anything.</li>
+        <li><b>Context for the AI</b> on SSH hosts: what runs there and what matters (“PostgreSQL 16, backups at 03:00, don't restart without approval”) — the agent and the chat get it by themselves.</li>
+        <li>The agent treats output from hosts as data, not instructions: your rules decide what runs, and the backend checks them once more right before <code>ssh</code>.</li>
+      </ul>
+      <div class="where"><b>How to turn on:</b> the “AI agent” module in ⊞ — enable the agent and set access levels. An investigation starts with the <b>Investigation</b> checkbox in the AI panel chat. The agent's model is chosen separately: the chat's one or your own server (Ollama, vLLM, LM Studio).</div>
     </div>
 
     <div class="feature" id="k8s">
@@ -319,10 +350,12 @@
       <div class="text">
         <h3>SSH</h3>
         <ul>
-          <li>“Connect” opens a terminal tab. Hosts from <code>~/.ssh/config</code> work with all their settings, ProxyJump included.</li>
+          <li>“Connect” or a double-click on the row opens a terminal tab. Hosts from <code>~/.ssh/config</code> work with all their settings, ProxyJump included.</li>
           <li><b>＋ Host</b> — your own profile: address, port, user, key, jump host, password from KeePass or the keyring.</li>
           <li>Drag hosts into groups with the mouse — onto a group header or into “＋ New group”.</li>
           <li>The password goes to the clipboard for 30 seconds — paste it with <kbd>Ctrl+Shift+V</kbd> when ssh asks.</li>
+          <li>If ssh would reject a key because of its file permissions, it shows under the “Key” field, and a button narrows them (<code>chmod 600</code>, or <code>icacls</code> on Windows).</li>
+          <li><b>Context for the AI</b> — a note on what runs on the server and what matters; the chat and the AI agent get it.</li>
         </ul>
       </div>
       <img class="shot" src="../img/en/ssh.jpg" alt="SSH hosts in groups" loading="lazy" width="2160" height="1350">
@@ -336,6 +369,7 @@
           <li><b>＋ Hosts</b> — profiles from the SSH section and hosts from <code>~/.ssh/config</code>; groups become sections of the board.</li>
           <li>Metrics are read over ssh with a key or over a session already open — the board never asks for a password. The connection is reused, so polling is cheap.</li>
           <li>Groups fold (a summary by colour stays, hosts are not polled), × takes a host or a group off the board.</li>
+          <li>Cards are rearranged with the mouse and the order is remembered; RAM and disk in gigabytes or percent.</li>
         </ul>
         <div class="where"><b>How to turn on:</b> the “Host monitoring” module in ⊞. The poll interval is at the top of the section.</div>
       </div>
@@ -379,6 +413,8 @@
           <li>📂 opens a project folder; the tree on the left colors git changes.</li>
           <li>Highlighting for Terraform, YAML, JSON, Go, Python, Rust, SQL, Dockerfile and more. YAML and Terraform errors are underlined right away, <code>.tf</code> is formatted like <code>terraform fmt</code> on save.</li>
           <li><b>⎇ git</b> at the bottom right — changes, commit, a graph of all branches, switching and creating branches, fetch/pull/push. Switched the branch in a terminal — the graph updates by itself.</li>
+          <li><b>⛓ pipeline</b> for <code>.gitlab-ci.yml</code> and <code>.github/workflows</code>: stages and jobs; pick the event, branch, changed files and variables and see what will run, what is manual and what won't — before you push.</li>
+          <li>Search across the project (<kbd>Ctrl+Shift+F</kbd>), several projects as chips, lines not yet pushed to the remote branch are marked with a bar.</li>
           <li><b>▭ console</b> (<kbd>Ctrl+`</kbd>) — a terminal right in the project folder.</li>
         </ul>
         <div class="where"><b>How to turn on:</b> the “IDE: code &amp; git” module in ⊞. To open files from the terminal here, choose “OpsDeck IDE” in the terminal's 📁 Files panel.</div>
@@ -419,6 +455,7 @@
         <h3>Tasks &amp; reminders</h3>
         <ul>
           <li>All tasks from your notes by due date: overdue, today, tomorrow, this week. A checkbox marks a task done.</li>
+          <li>Indented lines under a task are its description and subtasks: click to expand, ☑ N/M shows how many are done.</li>
           <li>At the set time a notification pops up: “Done”, “Snooze”, “Open note”. Every morning — a summary of the day.</li>
           <li>📅 Calendar — tasks for each day of the month.</li>
         </ul>
@@ -449,6 +486,14 @@
       <div class="card">
         <h3>Network &amp; DNS · MikroTik</h3>
         <p>ping, mtr, traceroute, dig, nslookup and a port scan with service banners. For MikroTik — WinBox and SSH in one click with the password from KeePass; the WinBox path is in ⚙. “Import from WinBox” brings over the routers saved in its address list, with groups and (if ticked) passwords.</p>
+      </div>
+      <div class="card" id="passbolt">
+        <h3>Passbolt</h3>
+        <p>Read only, Passbolt 5.x: sign in with an account kit, TOTP or Yubikey as the second factor, records with folders and search. A password is requested from the server only when used; decrypted data lives in memory until lock. Records link to web panels, SSH, databases and routers just like KeePass.</p>
+      </div>
+      <div class="card" id="windows">
+        <h3>Separate windows</h3>
+        <p>Any section opens in a window of its own: right-click its icon on the left, ↗ on the terminal's tab bar or the command palette. A terminal tab moves between windows with its live session — same shell, same <code>cd</code>, a running <code>ssh</code> or <code>top</code> stays.</p>
       </div>
     </div>
   </div>
@@ -507,6 +552,10 @@
     <details>
       <summary>How do I move OpsDeck to another computer?</summary>
       <p>⚙ → “Moving to another computer” → “Export…”: tick what to take — settings and interface, SSH, web panels, databases, MikroTik, snippets, kubeconfig, the notes folder. On the new computer — “Import…” with that archive. Passwords are not in the archive (they live in the OS keyring); enter them again.</p>
+    </details>
+    <details>
+      <summary>Can the AI agent break something?</summary>
+      <p>Only what you allowed. The agent is off by default, and the access level is set per host: on “read only” a changing command doesn't run even with permission, on “change with permission” each one is shown as the exact command line and waits for a click. Redirections, interpreters, <code>rm</code>, <code>dd</code>, <code>reboot</code> and the like don't run at any level, and every command goes to the section's log.</p>
     </details>
     <details>
       <summary>The local AI is slow</summary>

@@ -23,6 +23,7 @@ import { currentLang, startI18n, t } from "./i18n";
 import { popoutOpen, popoutViews, routeToMain, type Route } from "./modules/popout";
 import { popoutView, winLabel } from "./modules/winid";
 import { watchJs } from "./modules/jswatch";
+import { bootInfo, DEFAULT_ID, markWindow, mountProfileBadge, openProfilesDialog } from "./modules/profiles";
 
 // стояла ли сама страница во время зависания окна (строка рядом с «UI FREEZE» в журнале)
 watchJs((m) => logUi("warn", m));
@@ -69,6 +70,8 @@ startI18n();
 invoke("set_lang", { lang: currentLang() }).catch(() => {});
 
 if (POP) document.body.classList.add("popout");
+// цвет окружения — на каждом его окне, чтобы не перепутать прод со стендом
+markWindow();
 
 const sidebar = document.getElementById("sidebar")!;
 const container = document.getElementById("views")!;
@@ -178,6 +181,8 @@ for (const v of views) {
   sidebar.appendChild(btn);
   if (isOn(v.id) && mountAtStart(v.id)) ensure(v.id);
 }
+// метка окружения над разделами (когда окружений несколько)
+if (!POP) mountProfileBadge(sidebar);
 
 // правый клик по иконке модуля: вынести его в отдельное окно
 let closeViewMenu: (() => void) | null = null;
@@ -340,7 +345,8 @@ if (!POP) {
   // quiet update check a little after startup (if enabled in settings): дело главного окна
   setTimeout(() => {
     invoke<{ update_auto_check: boolean }>("settings_get")
-      .then((s) => { if (s.update_auto_check) checkUpdates(true); })
+      // обновление ставит один экземпляр на всю установку — основное окружение
+      .then((s) => { if (s.update_auto_check && bootInfo().id === DEFAULT_ID) checkUpdates(true); })
       .catch(() => {});
   }, 8000);
 }
@@ -360,6 +366,7 @@ document.addEventListener("keydown", (e) => {
 }, true);
 
 registerProvider(() => views.filter((v) => isOn(v.id)).map((v) => ({ group: "Перейти", title: v.title, hint: v.id, run: () => show(v.id) })));
+if (!POP) registerProvider(() => [{ group: "Окружения", title: "Окружения: открыть другое, создать новое", hint: "", run: () => openProfilesDialog() }]);
 window.addEventListener("send-to-ai", () => show("terminal"));
 
 if (POP) {

@@ -44,7 +44,7 @@ fn err(e: impl std::fmt::Display) -> String {
 // ---------- kubeconfig sources ----------
 
 fn imported_dir() -> Result<PathBuf, String> {
-    let dir = dirs::config_dir().ok_or("no config dir")?.join("opsdeck").join("kubeconfigs");
+    let dir = crate::store::config_dir()?.join("kubeconfigs");
     fs::create_dir_all(&dir).map_err(err)?;
     crate::store::restrict(&dir, 0o700)?;
     Ok(dir)
@@ -365,7 +365,7 @@ fn delete_context_in_file(ctx: &Ctx) -> Result<String, String> {
 pub fn k8s_shell_config(ctx: Ctx, namespace: Option<String>) -> Result<String, String> {
     let src = PathBuf::from(&ctx.file);
     let out = single_context(&src, &ctx.context, namespace.as_deref())?;
-    let dir = dirs::config_dir().ok_or("no config dir")?.join("opsdeck").join("run");
+    let dir = crate::store::config_dir()?.join("run");
     fs::create_dir_all(&dir).map_err(err)?;
     crate::store::restrict(&dir, 0o700)?;
     let stem = src.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();

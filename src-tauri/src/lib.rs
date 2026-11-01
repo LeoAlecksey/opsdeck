@@ -26,6 +26,7 @@ mod passbolt;
 mod popout;
 mod ports;
 mod process;
+mod profile;
 mod pty;
 mod settings;
 mod snippets;
@@ -53,6 +54,7 @@ fn main_window(app: &tauri::App) -> tauri::Result<()> {
     if let Ok(extra) = std::env::var("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS") {
         builder = builder.additional_browser_args(&format!("--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection {extra}"));
     }
+    let builder = profile::isolate_window(builder).title(profile::app_title()).initialization_script(profile::init_script());
     builder.build()?;
     Ok(())
 }
@@ -61,6 +63,8 @@ pub fn run() {
     // PATH сеанса рабочего стола беднее того, что в терминале: ярлык не читает ~/.bashrc
     #[cfg(unix)]
     process::fix_macos_path();
+    // до сборки приложения: от окружения зависят папка настроек, имя журнала и данные вебвью
+    profile::init();
 
     tauri::Builder::default()
         .plugin(diag::log_plugin())
@@ -84,7 +88,12 @@ pub fn run() {
             diag::install_panic_hook();
             main_window(app)?;
             diag::start_watchdog(app.handle().clone());
-            log::info!("OpsDeck {} started", app.package_info().version);
+            // окно выбора окружения: ни одно окружение ещё не открыто, его фоновые задачи не нужны
+            if profile::is_picker() {
+                log::info!("OpsDeck {} started: choosing an environment", app.package_info().version);
+                return Ok(());
+            }
+            log::info!("OpsDeck {} started{}", app.package_info().version, profile::current().map(|p| format!(" (environment {p})")).unwrap_or_default());
             keepass::spawn_autolock(app.handle().clone());
             passbolt::spawn_autolock(app.handle().clone());
             tasks::spawn_reminders(app.handle().clone());
@@ -164,6 +173,12 @@ pub fn run() {
             k8s::k8s_argo_action,
             k8s::k8s_crds,
             k8s::k8s_object_events,
+            profile::profiles_list,
+            profile::profile_create,
+            profile::profile_update,
+            profile::profile_start_set,
+            profile::profile_open,
+            profile::profile_pick,
             settings::settings_get,
             settings::settings_set,
             settings::settings_detect,

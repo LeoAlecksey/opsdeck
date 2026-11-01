@@ -1421,3 +1421,36 @@ table.res td.row-acts .icon:hover { opacity: 1; }
 .hist-bar .chip { cursor: pointer; font-size: 12px; padding: 1px 8px; }
 .hist-detail { padding: 10px 14px; display: flex; flex-direction: column; gap: 6px; }
 .hist-detail pre { white-space: pre-wrap; margin: 0; }
+
+/* ----- окружения (profiles.ts) ----- */
+body.has-profile #sidebar { box-shadow: inset 3px 0 0 var(--profile-color); }
+#sidebar button.profile-badge { flex: none; font-weight: 700; font-size: 12px; letter-spacing: .02em;
+  color: var(--c); box-shadow: inset 0 0 0 1.5px var(--c); margin-bottom: 4px; }
+#sidebar button.profile-badge:hover { background: var(--panel-2); color: var(--c); }
+dialog.ask.profiles-dlg { width: min(560px, 92vw); }
+dialog.ask.profiles-dlg input[type=radio], dialog.ask.profiles-dlg input[type=checkbox] { width: auto; margin-top: 0; }
+.profile-list { list-style: none; margin: 8px 0 12px; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.profile-row { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border: 1px solid var(--border);
+  border-radius: var(--control-radius); background: var(--panel); }
+.profile-row.current { border-color: var(--border-hover); }
+.profile-row .spacer { flex: 1; }
+.profile-dot { width: 12px; height: 12px; border-radius: 50%; background: var(--c); flex: none; }
+.profile-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.profile-edit, .profile-new { margin: 8px 0; display: flex; flex-direction: column; gap: 8px; }
+.profile-new summary { cursor: pointer; color: var(--accent); }
+.profile-new[open] { gap: 8px; }
+.profile-new label, .profile-edit label, .profile-start { display: flex; flex-direction: column; gap: 4px; }
+.profile-new label.check, .profile-edit label.check { flex-direction: row; align-items: flex-start; }
+.profile-color-row { display: flex; align-items: center; gap: 10px; }
+.profile-colors { display: inline-flex; gap: 6px; }
+.profile-color { width: 20px; height: 20px; border-radius: 50%; background: var(--c); cursor: pointer; position: relative;
+  box-shadow: inset 0 0 0 1px rgba(0,0,0,.25); }
+.profile-color.none { background: transparent; box-shadow: inset 0 0 0 1px var(--border-hover); }
+.profile-color input { position: absolute; opacity: 0; inset: 0; margin: 0; cursor: pointer; }
+.profile-color:has(input:checked) { outline: 2px solid var(--text); outline-offset: 2px; }
+.profile-start { margin-top: 8px; }
+body.picking #app { align-items: center; justify-content: center; overflow: auto; }
+.picker { width: min(520px, 92vw); display: flex; flex-direction: column; gap: 8px; padding: 24px; }
+.picker h2 { margin: 0; }
+.picker .picker-notice { color: var(--danger); margin: 0; }
+.profiles-dlg fieldset.profile-edit { border: 1px solid var(--border); border-radius: var(--radius); padding: 8px 12px 12px; }

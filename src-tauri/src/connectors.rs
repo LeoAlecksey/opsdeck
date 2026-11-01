@@ -318,9 +318,11 @@ pub async fn connector_open(
     }
     let (c, url, script) = prepare(&kp, &pb, &id).await?;
     let mut builder = WebviewWindowBuilder::new(&app, &label, WebviewUrl::External(url))
-        .title(format!("{} — OpsDeck", c.name))
+        .title(format!("{} — {}", c.name, crate::profile::app_title()))
         .inner_size(1360.0, 860.0)
         .zoom_hotkeys_enabled(true); // Ctrl +/−/0 inside the window
+    // входы в веб-панели у каждого окружения свои
+    builder = crate::profile::isolate_window(builder);
     if let Some(js) = script {
         builder = builder.initialization_script(&js);
     }

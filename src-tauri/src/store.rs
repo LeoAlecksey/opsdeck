@@ -9,15 +9,29 @@ pub fn err(e: impl std::fmt::Display) -> String {
     e.to_string()
 }
 
-pub fn config_dir() -> Result<PathBuf, String> {
+/// Общая папка приложения (~/.config/opsdeck): основное окружение и каталог profiles/ с остальными.
+pub fn base_dir() -> Result<PathBuf, String> {
     #[cfg(not(test))]
     let base = dirs::config_dir().ok_or("no config dir")?;
     // unit tests must not read or rewrite the developer's own settings
     #[cfg(test)]
     let base = std::env::temp_dir().join(format!("opsdeck-test-config-{}", std::process::id()));
-    let dir = base.join("opsdeck");
+    Ok(base.join("opsdeck"))
+}
+
+/// Папка настроек окружения этого процесса (см. profile.rs).
+pub fn config_dir() -> Result<PathBuf, String> {
+    let dir = crate::profile::dir_of(&base_dir()?, crate::profile::current());
     fs::create_dir_all(&dir).map_err(err)?;
     Ok(dir)
+}
+
+/// Файл основного окружения, когда процесс работает в другом: оттуда новое окружение берёт
+/// папку заметок. None — это и есть основное, или файла нет.
+pub fn load_main_json<T: DeserializeOwned>(name: &str) -> Option<T> {
+    crate::profile::current()?;
+    let raw = fs::read_to_string(base_dir().ok()?.join(name)).ok()?;
+    serde_json::from_str(&raw).ok()
 }
 
 /// Previous copy of a config file: save_json renames the old file here before putting the new one in
@@ -168,7 +182,7 @@ pub(crate) static KEYRING_CALLS: std::sync::atomic::AtomicUsize =
 fn entry(key: &str) -> Result<keyring::Entry, String> {
     #[cfg(test)]
     KEYRING_CALLS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-    keyring::Entry::new(KEYRING_SERVICE, key).map_err(err)
+    keyring::Entry::new(KEYRING_SERVICE, &crate::profile::keyring_key(crate::profile::current(), key)).map_err(err)
 }
 
 pub fn secret_get(key: &str) -> Option<String> {

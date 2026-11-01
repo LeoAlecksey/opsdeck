@@ -18,7 +18,13 @@ fn dict() -> &'static HashMap<String, String> {
 
 /// The UI tells the backend its language at startup.
 #[tauri::command]
-pub fn set_lang(lang: String) {
+pub async fn set_lang(app: tauri::AppHandle, lang: String) {
+    use_lang(&lang);
+    // в заголовке окна имя основного окружения переводится; заголовок читается с диска
+    let _ = tauri::async_runtime::spawn_blocking(move || crate::profile::retitle(&app)).await;
+}
+
+fn use_lang(lang: &str) {
     ENGLISH.store(lang == "en", Ordering::Relaxed);
 }
 
@@ -41,8 +47,8 @@ mod tests {
     #[test]
     fn fills_placeholders() {
         assert_eq!(super::tr("просрочено: {}", &["3"]), "просрочено: 3");
-        super::set_lang("en".into());
+        super::use_lang("en");
         assert_eq!(super::tr("просрочено: {}", &["3"]), "overdue: 3");
-        super::set_lang("ru".into());
+        super::use_lang("ru");
     }
 }

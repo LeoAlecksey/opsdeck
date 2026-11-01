@@ -4,6 +4,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { ask, esc, toast } from "./ui";
 import { mountSnippets } from "./snippets";
 import { mountUpdates } from "./updates";
+import { openProfilesDialog } from "./profiles";
 import { hlPrefs, setHlPrefs } from "./highlight";
 import { setTermFontSize, termFontSize, setTermFontFamily, termFontFamily, TERM_FONTS, fontInstalled } from "./pty";
 import { setSuggestEnabled, suggestEnabled } from "./suggest";
@@ -178,6 +179,10 @@ export function mountSettings(root: HTMLElement) {
           <option value="en">English</option>
         </select>
       </fieldset>
+      <fieldset class="profiles-field"><legend>Окружения</legend>
+        <p class="muted hint">Несколько независимых рабочих мест: в каждом свои хосты, кластеры, пароли и настройки, открываются в отдельных окнах одновременно. Заметки по умолчанию общие — папку можно сменить в окружении ниже, в разделе «Заметки».</p>
+        <div class="row"><button type="button" class="ghost" data-profiles>Окружения…</button></div>
+      </fieldset>
       <form>
         <fieldset><legend>KeePass</legend>
           <label>База .kdbx <input name="keepass_path" list="dl-kp" spellcheck="false" /></label>
@@ -313,6 +318,7 @@ export function mountSettings(root: HTMLElement) {
     </div>`;
 
   const form = root.querySelector("form")!;
+  root.querySelector("[data-profiles]")!.addEventListener("click", () => openProfilesDialog());
   const langSel = root.querySelector<HTMLSelectElement>(".lang-sel")!;
   langSel.value = langSetting();
   langSel.onchange = () => setLang(langSel.value as "auto" | "ru" | "en");

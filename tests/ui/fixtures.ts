@@ -9,7 +9,9 @@ const ALL = ["terminal", "k8s", "web", "alerts", "net", "ssh", "monitor", "sftp"
 // load of the tab, so page.reload() is a restart of the app with what it saved
 export type Demo = { lang?: "ru" | "en" | "auto"; modules?: string[] | null; overrides?: Record<string, unknown>;
   /** Метка окна: «pop-<раздел>» открывает страницу как вынесенное окно одного раздела. */
-  win?: string };
+  win?: string;
+  /** Окружение окна (profile.rs); `picker: true` — окно выбора окружения при запуске. */
+  profile?: Record<string, unknown> };
 
 export const test = base.extend<{ demo: Demo; app: App }>({
   demo: [{}, { option: true }],
@@ -21,8 +23,9 @@ export const test = base.extend<{ demo: Demo; app: App }>({
     // from before the first request: a lazy chunk test must see what the start itself loaded
     const requests: string[] = [];
     page.on("request", (r) => requests.push(new URL(r.url()).pathname));
-    await page.addInitScript(({ lang, modules, overrides, win }) => {
+    await page.addInitScript(({ lang, modules, overrides, win, profile }) => {
       (window as any).__DEMO_LANG = lang;
+      (window as any).__DEMO_PROFILE = profile;
       (window as any).__DEMO_OVERRIDES = overrides;
       (window as any).__DEMO_WIN = win;
       try {
@@ -31,11 +34,13 @@ export const test = base.extend<{ demo: Demo; app: App }>({
         localStorage.clear();
         if (modules) localStorage.setItem("opsdeck.modules", JSON.stringify(modules));
       } catch { /* ignore */ }
-    }, { lang: demo.lang ?? "ru", modules: demo.modules === undefined ? ALL : demo.modules, overrides: demo.overrides ?? {}, win: demo.win ?? "main" });
+    }, { lang: demo.lang ?? "ru", modules: demo.modules === undefined ? ALL : demo.modules, overrides: demo.overrides ?? {}, win: demo.win ?? "main", profile: demo.profile ?? null });
     await page.addInitScript({ path: fileURLToPath(new URL("./mock.js", import.meta.url)) });
     await page.goto("/");
     // вынесенное окно боковой колонки не имеет: ждём сам раздел
     if (demo.win?.startsWith("pop-")) await expect(page.locator("#views .view:not([hidden])")).toBeVisible();
+    // окно выбора окружения: ни боковой колонки, ни разделов
+    else if (demo.profile?.picker) await expect(page.locator(".picker .profile-row").first()).toBeVisible();
     else await expect(page.locator("#sidebar button[data-view]:visible").first()).toBeVisible();
     const app = new App(page, requests);
     await use(app);
