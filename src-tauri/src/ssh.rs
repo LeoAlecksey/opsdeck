@@ -878,7 +878,10 @@ pub(crate) fn probe_args(target: &str) -> Result<Vec<String>, String> {
 fn profile_args(h: &SshHost, user: &str) -> Vec<String> {
     let mut args = vec!["-p".to_string(), h.port.to_string()];
     if !h.identity_file.is_empty() {
-        args.extend(["-i".into(), h.identity_file.clone()]);
+        // `-i` adds an identity but does not stop OpenSSH from offering every key loaded in
+        // ssh-agent first. Servers with a low MaxAuthTries can therefore disconnect before the
+        // explicitly selected key is reached. A key chosen in the profile is authoritative.
+        args.extend(["-o".into(), "IdentitiesOnly=yes".into(), "-i".into(), h.identity_file.clone()]);
     }
     if !h.jump.is_empty() {
         args.extend(["-J".into(), h.jump.clone()]);
@@ -1033,8 +1036,10 @@ mod tests {
             identity_file: "~/.ssh/id".into(), jump: "bastion".into(), auth: "keepass".into(), keepass_entry: "k".into(),
             passbolt_entry: String::new(),
         };
-        assert_eq!(profile_args(&h, &h.user), ["-p", "2222", "-i", "~/.ssh/id", "-J", "bastion", "ops@192.0.2.1"]);
-        assert_eq!(profile_args(&SshHost { identity_file: String::new(), jump: String::new(), ..h.clone() }, "").last().unwrap(), "192.0.2.1");
+        assert_eq!(profile_args(&h, &h.user), ["-p", "2222", "-o", "IdentitiesOnly=yes", "-i", "~/.ssh/id", "-J", "bastion", "ops@192.0.2.1"]);
+        let without_key = profile_args(&SshHost { identity_file: String::new(), jump: String::new(), ..h.clone() }, "");
+        assert_eq!(without_key.last().unwrap(), "192.0.2.1");
+        assert!(!without_key.iter().any(|a| a == "IdentitiesOnly=yes"), "ssh-agent remains available when no key was selected");
         assert!(probe_args("alias:-oProxyCommand=x").is_err());
         assert!(probe_args("rm -rf").is_err());
     }
