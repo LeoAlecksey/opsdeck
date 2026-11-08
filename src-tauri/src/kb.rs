@@ -278,6 +278,7 @@ mod tests {
         assert_eq!(tools("посмотреть логи службы за час")[0], "systemd");
         assert_eq!(tools("почему nginx отдаёт 502")[0], "nginx");
         assert_eq!(tools("как в yc посмотреть машины")[0], "yandex cloud", "короткое имя инструмента ловится целиком");
+        assert_eq!(tools("openstack server list в vk")[0], "vk cloud");
         assert_eq!(tools("сколько места на диске")[0], "диски и файлы");
         assert_eq!(tools("какие порты слушает хост")[0], "сеть и dns");
         assert_eq!(tools("когда истекает сертификат сайта")[0], "сертификаты");

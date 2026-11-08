@@ -15,6 +15,7 @@ import { mountSettings } from "./modules/settings";
 import { mountAiAgent } from "./modules/aiagent";
 import { mountSftp } from "./modules/sftp";
 import { mountYc } from "./modules/yc";
+import { mountVkcs } from "./modules/vkcs";
 import { mountSsh } from "./modules/ssh";
 import { mountAlerts } from "./modules/alerts";
 import { checkUpdates } from "./modules/updates";
@@ -50,6 +51,7 @@ const views: View[] = [
   { id: "monitor", svg: icon("activity", 20), title: "Мониторинг хостов", mount: mountMonitor },
   { id: "sftp", svg: icon("folderOpen", 20), title: "Файлы на хостах", mount: mountSftp },
   { id: "yc", svg: icon("cloud", 20), title: "Yandex Cloud", mount: mountYc },
+  { id: "vkcs", svg: icon("cloud", 20), title: "VK Cloud", mount: mountVkcs },
   // CodeMirror and yaml are about half of all the code, and only the IDE needs them
   { id: "code", svg: icon("code", 20), title: "IDE: код и git", mount: (el) => import("./modules/code").then((m) => m.mountCode(el)), lazy: true },
   { id: "db", svg: icon("db", 20), title: "Базы данных", mount: mountDb },

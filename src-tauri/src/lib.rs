@@ -40,6 +40,9 @@ mod transfer;
 mod updater;
 mod winbox_import;
 mod winshell;
+mod vkcs;
+mod vkcs_log;
+mod vkcs_sdk;
 mod yc;
 
 /// The main window, from tauri.conf.json ("create": false there).
@@ -89,6 +92,7 @@ pub fn run() {
         .manage(aichat::ChatState::default())
         .setup(|app| {
             diag::install_panic_hook();
+            vkcs_log::init(app.handle().clone());
             main_window(app)?;
             diag::start_watchdog(app.handle().clone());
             // окно выбора окружения: ни одно окружение ещё не открыто, его фоновые задачи не нужны
@@ -314,6 +318,30 @@ pub fn run() {
             dbtunnel::web_share_ready,
             kb::kb_info,
             kb::kb_open,
+            vkcs::vkcs_status,
+            vkcs_log::vkcs_command_log,
+            vkcs::vkcs_set_path,
+            vkcs::vkcs_set_clouds_yaml,
+            vkcs::vkcs_use_cloud,
+            vkcs::vkcs_use_project,
+            vkcs::vkcs_clouds,
+            vkcs::vkcs_projects,
+            vkcs::vkcs_project,
+            vkcs::vkcs_instances,
+            vkcs::vkcs_server_list,
+            vkcs::vkcs_instance_maps,
+            vkcs::vkcs_instance_op,
+            vkcs::vkcs_networks,
+            vkcs::vkcs_net_view,
+            vkcs::vkcs_subnets,
+            vkcs::vkcs_sec_groups,
+            vkcs::vkcs_sec_groups_shell,
+            vkcs::vkcs_sec_group_rules,
+            vkcs::vkcs_addresses,
+            vkcs::vkcs_access,
+            vkcs::vkcs_billing,
+            vkcs::vkcs_billing_report,
+            vkcs::vkcs_set_billing_pid,
             yc::yc_status,
             yc::yc_set_path,
             yc::yc_use_profile,

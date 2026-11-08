@@ -239,6 +239,17 @@
 - ansible-inventory -i <inventory> --graph — группы и хосты
 - ansible-vault edit <file>.yml — правка зашифрованного файла
 
+# vk cloud
+алиасы: openstack, vk, vkcs, вк облако, mcs, mail.ru cloud
+- openstack --os-cloud <имя> server list -f json — машины проекта
+- openstack server start|stop|reboot --soft <id> — управление машиной
+- openstack floating ip list -f json — плавающие адреса
+- openstack security group rule list --long -f json — правила firewall
+- openstack role assignment list --project <project_id> -f json — роли на проект
+- clouds.yaml в ~/.config/openstack — вход без openrc в меню приложения
+- GET https://msk.cloud.vk.ru/billing/public/v1/projects/<PID>/balances/amount с X-Auth-Token (openstack token issue) — лицевой и бонусный баланс; PID mcs… из ЛК, не UUID OpenStack
+- GET …/reports/lite-granular?date_from=YYYY-MM-DD&date_to=YYYY-MM-DD&timezone=Europe/Moscow — гранулярный отчёт расходов за период (до ~1 месяца рекомендуется)
+
 # yandex cloud
 алиасы: yc, yandex, яндекс облако, облако, вм, instance, фолдер, каталог
 - yc config profile list — профили CLI, активный помечен
