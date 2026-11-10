@@ -147,6 +147,8 @@ pub fn open_with_system(url: &str) -> Result<(), String> {
         c.arg("url.dll,FileProtocolHandler");
         c
     };
+    // браузер и прочее, что откроет xdg-open, — с окружением системы, а не образа AppImage
+    crate::process::host_env(&mut cmd);
     let mut child = cmd.arg(url).spawn().map_err(err)?;
     std::thread::spawn(move || child.wait());
     Ok(())

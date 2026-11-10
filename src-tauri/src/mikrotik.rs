@@ -145,6 +145,7 @@ pub async fn mt_winbox(
     let bin = bin.to_string_lossy().into_owned();
     let addr = if d.winbox_port == 8291 { d.host.clone() } else { format!("{}:{}", d.host, d.winbox_port) };
     let mut cmd = Command::new(&bin);
+    crate::process::host_env(&mut cmd);
     cmd.arg(addr);
     if !user.is_empty() {
         cmd.arg(&user);

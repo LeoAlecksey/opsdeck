@@ -1,7 +1,9 @@
 //! Spawning helper processes from the GUI (no console flash on Windows, full PATH on macOS).
 
-/// Hide the console window when spawning helper processes from the GUI (Windows).
+/// Hide the console window when spawning helper processes from the GUI (Windows);
+/// in an AppImage, also give them the system environment (see [`host_env`]).
 pub fn no_console(cmd: &mut std::process::Command) {
+    host_env(cmd);
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
@@ -15,6 +17,7 @@ pub fn no_console(cmd: &mut std::process::Command) {
 
 /// Same as [`no_console`] for `tokio::process::Command`.
 pub fn no_console_tokio(cmd: &mut tokio::process::Command) {
+    host_env_tokio(cmd);
     #[cfg(windows)]
     {
         cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
@@ -22,6 +25,67 @@ pub fn no_console_tokio(cmd: &mut tokio::process::Command) {
     #[cfg(not(windows))]
     {
         let _ = cmd;
+    }
+}
+
+/// AppImage запускает OpsDeck со своим окружением: `LD_LIBRARY_PATH`, `PATH`, `XDG_DATA_DIRS`,
+/// GTK-переменные указывают внутрь смонтированного образа (`/tmp/.mount_…`). Дочерние процессы
+/// наследуют его, и системные программы цепляют библиотеки из образа: fish, eza, git падают с
+/// «libpcre2-8.so.0: no version information available». Самому приложению эти пути нужны
+/// (процессы WebKit грузят библиотеки из образа), поэтому чистим только окружение детей.
+/// Что поменять: `Some` — новое значение, `None` — убрать переменную.
+fn without_appdir(appdir: &str, vars: impl IntoIterator<Item = (String, String)>) -> Vec<(String, Option<String>)> {
+    let appdir = appdir.trim_end_matches('/');
+    if appdir.is_empty() {
+        return Vec::new();
+    }
+    let inside = |p: &str| p == appdir || p.strip_prefix(appdir).is_some_and(|rest| rest.starts_with('/'));
+    vars.into_iter()
+        .filter(|(_, v)| v.contains(appdir))
+        .filter_map(|(k, v)| {
+            // списки путей через «:» теряют только папки образа; одиночный путь в образ — вся переменная
+            let kept: Vec<&str> = v.split(':').filter(|p| !p.is_empty() && !inside(p)).collect();
+            let new = (!kept.is_empty()).then(|| kept.join(":"));
+            (new.as_deref() != Some(v.as_str())).then_some((k, new))
+        })
+        .collect()
+}
+
+/// Поправки к окружению дочернего процесса; вне AppImage (и не на Linux) — пусто.
+fn host_env_fixes() -> Vec<(String, Option<String>)> {
+    if !cfg!(target_os = "linux") || std::env::var_os("APPIMAGE").is_none() {
+        return Vec::new();
+    }
+    std::env::var("APPDIR").map(|dir| without_appdir(&dir, std::env::vars())).unwrap_or_default()
+}
+
+/// Окружение системы, а не образа AppImage, для `std::process::Command`.
+pub fn host_env(cmd: &mut std::process::Command) {
+    for (k, v) in host_env_fixes() {
+        match v {
+            Some(v) => cmd.env(k, v),
+            None => cmd.env_remove(k),
+        };
+    }
+}
+
+/// То же для `tokio::process::Command`.
+pub fn host_env_tokio(cmd: &mut tokio::process::Command) {
+    for (k, v) in host_env_fixes() {
+        match v {
+            Some(v) => cmd.env(k, v),
+            None => cmd.env_remove(k),
+        };
+    }
+}
+
+/// То же для вкладки терминала (portable-pty).
+pub fn host_env_pty(cmd: &mut portable_pty::CommandBuilder) {
+    for (k, v) in host_env_fixes() {
+        match v {
+            Some(v) => cmd.env(k, v),
+            None => cmd.env_remove(k),
+        }
     }
 }
 
@@ -36,7 +100,10 @@ pub fn fix_macos_path() {
     let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".into());
     let marker = "__OPSDECK_PATH__";
     let from_shell = (|| {
-        let mut child = Command::new(&shell)
+        let mut login = Command::new(&shell);
+        // PATH, который человек видит в терминале, а не тот, что подложил образ AppImage
+        host_env(&mut login);
+        let mut child = login
             .args(["-l", "-c", &format!("printf '{marker}%s{marker}' \"$PATH\"")])
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
@@ -82,5 +149,50 @@ pub fn fix_macos_path() {
     }
     if let Ok(joined) = std::env::join_paths(paths) {
         std::env::set_var("PATH", joined); // before any thread is started
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn vars(list: &[(&str, &str)]) -> Vec<(String, String)> {
+        list.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()
+    }
+
+    /// Окружение, с которым AppImage запускает OpsDeck: из него fish и eza брали libpcre2 образа.
+    #[test]
+    fn appimage_paths_do_not_reach_child_processes() {
+        let dir = "/tmp/.mount_OpsDecFeEKeJ";
+        let env = vars(&[
+            ("LD_LIBRARY_PATH", "/tmp/.mount_OpsDecFeEKeJ/usr/lib:/tmp/.mount_OpsDecFeEKeJ/usr/lib/x86_64-linux-gnu"),
+            ("PATH", "/tmp/.mount_OpsDecFeEKeJ/usr/bin:/home/demo/.local/bin:/usr/bin"),
+            ("XDG_DATA_DIRS", "/tmp/.mount_OpsDecFeEKeJ/usr/share:/usr/local/share:/usr/share"),
+            ("GSETTINGS_SCHEMA_DIR", "/tmp/.mount_OpsDecFeEKeJ/usr/share/glib-2.0/schemas"),
+            ("APPDIR", "/tmp/.mount_OpsDecFeEKeJ"),
+            ("HOME", "/home/demo"),
+            ("APPIMAGE", "/home/demo/Apps/OpsDeck.AppImage"),
+        ]);
+        let mut fixes = without_appdir(dir, env);
+        fixes.sort();
+        assert_eq!(
+            fixes,
+            vec![
+                ("APPDIR".to_string(), None),
+                ("GSETTINGS_SCHEMA_DIR".to_string(), None),
+                ("LD_LIBRARY_PATH".to_string(), None),
+                ("PATH".to_string(), Some("/home/demo/.local/bin:/usr/bin".to_string())),
+                ("XDG_DATA_DIRS".to_string(), Some("/usr/local/share:/usr/share".to_string())),
+            ]
+        );
+    }
+
+    #[test]
+    fn only_paths_inside_the_image_are_dropped() {
+        // соседняя папка с тем же началом имени — не образ
+        let env = vars(&[("PATH", "/tmp/.mount_OpsDec2/bin:/tmp/.mount_OpsDec/usr/bin"), ("LANG", "ru_RU.UTF-8")]);
+        assert_eq!(without_appdir("/tmp/.mount_OpsDec/", env), vec![("PATH".to_string(), Some("/tmp/.mount_OpsDec2/bin".to_string()))]);
+        // без AppDir ничего не трогаем
+        assert!(without_appdir("", vars(&[("PATH", "/usr/bin")])).is_empty());
     }
 }
