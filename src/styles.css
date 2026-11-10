@@ -443,6 +443,11 @@ dialog.mt-dialog { width: 560px; }
 .md code { font-family: "JetBrains Mono", monospace; font-size: 12.5px; background: var(--panel-2); padding: 1px 5px; border-radius: 4px; }
 .md pre { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px; overflow: auto; }
 .md pre code { background: none; padding: 0; }
+/* «скопировать» у блока кода в заметке: видна при наведении на блок */
+.md pre { position: relative; }
+.md pre .code-copy { position: absolute; top: 6px; right: 6px; padding: 2px 6px; opacity: 0; transition: opacity .15s; }
+.md pre:hover .code-copy, .md pre .code-copy:focus { opacity: .8; }
+.md pre .code-copy:hover { opacity: 1; }
 .md blockquote { margin: 0; padding: 4px 14px; border-left: 3px solid var(--border); color: var(--muted); }
 .md table { border-collapse: collapse; }
 .md th, .md td { border: 1px solid var(--border); padding: 4px 10px; }

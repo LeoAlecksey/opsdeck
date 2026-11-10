@@ -4,7 +4,7 @@ import { locale, t } from "../i18n";
 import { helpBtn } from "./help-btn";
 import { icon } from "./icons";
 import { invoke } from "@tauri-apps/api/core";
-import { ask, esc, popupMenu, toast } from "./ui";
+import { ask, attachZoom, esc, popupMenu, toast } from "./ui";
 import { registerProvider } from "./palette";
 import { terminalApi } from "./terminal";
 import { hcl, hclBalance } from "./hcl";
@@ -241,6 +241,8 @@ export function mountCode(root: HTMLElement) {
   const langC = new Compartment(), lintC = new Compartment(), roC = new Compartment();
   const view = new EditorView({ parent: host });
   view.dom.style.height = "100%";
+  // Ctrl+= / Ctrl+− / Ctrl+0 и Ctrl+колесо — размер шрифта в редакторе, как в терминале
+  attachZoom(host, "opsdeck.code.zoom", (k) => { host.style.setProperty("--code-font", `${13 * k}px`); view.requestMeasure(); }, root);
 
   const tfLinter = linter(async (v) => {
     if (!isTf(active?.path ?? null)) return [];
@@ -299,7 +301,7 @@ export function mountCode(root: HTMLElement) {
       langC.of(t.lang),
       lintC.of(lint),
       roC.of(EditorState.readOnly.of(t.readonly)),
-      EditorView.theme({ "&": { height: "100%", fontSize: "13px" }, ".cm-scroller": { fontFamily: "'JetBrains Mono', 'Fira Code', monospace" } }),
+      EditorView.theme({ "&": { height: "100%", fontSize: "var(--code-font, 13px)" }, ".cm-scroller": { fontFamily: "'JetBrains Mono', 'Fira Code', monospace" } }),
     ];
   }
 

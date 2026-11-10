@@ -6,7 +6,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { marked } from "marked";
 import DOMPurify from "dompurify";
 import { listen } from "@tauri-apps/api/event";
-import { ask, esc, popupMenu, toast } from "./ui";
+import { ask, attachZoom, copyText, esc, popupMenu, toast } from "./ui";
 import { registerProvider } from "./palette";
 import { fileIcon, folderIcon } from "./fileicons";
 import { setFrontTags, tagsOf, taskDialog, ymd } from "./taskkit";
@@ -61,6 +61,8 @@ export function mountNotes(root: HTMLElement) {
   const $ = <T extends HTMLElement = HTMLElement>(s: string) => root.querySelector<T>(s)!;
   const listEl = $(".notes-list"), q = $<HTMLInputElement>(".notes-q"), editor = $<HTMLTextAreaElement>(".note-editor");
   const view = $(".note-view"), dirtyEl = $(".dirty"), saveBtn = $<HTMLButtonElement>("[data-a=save]");
+  // Ctrl+= / Ctrl+− / Ctrl+0 и Ctrl+колесо — масштаб текста заметки, как шрифт в терминале
+  attachZoom(editor.parentElement!, "opsdeck.notes.zoom", (k) => { editor.style.fontSize = `${13.5 * k}px`; view.style.zoom = String(k); }, root);
   let vault: Vault | null = null;
   let current: string | null = null;
   let saved = "";
@@ -419,6 +421,14 @@ export function mountNotes(root: HTMLElement) {
     view.innerHTML = DOMPurify.sanitize(marked.parse(wikilinks(body), { async: false }) as string);
     // task checkboxes are clickable here (marked renders them disabled)
     view.querySelectorAll<HTMLInputElement>("input[type=checkbox]").forEach((b) => { b.disabled = false; b.closest("li")?.classList.add("task-li"); });
+    // блоки кода — с кнопкой «скопировать»: команды из заметок обычно и нужны, чтобы их вставить
+    view.querySelectorAll("pre").forEach((pre) => {
+      const b = document.createElement("button");
+      b.className = "icon code-copy";
+      b.title = i18nT("Скопировать");
+      b.textContent = "⧉";
+      pre.appendChild(b);
+    });
   }
 
   function setMode(m: "edit" | "view") {
@@ -446,6 +456,12 @@ export function mountNotes(root: HTMLElement) {
     if (b) openNote(b.dataset.p!);
   };
   view.onclick = (e) => {
+    const copy = (e.target as HTMLElement).closest(".code-copy");
+    if (copy) {
+      const pre = copy.closest("pre")!;
+      copyText((pre.querySelector("code") ?? pre).textContent?.replace(/⧉$/, "").replace(/\n$/, "") ?? "").then(() => toast("Скопировано"));
+      return;
+    }
     const a = (e.target as HTMLElement).closest("a");
     if (!a) return;
     e.preventDefault();

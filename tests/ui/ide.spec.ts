@@ -310,3 +310,18 @@ test.describe("IDE: several projects (#79)", () => {
     await expect(page.locator(".code-tab")).toHaveCount(0);
   });
 });
+
+test("IDE: Ctrl+= / Ctrl+− / Ctrl+0 change the editor font", async ({ app, page }) => {
+  await openProject(app, page);
+  await page.evaluate((p) => window.dispatchEvent(new CustomEvent("open-in-code", { detail: { path: p + "/main.tf" } })), PROJ);
+  await page.locator(".code-editor .cm-content").click();
+  const font = () => page.locator(".code-editor .cm-editor").evaluate((el) => getComputedStyle(el).fontSize);
+  expect(await font()).toBe("13px");
+  await page.keyboard.press("Control+Equal");
+  await expect.poll(font).toBe("14.3px");
+  await page.keyboard.press("Control+Minus");
+  await page.keyboard.press("Control+Minus");
+  await expect.poll(font).toBe("11.7px");
+  await page.keyboard.press("Control+Digit0");
+  await expect.poll(font).toBe("13px");
+});

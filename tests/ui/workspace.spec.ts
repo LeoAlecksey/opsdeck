@@ -79,6 +79,23 @@ test.describe("notes", () => {
     await page.locator(".vault-btn").click();
     await expect(page.locator(".vault-menu")).toContainText("work");
   });
+
+  test("a code block has a copy button; Ctrl+= / Ctrl+0 zoom the note", async ({ app, page }) => {
+    await app.override("note_read", "# Runbook\n\n```bash\nkubectl -n shop rollout restart deploy/worker\n```\n");
+    await page.evaluate(() => window.dispatchEvent(new CustomEvent("open-note", { detail: { path: "runbooks/copy.md" } })));
+    const pre = page.locator(".note-view pre");
+    await expect(pre).toContainText("rollout restart");
+    await pre.hover();
+    await pre.locator(".code-copy").click();
+    await expect.poll(async () => (await app.calls("clip_write")).at(-1)?.args.text).toBe("kubectl -n shop rollout restart deploy/worker");
+
+    await pre.click();
+    await page.keyboard.press("Control+Equal");
+    await page.keyboard.press("Control+Equal");
+    await expect.poll(() => page.locator(".note-view").evaluate((el) => (el as HTMLElement).style.zoom)).toBe("1.2");
+    await page.keyboard.press("Control+Digit0");
+    await expect.poll(() => page.locator(".note-view").evaluate((el) => (el as HTMLElement).style.zoom)).toBe("1");
+  });
 });
 
 test.describe("tasks", () => {
