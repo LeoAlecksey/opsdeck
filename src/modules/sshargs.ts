@@ -10,6 +10,9 @@
 const WITH_VALUE = new Set("BDEFIJLOPQRSWbceilmopw");
 /** options the resource bar passes on to its own ssh */
 const KEEP = new Set(["p", "l", "i", "J"]);
+/** the one -o a saved profile adds with its key (#117), and the only one the backend accepts:
+ *  without it the resource bar and tunnels offer every ssh-agent key first and hit MaxAuthTries */
+const SAFE_O = "IdentitiesOnly=yes";
 
 export function sshTarget(args: string[]): string[] | null {
   const keep: string[] = [];
@@ -28,7 +31,7 @@ export function sshTarget(args: string[]): string[] | null {
         const v = j + 1 < t.length ? t.slice(j + 1) : args[++i];
         // ssh refuses an option without its value: no session
         if (v === undefined) return null;
-        if (KEEP.has(o)) keep.push(`-${o}`, v);
+        if (KEEP.has(o) || (o === "o" && v === SAFE_O)) keep.push(`-${o}`, v);
         break;
       }
       continue;
