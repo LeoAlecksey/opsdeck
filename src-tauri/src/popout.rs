@@ -23,6 +23,7 @@ const VIEWS: &[(&str, &str)] = &[
     ("monitor", "Мониторинг хостов"),
     ("sftp", "Файлы на хостах"),
     ("yc", "Yandex Cloud"),
+    ("vkcs", "VK Cloud"),
     ("code", "IDE: код и git"),
     ("db", "Базы данных"),
     ("notes", "Заметки"),

@@ -25,6 +25,36 @@ pub fn no_console_tokio(cmd: &mut tokio::process::Command) {
     }
 }
 
+/// Give ConPTY children a hidden parent console so kubectl/ssh/shell do not flash a window.
+/// Release Windows only (`windows_subsystem = "windows"`): without this, spawning a console
+/// app via portable-pty briefly shows conhost. Do **not** use CREATE_NO_WINDOW on ConPTY
+/// CreateProcess — it breaks pseudoconsole I/O.
+#[cfg(all(windows, not(debug_assertions)))]
+pub fn hide_console_for_conpty() {
+    type HWND = *mut std::ffi::c_void;
+    type BOOL = i32;
+    const SW_HIDE: i32 = 0;
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn AllocConsole() -> BOOL;
+        fn GetConsoleWindow() -> HWND;
+    }
+    #[link(name = "user32")]
+    extern "system" {
+        fn ShowWindow(hwnd: HWND, cmd: i32) -> BOOL;
+    }
+    // SAFETY: Win32 AllocConsole / ShowWindow; no other threads touch the console yet
+    unsafe {
+        if AllocConsole() == 0 {
+            return;
+        }
+        let hwnd = GetConsoleWindow();
+        if !hwnd.is_null() {
+            ShowWindow(hwnd, SW_HIDE);
+        }
+    }
+}
+
 /// Приложение, запущенное из меню (Finder, Dock, ярлык в Linux), получает PATH сеанса, а не тот,
 /// что человек видит в терминале: установщики дописывают свои папки в ~/.bashrc или ~/.zshrc
 /// (yc, kubectl, terraform, claude, opencode, Homebrew, ~/.local/bin). Берём PATH из login-шелла

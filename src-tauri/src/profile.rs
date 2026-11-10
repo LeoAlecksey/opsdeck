@@ -155,6 +155,7 @@ pub const COPIED: &[&str] = &[
     "databases.json",
     "connectors.json",
     "yc.json",
+    "vkcs.json",
     "alerts-config.json",
     "agent.json",
     "knowledge.md",
@@ -648,7 +649,7 @@ mod tests {
     /// Копия переносит настройку рабочего места, но не историю и не учётную запись Passbolt.
     #[test]
     fn copy_takes_the_setup_not_the_history() {
-        for f in ["settings.json", "ssh.json", "k8s.json", "connectors.json", "vaults.json"] {
+        for f in ["settings.json", "ssh.json", "k8s.json", "connectors.json", "vaults.json", "vkcs.json"] {
             assert!(COPIED.contains(&f), "{f}");
         }
         for f in ["alerts.json", "ai-chats.json", "agent-audit.jsonl", "passbolt-account.json", "windows.json", "profile.json"] {
