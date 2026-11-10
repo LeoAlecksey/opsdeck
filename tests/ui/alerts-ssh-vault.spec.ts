@@ -210,3 +210,16 @@ test.describe("keepass", () => {
     await expect(eye).toHaveAttribute("title", "Скрыть");
   });
 });
+
+test("web panel: «trust this server's certificate» is saved and explained", async ({ app, page }) => {
+  await app.view("web");
+  await page.locator("[data-act=add]").click();
+  const dlg = page.locator("dialog.conn-dialog");
+  await dlg.locator("input[name=name]").fill("lab grafana");
+  await dlg.locator("input[name=url]").fill("https://192.0.2.10:3000");
+  await expect(dlg.locator("[data-a=tls-hint]")).toBeHidden();
+  await dlg.locator("input[name=insecure_tls]").check();
+  await expect(dlg.locator("[data-a=tls-hint]")).toBeVisible();
+  await dlg.locator("button[value=save]").click();
+  expect((await app.called("connector_save")).args.connector).toMatchObject({ url: "https://192.0.2.10:3000", insecure_tls: true });
+});

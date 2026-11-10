@@ -42,6 +42,10 @@ pub struct Connector {
     /// password is a separate keyring secret
     #[serde(default)]
     pub basic_user: String,
+    /// Веб-панель с самоподписанным сертификатом или сертификатом внутреннего CA: сертификат,
+    /// который предъявляет хост этой панели, принимается (только этот хост, только в панели).
+    #[serde(default)]
+    pub insecure_tls: bool,
 }
 
 fn new_token() -> String {
@@ -131,7 +135,7 @@ impl Drop for ForgetOnDrop {
     }
 }
 
-fn load() -> Result<Vec<Connector>, String> {
+pub(crate) fn load() -> Result<Vec<Connector>, String> {
     store::load_json(FILE)
 }
 
@@ -317,7 +321,9 @@ pub async fn connector_open(
         return w.set_focus().map_err(|e| e.to_string());
     }
     let (c, url, script) = prepare(&kp, &pb, &id).await?;
-    let mut builder = WebviewWindowBuilder::new(&app, &label, WebviewUrl::External(url))
+    // с недоверенным сертификатом окно открывается пустым, а адрес грузится, когда стоит обработчик ошибки TLS
+    let start = if c.insecure_tls { Url::parse("about:blank").map_err(|e| e.to_string())? } else { url.clone() };
+    let mut builder = WebviewWindowBuilder::new(&app, &label, WebviewUrl::External(start))
         .title(format!("{} — {}", c.name, crate::profile::app_title()))
         .inner_size(1360.0, 860.0)
         .zoom_hotkeys_enabled(true); // Ctrl +/−/0 inside the window
@@ -326,7 +332,11 @@ pub async fn connector_open(
     if let Some(js) = script {
         builder = builder.initialization_script(&js);
     }
-    builder.build().map_err(|e| e.to_string())?;
+    let w = builder.build().map_err(|e| e.to_string())?;
+    if c.insecure_tls {
+        crate::embed::trust_host_certificate(&w, &url)?;
+        w.navigate(url).map_err(|e| e.to_string())?;
+    }
     Ok(())
 }
 

@@ -7,7 +7,7 @@ import { ask, esc, toast, overlay } from "./ui";
 import { registerProvider } from "./palette";
 import { natCmp } from "./natsort";
 
-type Connector = { id: string; kind: string; name: string; group?: string; url: string; username: string; auth: string; keepass_entry?: string; passbolt_entry?: string; ingest_token?: string; basic_user?: string };
+type Connector = { id: string; kind: string; name: string; group?: string; url: string; username: string; auth: string; keepass_entry?: string; passbolt_entry?: string; ingest_token?: string; basic_user?: string; insecure_tls?: boolean };
 
 const KINDS: Record<string, { label: string; auth: string[]; hint: string }> = {
   grafana: { label: "Grafana", auth: ["keepass", "passbolt", "password", "token", "none"], hint: "Логин/пароль — автологин в панель и сбор алертов. Токен service account — только для сбора алертов (роль Viewer достаточно), в панель входите вручную." },
@@ -69,6 +69,8 @@ export function mountConnectors(root: HTMLElement) {
             <label>Basic auth: логин <input name="basic_user" autocomplete="off" placeholder="если веб-сервер спрашивает пароль" /></label>
             <label>Basic auth: пароль <input name="basic_secret" type="password" autocomplete="new-password" /></label>
           </div>
+          <label class="check" data-a="tls"><input type="checkbox" name="insecure_tls" /> Доверять сертификату этого сервера (самоподписанный, внутренний CA)</label>
+          <p class="muted small" data-a="tls-hint" hidden>Ошибка сертификата будет пропускаться только для этого адреса и только в веб-панели — пароль автологина уйдёт серверу, даже если сертификат подменили. Включайте для своих внутренних серверов. Пока работает на Linux.</p>
           <p class="muted hint"></p>
           <div class="ai-help" hidden></div>
           <div class="src-help" hidden></div>
@@ -129,6 +131,9 @@ export function mountConnectors(root: HTMLElement) {
     form.querySelector<HTMLElement>("[data-a=basic]")!.hidden = f("kind").value !== "zabbix";
     f("basic_secret").placeholder = editing?.basic_user ? "оставьте пустым, чтобы не менять" : "";
     const ai = f("kind").value === "ai";
+    // ИИ-анализатор в панели не открывается — галочке про сертификат там нечего делать
+    form.querySelector<HTMLElement>("[data-a=tls]")!.hidden = ai;
+    form.querySelector<HTMLElement>("[data-a=tls-hint]")!.hidden = ai || !f("insecure_tls").checked;
     f("url").required = !ai;
     f("url").placeholder = ai ? "необязательно: http://analyzer:8080/findings" : "https://grafana.example.com";
     form.querySelector<HTMLElement>(".url-label")!.textContent = ai ? "URL ленты (pull, необязательно)" : "URL";
@@ -219,6 +224,7 @@ export function mountConnectors(root: HTMLElement) {
   });
   f("kind").onchange = syncForm;
   f("auth").onchange = syncForm;
+  f("insecure_tls").onchange = syncForm;
   f("url").addEventListener("input", () => renderSourceHelp());
 
   /** Save, then poll this source once and show the outcome in the dialog. */
@@ -235,6 +241,7 @@ export function mountConnectors(root: HTMLElement) {
       passbolt_entry: f("auth").value === "passbolt" ? pbEntry : "",
       ingest_token: editing?.ingest_token ?? "",
       basic_user: f("kind").value === "zabbix" ? f("basic_user").value.trim() : "",
+      insecure_tls: f("insecure_tls").checked,
     };
     if (!connector.name) connector.name = new URL(connector.url || "http://x").hostname;
     try {
@@ -265,6 +272,7 @@ export function mountConnectors(root: HTMLElement) {
     f("url").value = c?.url ?? "";
     f("username").value = c?.username ?? "";
     f("basic_user").value = c?.basic_user ?? "";
+    f("insecure_tls").checked = !!c?.insecure_tls;
     setBound(c?.keepass_entry ?? "");
     setPbBound(c?.passbolt_entry ?? "");
     syncForm();
@@ -288,6 +296,7 @@ export function mountConnectors(root: HTMLElement) {
       passbolt_entry: f("auth").value === "passbolt" ? pbEntry : "",
       ingest_token: editing?.ingest_token ?? "",
       basic_user: f("kind").value === "zabbix" ? f("basic_user").value.trim() : "",
+      insecure_tls: f("insecure_tls").checked,
     };
     try {
       await invoke("connector_save", { connector, secret: f("secret").value || null, basicSecret: f("basic_secret").value || null });

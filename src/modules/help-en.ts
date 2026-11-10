@@ -91,6 +91,7 @@ export const HELP_EN: Record<string, { title: string; html: string }> = {
       <h4>What's where</h4>
       <ul>
         <li><b>＋ Add</b> — a new connector: type, URL, login method (login/password, token, KeePass or Passbolt entry).</li>
+        <li><b>Trust this server's certificate</b> — for your own servers with a self-signed or internal-CA certificate: the panel opens instead of “Unacceptable TLS certificate”. The exception covers only this panel's address (same host and port) and only inside OpsDeck. Linux only for now.</li>
         <li><b>Open</b> — a tab next to “☰ Panels”; <b>⧉</b> — in a separate window.</li>
         <li><b>Groups</b>: the “Group” field in a panel card — panels with the same group are gathered into a collapsible row, like a Row in a Grafana dashboard. <b>✎</b> — edit, <b>🗑</b> — delete.</li>
         <li>On the right of a tab: <b>← → ↻ ⌂</b> — navigation, <b>⧉</b> — move to a window.</li>

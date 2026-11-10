@@ -1,4 +1,6 @@
 {
+ "Доверять сертификату этого сервера (самоподписанный, внутренний CA)": "Trust this server's certificate (self-signed, internal CA)",
+ "Ошибка сертификата будет пропускаться только для этого адреса и только в веб-панели — пароль автологина уйдёт серверу, даже если сертификат подменили. Включайте для своих внутренних серверов. Пока работает на Linux.": "The certificate error is skipped only for this address and only in the web panel — the auto-login password goes to the server even if the certificate was swapped. Turn it on for your own internal servers. Linux only for now.",
  "# значения по умолчанию из чарта": "# default values from the chart",
  "(ACL, необязательно)": "(ACL, optional)",
  "(API найдётся сам).": "(the API is found automatically).",
