@@ -3,6 +3,7 @@ use tauri::Manager;
 mod agent;
 mod ai;
 mod aichat;
+mod alertpush;
 mod alerts;
 mod cmdindex;
 mod code;
@@ -298,6 +299,7 @@ pub fn run() {
             alerts::alerts_clear,
             alerts::alerts_config_get,
             alerts::alerts_config_set,
+            alerts::alerts_push_test,
             alerts::alerts_poll_now,
             alerts::alerts_resolve,
             alerts::alerts_mute,

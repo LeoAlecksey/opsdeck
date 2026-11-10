@@ -113,6 +113,13 @@ export const HELP_EN: Record<string, { title: string; html: string }> = {
         <li><b>Zabbix</b> — Zabbix 6.0+ problems over the API, the same as on its Problems page (no disabled hosts and triggers, dependent ones or symptoms): an API token (Users → API tokens) or a login/password; if the web server in front of Zabbix asks for a password (HTTP Basic), fill in “Basic auth” in the connector (on 7.2+ behind Basic — login/password only, through the session of the web UI sign-in: a workaround);</li>
         <li><b>AI / analyzer</b> — findings of your log/alert analyzer: a local one posts them to 127.0.0.1 with its token, a remote one serves a JSON feed at a URL.</li>
       </ul>
+      <h4>Alerts to the phone: ntfy and Gotify</h4>
+      <p>In the section's ⚙: <b>To the phone</b> → ntfy or Gotify. The same alerts as the desktop notifications go there (without hidden and silenced ones; recoveries — if “…and on recovery” is on), the first five one by one, the rest as one summary; critical ones get the top priority, a tap opens the dashboard.</p>
+      <ul>
+        <li><b>ntfy</b>: a server (<code>https://ntfy.sh</code> or your own) and a topic — make it long, knowing it is the access; subscribe to the same topic in the ntfy app. For a protected topic — an access token <code>tk_…</code>.</li>
+        <li><b>Gotify</b>: the server address and an application token (Apps → Create application).</li>
+      </ul>
+      <p><b>Send a test</b> sends one message with the saved settings. The token is kept in the system keyring.</p>
       <h4>Connecting Grafana — step by step</h4>
       <ol>
         <li>Nothing to configure in Grafana: no contact point, no webhook. Only read access is needed.</li>

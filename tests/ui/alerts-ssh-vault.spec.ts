@@ -223,3 +223,24 @@ test("web panel: «trust this server's certificate» is saved and explained", as
   await dlg.locator("button[value=save]").click();
   expect((await app.called("connector_save")).args.connector).toMatchObject({ url: "https://192.0.2.10:3000", insecure_tls: true });
 });
+
+test("alerts to the phone: ntfy server, topic and token are saved, the test goes out", async ({ app, page }) => {
+  await app.view("alerts");
+  await page.locator("[data-a=settings]").click();
+  const form = page.locator(".al-settings");
+  await expect(form.locator("input[name=push_url]")).toBeHidden();
+  await form.locator("select[name=push_kind]").selectOption("ntfy");
+  await form.locator("input[name=push_url]").fill("https://ntfy.example.com");
+  await form.locator("input[name=push_topic]").fill("ops-demo");
+  await form.locator("input[name=push_token]").fill("tk_demo");
+  await form.locator("button.primary").click();
+  const saved = (await app.called("alerts_config_set")).args as any;
+  expect(saved.config.push).toEqual({ kind: "ntfy", url: "https://ntfy.example.com", topic: "ops-demo" });
+  expect(saved.pushToken).toBe("tk_demo");
+
+  // у Gotify топика нет
+  await form.locator("select[name=push_kind]").selectOption("gotify");
+  await expect(form.locator("input[name=push_topic]")).toBeHidden();
+  await form.locator("[data-a=push-test]").click();
+  await expect.poll(async () => (await app.calls("alerts_push_test")).length).toBe(1);
+});
