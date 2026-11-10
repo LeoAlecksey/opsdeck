@@ -12,6 +12,7 @@ import type { Launched } from "./shellkind";
 import { copyText } from "./ui";
 import { uid } from "./winid";
 import { rightClickAction, rightClickMode, type RightClick } from "./rightclick";
+import { isMac, macNav } from "./mackeys";
 
 export type SpawnOpts = { program?: string; args?: string[]; cwd?: string; env?: Record<string, string> };
 
@@ -172,6 +173,13 @@ export class PtyTerminal {
     }, { passive: false, capture: true });
     this.term.onData((data) => this.send(data));
     this.term.attachCustomKeyEventHandler((e) => {
+      // macOS: Cmd/Option + стрелки и ⌫ (#122); с серой подсказкой Cmd+→ и Option+→ принимают её
+      const nav = e.type === "keydown" && isMac() ? macNav(e) : null;
+      if (nav) {
+        e.preventDefault();
+        if (!nav.like || !this.sugg.key(new KeyboardEvent("keydown", nav.like))) this.send(nav.seq);
+        return false;
+      }
       // → / End accept the grey suggestion
       if (this.sugg.key(e)) { e.preventDefault(); return false; }
       if (e.type !== "keydown" || !e.ctrlKey) return true;
