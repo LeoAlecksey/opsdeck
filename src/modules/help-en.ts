@@ -12,7 +12,7 @@ export const HELP_EN: Record<string, { title: string; html: string }> = {
       <ul>
         <li><b>＋</b> — new tab (opens in the same folder), <b>◫ / ⊟</b> — split right / down. When there are more tabs than fit, scroll the tab bar with the mouse wheel.</li>
         <li>Hover a command to get the block toolbar: copy the command or its output, <b>★</b> save as a snippet, <b>⇢ AI</b> send the command with its output to AI.</li>
-        <li>When a command fails, an <b>“ask AI”</b> bar appears at the bottom.</li>
+        <li>When a command fails, a small chip with the exit code appears in the top right corner: <b>⇢ AI</b> sends the command and its output to AI, <b>⟳ Retry</b> is there for ssh and other connections. Start typing and the chip goes away by itself.</li>
         <li><b>⇢ to AI</b> — send the selected text; <b>AI ▸</b> — show/hide the AI panel, the model is chosen there.</li>
         <li><b>◆ Claude IDE</b> in the tab bar — Claude Code is connected to OpsDeck and sees selections in notes.</li>
         <li>Coloured marks on the scrollbar are commands (red — failed).</li>

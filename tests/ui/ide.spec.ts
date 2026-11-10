@@ -266,4 +266,27 @@ test.describe("IDE: several projects (#79)", () => {
     await expect(page.locator(".code-projects")).toBeHidden(); // one project left: the row hides
     await expect(page.locator(".code-proj")).toContainText("infra");
   });
+
+  test("closing the current project closes its files too", async ({ app, page }) => {
+    await app.view("code");
+    for (const p of ["/home/demo/projects/infra/helm", "/home/demo/projects/infra"]) {
+      await page.evaluate((x) => window.dispatchEvent(new CustomEvent("open-in-code", { detail: { path: x } })), p);
+      await expect(page.locator(".code-tree .ct-row").first()).toBeVisible();
+    }
+    await page.evaluate(() => window.dispatchEvent(new CustomEvent("open-in-code", { detail: { path: "/home/demo/projects/infra/main.tf" } })));
+    await expect(page.locator(".code-tab", { hasText: "main.tf" })).toBeVisible();
+
+    // an unsaved edit asks first; «cancel» keeps the project and the file
+    await page.locator(".code-editor .cm-content").click();
+    await page.keyboard.type("# draft");
+    await page.locator(".code-proj-chip.active .x").click();
+    await page.locator("dialog.ask button[value=cancel]").click();
+    await expect(page.locator(".code-tab", { hasText: "main.tf" })).toBeVisible();
+    await expect(page.locator(".code-proj-chip")).toHaveCount(2);
+
+    await page.locator(".code-proj-chip.active .x").click();
+    await page.locator("dialog.ask button[value=ok]").click();
+    await expect(page.locator(".code-proj")).toContainText("helm");
+    await expect(page.locator(".code-tab")).toHaveCount(0);
+  });
 });

@@ -237,7 +237,7 @@ export function mountTerminal(root: HTMLElement) {
       </div>
       <div class="fail-chip" hidden><span class="fail-text"></span>
         <button data-f="retry" class="primary" hidden title="Ctrl+Shift+R">⟳ Повторить</button>
-        <button data-f="ai" class="primary">⇢ спросить AI</button><button data-f="x" class="icon">${icon("close", 14)}</button></div>
+        <button data-f="ai" class="ghost" title="Отправить команду и вывод в AI">⇢ AI</button><button data-f="x" class="icon" title="Скрыть (или просто продолжайте печатать)">${icon("close", 14)}</button></div>
       <div class="reconnect-bar" hidden><span class="reconnect-text">Соединение закрыто</span>
         <button data-rc="go" class="primary" title="Enter или Ctrl+Shift+R">⟳ Переподключить</button>
         <button data-rc="close" class="ghost" title="Ctrl+Shift+W">Закрыть</button></div>`;
@@ -682,6 +682,11 @@ export function mountTerminal(root: HTMLElement) {
       st.className = `blk-status ${ok ? "ok" : "bad"}`;
     });
     p.el.addEventListener("mouseleave", () => (bar.hidden = true));
+    // Плашка об ошибке закрывала строку ввода и вывод: начали печатать — она уходит сама.
+    // Повторить можно и после этого — Ctrl+Shift+R.
+    termEl.addEventListener("keydown", (e) => {
+      if (!chip.hidden && !["Shift", "Control", "Alt", "Meta"].includes(e.key)) chip.hidden = true;
+    }, true);
 
     bar.addEventListener("click", async (e) => {
       const act = (e.target as HTMLElement).closest<HTMLElement>("[data-b]")?.dataset.b;
@@ -717,7 +722,7 @@ export function mountTerminal(root: HTMLElement) {
       chip.hidden = false;
       clearTimeout(chipTimer);
       // a dropped connection keeps its chip: there is something to do about it
-      if (!conn) chipTimer = window.setTimeout(() => (chip.hidden = true), 12000);
+      if (!conn) chipTimer = window.setTimeout(() => (chip.hidden = true), 8000);
     };
   }
 

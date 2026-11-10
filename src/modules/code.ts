@@ -537,21 +537,34 @@ export function mountCode(root: HTMLElement) {
     const chip = (e.target as HTMLElement).closest<HTMLElement>("[data-p]");
     if (!chip) return;
     const p = chip.dataset.p!;
-    if ((e.target as HTMLElement).classList.contains("x")) {
-      open = open.filter((x) => x !== p);
-      ls.set("opsdeck.code.projects", JSON.stringify(open));
-      try { localStorage.removeItem(stateKey(p)); } catch { /* ignore */ }
-      if (p === project) {
-        const next = open[0];
-        project = ""; // the closed project must not have its state written back
-        drawProjects();
-        if (next) setProject(next);
-      }
-      else drawProjects();
-      return;
-    }
+    if ((e.target as HTMLElement).classList.contains("x")) { closeProject(p); return; }
     if (p !== project) setProject(p);
   });
+
+  /** Закрытие проекта закрывает и его файлы: раньше вкладки оставались и смешивались с файлами следующего проекта. */
+  async function closeProject(p: string) {
+    if (p === project) {
+      if (active) active.state = view.state;
+      const unsaved = tabs.filter(isDirty).length;
+      if (unsaved && (await ask("Несохранённые изменения", `Несохранённых файлов в проекте: ${unsaved}. Изменения будут потеряны. Закрыть проект?`, { ok: "Закрыть без сохранения", danger: true })) === null) return;
+    }
+    open = open.filter((x) => x !== p);
+    ls.set("opsdeck.code.projects", JSON.stringify(open));
+    try { localStorage.removeItem(stateKey(p)); } catch { /* ignore */ }
+    if (p !== project) { drawProjects(); return; }
+    project = ""; // the closed project must not have its state written back
+    dropTabs();
+    const next = open[0];
+    drawProjects();
+    if (next) setProject(next);
+  }
+
+  /** Убрать все вкладки без вопросов: решение о несохранённом уже принято. */
+  function dropTabs() {
+    for (const tb of [...tabs]) { tabs.splice(tabs.indexOf(tb), 1); tb.btn.remove(); }
+    active = null;
+    activate(null);
+  }
 
   async function setProject(dir: string) {
     if (!dir) return;
@@ -564,9 +577,7 @@ export function mountCode(root: HTMLElement) {
     project = next;
     if (prev) {
       // close the files of the project we are leaving
-      for (const tb of [...tabs]) { tabs.splice(tabs.indexOf(tb), 1); tb.btn.remove(); }
-      active = null;
-      activate(null);
+      dropTabs();
     }
     expanded.clear();
     ls.set("opsdeck.code.root", project);
