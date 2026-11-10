@@ -4,7 +4,7 @@ import { locale, t } from "../i18n";
 import { helpBtn } from "./help-btn";
 import { icon } from "./icons";
 import { invoke } from "@tauri-apps/api/core";
-import { ask, attachZoom, esc, popupMenu, toast } from "./ui";
+import { ask, attachZoom, copyText, esc, popupMenu, toast } from "./ui";
 import { registerProvider } from "./palette";
 import { terminalApi } from "./terminal";
 import { hcl, hclBalance } from "./hcl";
@@ -14,7 +14,8 @@ import { diffContext, fileContext, projectContext } from "./aictx";
 import { attachPathLinks } from "./files";
 import { fileIcon, folderIcon } from "./fileicons";
 import { basicSetup } from "codemirror";
-import { Decoration, EditorView, keymap, type DecorationSet } from "@codemirror/view";
+import { Decoration, EditorView, keymap, runScopeHandlers, type DecorationSet } from "@codemirror/view";
+import { latinKey } from "./layout";
 import { Compartment, EditorState, Prec, StateEffect, StateField, type Extension } from "@codemirror/state";
 import { openSearchPanel, selectNextOccurrence } from "@codemirror/search";
 import { StreamLanguage, indentUnit } from "@codemirror/language";
@@ -260,6 +261,30 @@ export function mountCode(root: HTMLElement) {
     return errs.map((e) => ({ ...lineRange(v, e.line), severity: "error" as const, message: e.message, source: tfTool || "проверка скобок" }));
   }, { delay: 700 });
 
+  /**
+   * Остальные сочетания на русской раскладке: CodeMirror ищет привязку по букве раскладки, так что
+   * Ctrl+], Ctrl+Shift+K, Ctrl+Enter и прочие молчали. Повторяем событие с латинской буквой той же
+   * клавиши. Копирование и вставку на «с», «ч», «м» WebKit тоже не узнаёт — делаем их сами.
+   */
+  function onLayout(e: KeyboardEvent, v: EditorView): boolean {
+    const ch = latinKey(e);
+    if (!ch) return false;
+    const plain = !e.shiftKey && !e.altKey;
+    const sel = v.state.selection.ranges.filter((r) => !r.empty).map((r) => v.state.sliceDoc(r.from, r.to)).join("\n");
+    if (plain && (ch === "c" || ch === "x")) {
+      if (!sel) return false;
+      copyText(sel);
+      if (ch === "x" && !v.state.readOnly) v.dispatch(v.state.replaceSelection(""));
+      return true;
+    }
+    if (plain && ch === "v") {
+      if (!v.state.readOnly) invoke<string>("clip_read").then((text) => text && v.dispatch(v.state.replaceSelection(text)), () => {});
+      return true;
+    }
+    const latin = new KeyboardEvent("keydown", { key: ch, code: e.code, ctrlKey: e.ctrlKey, metaKey: e.metaKey, altKey: e.altKey, shiftKey: e.shiftKey });
+    return runScopeHandlers(v, latin, "editor");
+  }
+
   function extensionsFor(t: { path: string | null; readonly: boolean; lang: Extension }): Extension[] {
     const lint: Extension[] = [];
     const p = t.path ?? "";
@@ -288,7 +313,7 @@ export function mountCode(root: HTMLElement) {
             : e.code === "KeyA" ? run(selectAll)
             : e.code === "KeyD" ? run(selectNextOccurrence)
             : e.code === "Slash" ? run(toggleComment)
-            : false;
+            : onLayout(e, v);
           if (!done) return false;
           e.preventDefault();
           return true;

@@ -270,3 +270,18 @@ test.describe("macOS keys (#122)", () => {
     await expect.poll(active).toBe(0);
   });
 });
+
+test.describe("Russian layout", () => {
+  test("Ctrl+С, Ctrl+К, Alt+И reach the shell as ^C, ^R, ESC b", async ({ app, page }) => {
+    await app.view("terminal");
+    const written = async () => (await app.calls("pty_write")).map((c) => c.args.data as string).join("");
+    const before = (await written()).length;
+    const press = (key: string, code: string, mods: Record<string, boolean>) =>
+      page.locator(".pane-term:visible .xterm-helper-textarea").evaluate((el, a) =>
+        el.dispatchEvent(new KeyboardEvent("keydown", { key: a.key, code: a.code, bubbles: true, cancelable: true, ...a.mods })), { key, code, mods });
+    await press("с", "KeyC", { ctrlKey: true });
+    await press("к", "KeyR", { ctrlKey: true });
+    await press("и", "KeyB", { altKey: true });
+    await expect.poll(async () => (await written()).slice(before)).toBe("\x03\x12\x1bb");
+  });
+});

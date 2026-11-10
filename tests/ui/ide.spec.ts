@@ -325,3 +325,25 @@ test("IDE: Ctrl+= / Ctrl+− / Ctrl+0 change the editor font", async ({ app, pag
   await page.keyboard.press("Control+Digit0");
   await expect.poll(font).toBe("13px");
 });
+
+test("IDE on the Russian layout: Ctrl+Ъ indents, Ctrl+С / Ctrl+М copy and paste", async ({ app, page }) => {
+  await openProject(app, page);
+  await page.evaluate((p) => window.dispatchEvent(new CustomEvent("open-in-code", { detail: { path: p + "/main.tf" } })), PROJ);
+  const content = page.locator(".code-editor .cm-content");
+  await content.click();
+  const press = (key: string, code: string) =>
+    content.evaluate((el, a) => el.dispatchEvent(new KeyboardEvent("keydown", { key: a.key, code: a.code, ctrlKey: true, bubbles: true, cancelable: true })), { key, code });
+  const first = () => page.locator(".code-editor .cm-line").first().textContent();
+  const was = await first();
+  await page.keyboard.press("Control+Home");
+  await press("ъ", "BracketRight"); // indentMore
+  await expect.poll(first).toBe("  " + was);
+
+  await page.keyboard.press("Shift+End");
+  await press("с", "KeyC");
+  await expect.poll(async () => (await app.calls("clip_write")).length).toBeGreaterThan(0);
+  await app.override("clip_read", "pasted-ru");
+  await page.keyboard.press("End");
+  await press("м", "KeyV");
+  await expect.poll(first).toContain("pasted-ru");
+});
