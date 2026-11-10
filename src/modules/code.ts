@@ -570,6 +570,9 @@ export function mountCode(root: HTMLElement) {
     if (!dir) return;
     const next = dir.replace(/\/+$/, "") || "/";
     if (next === project) return;
+    // вкладки уходящего проекта закрываются, а запоминаются только пути: несохранённое пропало бы молча
+    const unsaved = project ? tabs.filter(isDirty).length : 0;
+    if (unsaved && (await ask("Несохранённые изменения", `Несохранённых файлов в проекте: ${unsaved}. Изменения будут потеряны. Перейти в другой проект?`, { ok: "Перейти без сохранения", danger: true })) === null) return;
     // remember where we were, then come back to the other project exactly as it was
     saveProjectState();
     switching = true;

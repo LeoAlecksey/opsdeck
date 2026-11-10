@@ -267,6 +267,26 @@ test.describe("IDE: several projects (#79)", () => {
     await expect(page.locator(".code-proj")).toContainText("infra");
   });
 
+  test("switching away from unsaved edits asks first", async ({ app, page }) => {
+    await app.view("code");
+    for (const p of ["/home/demo/projects/infra/helm", "/home/demo/projects/infra"]) {
+      await page.evaluate((x) => window.dispatchEvent(new CustomEvent("open-in-code", { detail: { path: x } })), p);
+      await expect(page.locator(".code-tree .ct-row").first()).toBeVisible();
+    }
+    await page.evaluate(() => window.dispatchEvent(new CustomEvent("open-in-code", { detail: { path: "/home/demo/projects/infra/main.tf" } })));
+    await page.locator(".code-editor .cm-content").click();
+    await page.keyboard.type("# draft");
+
+    await page.locator(".code-proj-chip", { hasText: "helm" }).click();
+    await page.locator("dialog.ask button[value=cancel]").click();
+    await expect(page.locator(".code-proj-chip.active")).toContainText("infra");
+    await expect(page.locator(".code-tab.dirty", { hasText: "main.tf" })).toBeVisible();
+
+    await page.locator(".code-proj-chip", { hasText: "helm" }).click();
+    await page.locator("dialog.ask button[value=ok]").click();
+    await expect(page.locator(".code-proj-chip.active")).toContainText("helm");
+  });
+
   test("closing the current project closes its files too", async ({ app, page }) => {
     await app.view("code");
     for (const p of ["/home/demo/projects/infra/helm", "/home/demo/projects/infra"]) {

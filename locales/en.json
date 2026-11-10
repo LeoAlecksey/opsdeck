@@ -788,6 +788,8 @@
  "Несохранённые файлы": "Unsaved files",
  "Несохранённых вкладок: {}.": " Unsaved tabs: {}.",
  "Несохранённых файлов в проекте: {}. Изменения будут потеряны. Закрыть проект?": "Unsaved files in the project: {}. Changes will be lost. Close the project?",
+ "Перейти без сохранения": "Switch without saving",
+ "Несохранённых файлов в проекте: {}. Изменения будут потеряны. Перейти в другой проект?": "Unsaved files in the project: {}. Changes will be lost. Switch to another project?",
  "Нестабильное соединение с кластером, повторное подключение…": "Unstable cluster connection, reconnecting…",
  "Нет PodDisruptionBudget": "No PodDisruptionBudget",
  "Нет livenessProbe: {}": "No livenessProbe: {}",
