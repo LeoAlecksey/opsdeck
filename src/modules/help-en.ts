@@ -328,6 +328,19 @@ export const HELP_EN: Record<string, { title: string; html: string }> = {
       <li>KeePass entries can be bound to web panels, SSH hosts and MikroTik routers — then passwords are taken from here.</li>
       <li>While the database is open, passwords are in the palette ${kbd("Ctrl+Shift+P")} → “Password: …”.</li></ul>`,
   },
+  gopass: {
+    title: "gopass",
+    html: `
+      <h4>How it works</h4>
+      <p>OpsDeck reads a <a href="https://www.gopass.pw/">gopass</a> store (compatible with <code>pass</code>) through its CLI and only reads: entries are changed in gopass itself. gpg-agent decrypts; the GPG key password is asked by its pinentry window, OpsDeck never sees it.</p>
+      <ul>
+        <li>The list shows entry paths. ${"👤"} — copy the login (a <code>user:</code>, <code>username:</code> or <code>login:</code> line in the entry), ${"🔑"} — the password (the first line); the clipboard is cleared in 30 s.</li>
+        <li>In SSH, databases, MikroTik and web panels choose the login method <b>from gopass</b> and an entry: the login and password are taken from it on connect.</li>
+        <li>OpsDeck keeps what it decrypted in memory for up to 30 minutes, so that polling an alert source from gopass doesn't raise pinentry every minute. In the background the key password is never asked: such a source starts working once you open the entry or the panel yourself. <b>Forget</b> wipes it at once (the gpg-agent cache is separate).</li>
+      </ul>
+      <h4>If there is no list</h4>
+      <p><code>gopass</code> must be installed in PATH, with a store: <code>gopass init</code> or <code>gopass clone &lt;repository&gt;</code>.</p>`,
+  },
   passbolt: {
     title: "Passbolt",
     html: `

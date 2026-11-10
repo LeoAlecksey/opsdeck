@@ -6,6 +6,7 @@ import { mountConnectors } from "./modules/connectors";
 import { mountK8s } from "./modules/k8s";
 import { mountKeepass } from "./modules/keepass";
 import { mountPassbolt } from "./modules/passbolt";
+import { mountGopass } from "./modules/gopass";
 import { mountNotes } from "./modules/notes";
 import { mountDb } from "./modules/db";
 import { mountTasks } from "./modules/tasks";
@@ -57,6 +58,7 @@ const views: View[] = [
   { id: "tasks", svg: icon("tasks", 20), title: "Задачи и напоминания", mount: mountTasks },
   { id: "vault", svg: icon("key", 20), title: "KeePass", mount: mountKeepass },
   { id: "passbolt", svg: icon("lock", 20), title: "Passbolt", mount: mountPassbolt },
+  { id: "gopass", svg: icon("key", 20), title: "gopass", mount: mountGopass },
   { id: "winbox", svg: icon("router", 20), title: "MikroTik / WinBox", mount: mountMikrotik },
   { id: "agent", svg: icon("sparkles", 20), title: "ИИ-агент", mount: mountAiAgent },
   { id: "settings", svg: icon("settings", 20), title: "Настройки", mount: mountSettings, bottom: true },

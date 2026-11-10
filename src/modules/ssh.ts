@@ -3,6 +3,7 @@ import { icon } from "./icons";
 import { invoke } from "@tauri-apps/api/core";
 import { kpEntries, kpStatus, pickEntry } from "./keepass";
 import { pbTitles, pickEntry as pickPassbolt } from "./passbolt";
+import { pickEntry as pickGopass } from "./gopass";
 import { registerProvider } from "./palette";
 import { ask, esc, overlay, toast } from "./ui";
 import { t } from "../i18n";
@@ -10,7 +11,7 @@ import { natCmp } from "./natsort";
 
 type SshHost = {
   id: string; name: string; group: string; host: string; port: number; user: string;
-  identity_file: string; jump: string; auth: string; keepass_entry: string; passbolt_entry: string;
+  identity_file: string; jump: string; auth: string; keepass_entry: string; passbolt_entry: string; gopass_entry?: string;
 };
 type Effective = { user: string; hostname: string; port: string; identity_files: string[]; proxy_jump: string; proxy_command?: string };
 type ConfigHost = { alias: string; group: string; hostname: string; user: string; port: string; identity_file: string; proxy_jump: string; proxy_command?: string; effective?: Effective };
@@ -18,7 +19,7 @@ type ConfigHost = { alias: string; group: string; hostname: string; user: string
 type SshList = { hosts: SshHost[]; config: ConfigHost[]; notes?: Record<string, string> };
 type Spec = { program: string; args: string[]; password_copied: boolean };
 
-const AUTH: Record<string, string> = { key: "ключ / ssh-agent", keepass: "пароль из KeePass", passbolt: "пароль из Passbolt", password: "пароль (keyring)", none: "спросит ssh" };
+const AUTH: Record<string, string> = { key: "ключ / ssh-agent", keepass: "пароль из KeePass", passbolt: "пароль из Passbolt", gopass: "пароль из gopass", password: "пароль (keyring)", none: "спросит ssh" };
 
 async function connect(title: string, target: { id?: string; alias?: string }) {
   try {
@@ -86,6 +87,7 @@ export function mountSsh(root: HTMLElement) {
           <label>Аутентификация <select name="auth">${Object.entries(AUTH).map(([k, v]) => `<option value="${k}">${v}</option>`).join("")}</select></label>
           <div data-s="keepass" class="kp-bind"><span class="kp-bound muted">запись не выбрана</span><button type="button" data-a="pick">Выбрать запись…</button></div>
           <div data-s="passbolt" class="kp-bind"><span class="pb-bound muted">запись не выбрана</span><button type="button" data-a="pb-pick">Выбрать запись…</button></div>
+          <div data-s="gopass" class="kp-bind"><span class="gp-bound muted">запись не выбрана</span><button type="button" data-a="gp-pick">Выбрать запись…</button></div>
           <label data-s="password">Пароль <input name="secret" type="password" autocomplete="new-password" /></label>
           <label>Контекст для ИИ <textarea name="ai_note" rows="3" spellcheck="false" placeholder="Что тут крутится и что важно: «PostgreSQL 16, основная база заказов; бэкапы в 03:00; без согласования не перезапускать»"></textarea></label>
           <p class="muted hint">ИИ получает это сам — в чате, привязанном к серверу, и в расследовании агента, — описывать сервер в каждом вопросе не нужно. Хранится только на этом компьютере.</p>
@@ -113,8 +115,9 @@ export function mountSsh(root: HTMLElement) {
     const a = f("auth").value;
     form.querySelector<HTMLElement>("[data-s=keepass]")!.hidden = a !== "keepass";
     form.querySelector<HTMLElement>("[data-s=passbolt]")!.hidden = a !== "passbolt";
+    form.querySelector<HTMLElement>("[data-s=gopass]")!.hidden = a !== "gopass";
     form.querySelector<HTMLElement>("[data-s=password]")!.hidden = a !== "password";
-    f("user").placeholder = a === "keepass" ? "из записи KeePass" : a === "passbolt" ? "из записи Passbolt" : "";
+    f("user").placeholder = a === "keepass" ? "из записи KeePass" : a === "passbolt" ? "из записи Passbolt" : a === "gopass" ? "из записи gopass (user:)" : "";
     f("secret").placeholder = editing ? "оставьте пустым, чтобы не менять" : "";
   };
   f("auth").onchange = sync;
@@ -125,6 +128,15 @@ export function mountSsh(root: HTMLElement) {
   form.querySelector<HTMLElement>("[data-a=pick]")!.onclick = async () => {
     const e = await pickEntry();
     if (e) setBound(e.id, `${e.title}${e.username ? " · " + e.username : ""}`);
+  };
+  let gpEntry = "";
+  const setGpBound = (id: string) => {
+    gpEntry = id;
+    form.querySelector(".gp-bound")!.textContent = id || "запись не выбрана";
+  };
+  form.querySelector<HTMLElement>("[data-a=gp-pick]")!.onclick = async () => {
+    const e = await pickGopass();
+    if (e) setGpBound(e.id);
   };
   let pbEntry = "";
   let pbLabels = new Map<string, string>();
@@ -148,6 +160,7 @@ export function mountSsh(root: HTMLElement) {
     noteField().value = data.notes?.[isEdit && h?.id ? `id:${h.id}` : `alias:${h?.name ?? ""}`] ?? "";
     setBound(h?.keepass_entry ?? "");
     setPbBound(h?.passbolt_entry ?? "");
+    setGpBound(h?.gopass_entry ?? "");
     sync();
     form.querySelector("#ssh-groups")!.innerHTML = allGroups().map((g) => `<option value="${esc(g)}">`).join("");
     const keys = await invoke<string[]>("ssh_keys").catch(() => []);
@@ -187,7 +200,7 @@ export function mountSsh(root: HTMLElement) {
       id: editing?.id ?? crypto.randomUUID(),
       name: f("name").value.trim(), group: f("group").value.trim(), host: f("host").value.trim(),
       port: Number(f("port").value) || 22, user: f("user").value.trim(), identity_file: f("identity_file").value.trim(),
-      jump: f("jump").value.trim(), auth: f("auth").value, keepass_entry: f("auth").value === "keepass" ? boundEntry : "", passbolt_entry: f("auth").value === "passbolt" ? pbEntry : "",
+      jump: f("jump").value.trim(), auth: f("auth").value, keepass_entry: f("auth").value === "keepass" ? boundEntry : "", passbolt_entry: f("auth").value === "passbolt" ? pbEntry : "", gopass_entry: f("auth").value === "gopass" ? gpEntry : "",
     };
     try {
       await invoke("ssh_save", { host, secret: f("secret").value || null });
@@ -223,7 +236,7 @@ export function mountSsh(root: HTMLElement) {
         <tr data-id="${esc(h.id)}">
           <td class="mt-name">${esc(h.name)}${noteMark(`id:${h.id}`)}</td>
           <td class="mono">${esc(h.user ? h.user + "@" : "")}${esc(h.host)}${h.port !== 22 ? `<span class="muted">:${h.port}</span>` : ""}</td>
-          <td class="muted">${h.jump ? `через ${esc(h.jump)} · ` : ""}${h.auth === "keepass" ? `${icon("key", 14)} ${esc(titles.get(h.keepass_entry) ?? "KeePass")}` : h.auth === "passbolt" ? `${icon("lock", 14)} ${esc(pbLabels.get(h.passbolt_entry)?.split(" · ")[0] ?? "Passbolt")}` : esc(AUTH[h.auth] ?? "")}</td>
+          <td class="muted">${h.jump ? `через ${esc(h.jump)} · ` : ""}${h.auth === "keepass" ? `${icon("key", 14)} ${esc(titles.get(h.keepass_entry) ?? "KeePass")}` : h.auth === "passbolt" ? `${icon("lock", 14)} ${esc(pbLabels.get(h.passbolt_entry)?.split(" · ")[0] ?? "Passbolt")}` : h.auth === "gopass" ? `${icon("key", 14)} ${esc(h.gopass_entry ?? "gopass")}` : esc(AUTH[h.auth] ?? "")}</td>
           <td class="mt-acts">
             <button class="primary" data-a="connect">Подключиться</button>
             <button class="icon" data-a="edit" title="Изменить (в т.ч. группу)">${icon("edit", 14)}</button>

@@ -48,6 +48,9 @@ pub struct SshHost {
     /// Passbolt resource uuid when auth == "passbolt"
     #[serde(default)]
     pub passbolt_entry: String,
+    /// путь записи gopass, когда auth == "gopass"
+    #[serde(default)]
+    pub gopass_entry: String,
 }
 
 fn default_port() -> u16 {
@@ -754,6 +757,9 @@ pub fn ssh_save(host: SshHost, secret: Option<String>) -> Result<(), String> {
     if host.auth == "passbolt" && host.passbolt_entry.is_empty() {
         return Err("выберите запись Passbolt".into());
     }
+    if host.auth == "gopass" && host.gopass_entry.is_empty() {
+        return Err("выберите запись gopass".into());
+    }
     if let Some(s) = secret.filter(|s| !s.is_empty()) {
         store::secret_set(&secret_key(&host.id), &s)?;
     }
@@ -845,6 +851,10 @@ pub async fn ssh_connect(
             let (u, p) = passbolt::credentials(&pb, &h.passbolt_entry, keepass::Use::User).await?;
             (if h.user.is_empty() { u } else { h.user.clone() }, p)
         }
+        "gopass" => {
+            let (u, p) = crate::gopass::credentials(&h.gopass_entry, keepass::Use::User).await?;
+            (if h.user.is_empty() { u } else { h.user.clone() }, p)
+        }
         "password" => (h.user.clone(), store::secret_get(&secret_key(&h.id)).unwrap_or_default()),
         _ => (h.user.clone(), String::new()),
     };
@@ -906,7 +916,7 @@ mod tests {
         let _guard = crate::store::SETTINGS_TEST_LOCK.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let host = |id: &str, name: &str| super::SshHost {
             id: id.into(), name: name.into(), group: String::new(), host: "192.0.2.1".into(), port: 22, user: String::new(),
-            identity_file: String::new(), jump: String::new(), auth: "key".into(), keepass_entry: String::new(), passbolt_entry: String::new(),
+            identity_file: String::new(), jump: String::new(), auth: "key".into(), keepass_entry: String::new(), passbolt_entry: String::new(), gopass_entry: String::new(),
         };
         crate::store::save_json(super::FILE, &vec![host("h1", "web-1"), host("h2", "db-1")]).unwrap();
         crate::store::save_json(super::NOTES_FILE, &std::collections::HashMap::<String, String>::new()).unwrap();
@@ -1034,7 +1044,7 @@ mod tests {
         let h = SshHost {
             id: "a".into(), name: "web".into(), group: String::new(), host: "192.0.2.1".into(), port: 2222, user: "ops".into(),
             identity_file: "~/.ssh/id".into(), jump: "bastion".into(), auth: "keepass".into(), keepass_entry: "k".into(),
-            passbolt_entry: String::new(),
+            passbolt_entry: String::new(), gopass_entry: String::new(),
         };
         assert_eq!(profile_args(&h, &h.user), ["-p", "2222", "-o", "IdentitiesOnly=yes", "-i", "~/.ssh/id", "-J", "bastion", "ops@192.0.2.1"]);
         let without_key = profile_args(&SshHost { identity_file: String::new(), jump: String::new(), ..h.clone() }, "");

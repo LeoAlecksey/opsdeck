@@ -30,6 +30,9 @@ pub struct Device {
     /// Passbolt resource uuid when auth == "passbolt"
     #[serde(default)]
     pub passbolt_entry: String,
+    /// путь записи gopass, когда auth == "gopass"
+    #[serde(default)]
+    pub gopass_entry: String,
     #[serde(default = "default_winbox_port")]
     pub winbox_port: u16,
     #[serde(default = "default_ssh_port")]
@@ -77,6 +80,10 @@ async fn credentials(
             let (u, p) = keepass::credentials(kp, &d.keepass_entry, keepass::Use::User)?;
             Ok((if d.username.is_empty() { u } else { d.username.clone() }, p))
         }
+        "gopass" => {
+            let (u, p) = crate::gopass::credentials(&d.gopass_entry, keepass::Use::User).await?;
+            Ok((if d.username.is_empty() { u } else { d.username.clone() }, p))
+        }
         "passbolt" => {
             let (u, p) = passbolt::credentials(pb, &d.passbolt_entry, keepass::Use::User).await?;
             Ok((
@@ -111,6 +118,9 @@ pub fn mt_save(device: Device, secret: Option<String>) -> Result<(), String> {
     }
     if device.auth == "passbolt" && device.passbolt_entry.is_empty() {
         return Err("выберите запись Passbolt".into());
+    }
+    if device.auth == "gopass" && device.gopass_entry.is_empty() {
+        return Err("выберите запись gopass".into());
     }
     if let Some(s) = secret.filter(|s| !s.is_empty()) {
         store::secret_set(&secret_key(&device.id), &s)?;

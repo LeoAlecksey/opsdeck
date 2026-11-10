@@ -29,6 +29,7 @@ const VIEWS: &[(&str, &str)] = &[
     ("tasks", "Задачи и напоминания"),
     ("vault", "KeePass"),
     ("passbolt", "Passbolt"),
+    ("gopass", "gopass"),
     ("winbox", "MikroTik / WinBox"),
     ("agent", "ИИ-агент"),
 ];

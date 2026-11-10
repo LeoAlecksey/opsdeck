@@ -23,6 +23,7 @@ mod keepass;
 mod mikrotik;
 mod net;
 mod notes;
+mod gopass;
 mod passbolt;
 mod popout;
 mod ports;
@@ -193,6 +194,11 @@ pub fn run() {
             keepass::kp_open_external,
             keepass::clip_write,
             keepass::clip_read,
+            gopass::gp_status,
+            gopass::gp_entries,
+            gopass::gp_copy,
+            gopass::gp_username,
+            gopass::gp_forget,
             passbolt::pb_status,
             passbolt::pb_import_kit,
             passbolt::pb_forget,
