@@ -67,6 +67,9 @@ pub fn run() {
     process::fix_macos_path();
     // до сборки приложения: от окружения зависят папка настроек, имя журнала и данные вебвью
     profile::init();
+    // ConPTY (kubectl/ssh/shell): hidden parent console so release builds do not flash conhost
+    #[cfg(all(windows, not(debug_assertions)))]
+    process::hide_console_for_conpty();
 
     tauri::Builder::default()
         .plugin(diag::log_plugin())
