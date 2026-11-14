@@ -266,4 +266,84 @@ test.describe("IDE: several projects (#79)", () => {
     await expect(page.locator(".code-projects")).toBeHidden(); // one project left: the row hides
     await expect(page.locator(".code-proj")).toContainText("infra");
   });
+
+  test("switching away from unsaved edits asks first", async ({ app, page }) => {
+    await app.view("code");
+    for (const p of ["/home/demo/projects/infra/helm", "/home/demo/projects/infra"]) {
+      await page.evaluate((x) => window.dispatchEvent(new CustomEvent("open-in-code", { detail: { path: x } })), p);
+      await expect(page.locator(".code-tree .ct-row").first()).toBeVisible();
+    }
+    await page.evaluate(() => window.dispatchEvent(new CustomEvent("open-in-code", { detail: { path: "/home/demo/projects/infra/main.tf" } })));
+    await page.locator(".code-editor .cm-content").click();
+    await page.keyboard.type("# draft");
+
+    await page.locator(".code-proj-chip", { hasText: "helm" }).click();
+    await page.locator("dialog.ask button[value=cancel]").click();
+    await expect(page.locator(".code-proj-chip.active")).toContainText("infra");
+    await expect(page.locator(".code-tab.dirty", { hasText: "main.tf" })).toBeVisible();
+
+    await page.locator(".code-proj-chip", { hasText: "helm" }).click();
+    await page.locator("dialog.ask button[value=ok]").click();
+    await expect(page.locator(".code-proj-chip.active")).toContainText("helm");
+  });
+
+  test("closing the current project closes its files too", async ({ app, page }) => {
+    await app.view("code");
+    for (const p of ["/home/demo/projects/infra/helm", "/home/demo/projects/infra"]) {
+      await page.evaluate((x) => window.dispatchEvent(new CustomEvent("open-in-code", { detail: { path: x } })), p);
+      await expect(page.locator(".code-tree .ct-row").first()).toBeVisible();
+    }
+    await page.evaluate(() => window.dispatchEvent(new CustomEvent("open-in-code", { detail: { path: "/home/demo/projects/infra/main.tf" } })));
+    await expect(page.locator(".code-tab", { hasText: "main.tf" })).toBeVisible();
+
+    // an unsaved edit asks first; «cancel» keeps the project and the file
+    await page.locator(".code-editor .cm-content").click();
+    await page.keyboard.type("# draft");
+    await page.locator(".code-proj-chip.active .x").click();
+    await page.locator("dialog.ask button[value=cancel]").click();
+    await expect(page.locator(".code-tab", { hasText: "main.tf" })).toBeVisible();
+    await expect(page.locator(".code-proj-chip")).toHaveCount(2);
+
+    await page.locator(".code-proj-chip.active .x").click();
+    await page.locator("dialog.ask button[value=ok]").click();
+    await expect(page.locator(".code-proj")).toContainText("helm");
+    await expect(page.locator(".code-tab")).toHaveCount(0);
+  });
+});
+
+test("IDE: Ctrl+= / Ctrl+− / Ctrl+0 change the editor font", async ({ app, page }) => {
+  await openProject(app, page);
+  await page.evaluate((p) => window.dispatchEvent(new CustomEvent("open-in-code", { detail: { path: p + "/main.tf" } })), PROJ);
+  await page.locator(".code-editor .cm-content").click();
+  const font = () => page.locator(".code-editor .cm-editor").evaluate((el) => getComputedStyle(el).fontSize);
+  expect(await font()).toBe("13px");
+  await page.keyboard.press("Control+Equal");
+  await expect.poll(font).toBe("14.3px");
+  await page.keyboard.press("Control+Minus");
+  await page.keyboard.press("Control+Minus");
+  await expect.poll(font).toBe("11.7px");
+  await page.keyboard.press("Control+Digit0");
+  await expect.poll(font).toBe("13px");
+});
+
+test("IDE on the Russian layout: Ctrl+Ъ indents, Ctrl+С / Ctrl+М copy and paste", async ({ app, page }) => {
+  await openProject(app, page);
+  await page.evaluate((p) => window.dispatchEvent(new CustomEvent("open-in-code", { detail: { path: p + "/main.tf" } })), PROJ);
+  const content = page.locator(".code-editor .cm-content");
+  await content.click();
+  const press = (key: string, code: string) =>
+    content.evaluate((el, a) => el.dispatchEvent(new KeyboardEvent("keydown", { key: a.key, code: a.code, ctrlKey: true, bubbles: true, cancelable: true })), { key, code });
+  const first = () => page.locator(".code-editor .cm-line").first().textContent();
+  const was = await first();
+  await page.keyboard.press("Control+Home");
+  await press("ъ", "BracketRight"); // indentMore
+  await expect.poll(first).toBe("  " + was);
+
+  await page.keyboard.press("Shift+End");
+  await press("с", "KeyC");
+  await expect.poll(async () => (await app.calls("clip_write")).length).toBeGreaterThan(0);
+  await app.override("clip_read", "pasted-ru");
+  await page.keyboard.press("End");
+  await press("м", "KeyV");
+  await expect.poll(first).toContain("pasted-ru");
 });

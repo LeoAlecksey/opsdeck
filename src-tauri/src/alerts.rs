@@ -40,6 +40,8 @@ pub struct AlertsConfig {
     pub notify_resolved: bool,
     /// "hide such alerts": rules by source + alert name; hidden from the badge and notifications
     pub muted: Vec<Mute>,
+    /// те же уведомления — на телефон через ntfy или Gotify (токен в keyring)
+    pub push: crate::alertpush::PushConfig,
 }
 
 #[derive(Serialize, Deserialize, Clone, PartialEq)]
@@ -62,6 +64,7 @@ impl Default for AlertsConfig {
             notify: true,
             notify_resolved: false,
             muted: Vec::new(),
+            push: Default::default(),
         }
     }
 }
@@ -370,13 +373,21 @@ fn apply(app: &AppHandle, incoming: Vec<Alert>) {
 
 fn notify(app: &AppHandle, news: &[Alert]) {
     let cfg = config();
-    if !cfg.notify {
-        return;
-    }
     let shown: Vec<&Alert> = news
         .iter()
         .filter(|a| !a.silenced && !is_muted(&cfg, a) && (a.status == "firing" || cfg.notify_resolved))
         .collect();
+    if !cfg.push.kind.is_empty() && !shown.is_empty() {
+        let (push, msgs) = (cfg.push.clone(), crate::alertpush::messages(&shown));
+        tauri::async_runtime::spawn(async move {
+            if let Err(e) = crate::alertpush::send(&push, &msgs).await {
+                log::warn!("alerts push ({}): {e}", push.kind);
+            }
+        });
+    }
+    if !cfg.notify {
+        return;
+    }
     // one notification per alert up to 3, then a summary
     for a in shown.iter().take(3) {
         let icon = if a.status == "resolved" { "✅" } else if a.kind == "ai" { "🤖" } else if a.severity.contains("crit") { "🔴" } else { "🟠" };
@@ -1060,10 +1071,32 @@ pub fn alerts_config_get() -> AlertsConfig {
     config()
 }
 
+/// `push_token`: Some(непустой) — новый токен ntfy/Gotify, Some("") — убрать, None — оставить.
 #[tauri::command]
-pub async fn alerts_config_set(app: AppHandle, config: AlertsConfig) -> Result<(), String> {
+pub async fn alerts_config_set(app: AppHandle, config: AlertsConfig, push_token: Option<String>) -> Result<(), String> {
+    crate::alertpush::check(&config.push)?;
+    crate::alertpush::set_token(push_token)?;
+    if config.push.kind == "gotify" && crate::alertpush::token().is_none() {
+        return Err("для Gotify нужен токен приложения".into());
+    }
     store::save_json(CONFIG_FILE, &config)?;
     restart(&app).await
+}
+
+/// «Отправить проверку»: одно сообщение с сохранёнными настройками.
+#[tauri::command]
+pub async fn alerts_push_test() -> Result<(), String> {
+    let cfg = config().push;
+    if cfg.kind.is_empty() {
+        return Err("сначала выберите ntfy или Gotify и сохраните".into());
+    }
+    let msg = crate::alertpush::Msg {
+        title: crate::i18n::tr("OpsDeck: проверка уведомлений", &[]),
+        body: crate::i18n::tr("Если вы это видите, алерты будут приходить сюда.", &[]),
+        level: 1,
+        click: None,
+    };
+    crate::alertpush::send(&cfg, &[msg]).await
 }
 
 /// Hide (or show again) alerts with this name from this source.

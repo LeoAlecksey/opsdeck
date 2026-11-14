@@ -12,7 +12,7 @@ export const HELP_EN: Record<string, { title: string; html: string }> = {
       <ul>
         <li><b>＋</b> — new tab (opens in the same folder), <b>◫ / ⊟</b> — split right / down. When there are more tabs than fit, scroll the tab bar with the mouse wheel.</li>
         <li>Hover a command to get the block toolbar: copy the command or its output, <b>★</b> save as a snippet, <b>⇢ AI</b> send the command with its output to AI.</li>
-        <li>When a command fails, an <b>“ask AI”</b> bar appears at the bottom.</li>
+        <li>When a command fails, a small chip with the exit code appears in the top right corner: <b>⇢ AI</b> sends the command and its output to AI, <b>⟳ Retry</b> is there for ssh and other connections. Start typing and the chip goes away by itself.</li>
         <li><b>⇢ to AI</b> — send the selected text; <b>AI ▸</b> — show/hide the AI panel, the model is chosen there.</li>
         <li><b>◆ Claude IDE</b> in the tab bar — Claude Code is connected to OpsDeck and sees selections in notes.</li>
         <li>Coloured marks on the scrollbar are commands (red — failed).</li>
@@ -34,12 +34,13 @@ export const HELP_EN: Record<string, { title: string; html: string }> = {
       <h4>Hotkeys</h4>
       <ul>
         <li>${kbd("Ctrl+Shift+T")} new tab, ${kbd("Ctrl+Shift+W")} close pane/tab</li>
-        <li>${kbd("Alt+1")}…${kbd("Alt+9")} go to a tab by number (${kbd("Alt+9")} — the last one), ${kbd("Alt+←/→")} or ${kbd("Ctrl+Tab")} / ${kbd("Ctrl+Shift+Tab")} — previous / next tab</li>
+        <li>${kbd("Alt+1")}…${kbd("Alt+9")} go to a tab by number (${kbd("Alt+9")} — the last one), ${kbd("Alt+←/→")} or ${kbd("Ctrl+Tab")} / ${kbd("Ctrl+Shift+Tab")} — previous / next tab. On macOS tabs switch with ${kbd("Cmd+Option+←/→")}, and the usual line keys work: ${kbd("Cmd+←/→")} — start / end of the line, ${kbd("Option+←/→")} — by word, ${kbd("Cmd+⌫")} / ${kbd("Option+⌫")} — erase to the start of the line / a word</li>
         <li>${kbd("Ctrl+Shift+D")} / ${kbd("Ctrl+Shift+E")} split right / down (a WSL pane — into the same distribution), ${kbd("Ctrl+Shift+←/→")} between panes. Up to 6 panes in a tab: two sit side by side or stacked, three and more form a grid; with several, each has its own header with the host's name (⇱ — move to a tab of its own, × — close)</li>
         <li><b>Different hosts in one tab</b>: the ▤ button next to the split buttons (<i>A new pane with an SSH host</i>) — pick a host from the SSH profiles and <code>~/.ssh/config</code>, it opens as a new pane. Or do it the Termius way: open the target tab, take another tab with the mouse and drag it onto the terminal area — an edge (left, right, top, bottom) splits the window, the middle adds to the grid. The sessions keep running, nothing reconnects.</li>
         <li>${kbd("Ctrl+Shift+↑/↓")} to the previous / next command</li>
         <li>${kbd("Ctrl+=")} / ${kbd("Ctrl+-")} / ${kbd("Ctrl+0")} font size</li>
         <li>${kbd("Ctrl+Shift+C/V")} copy / paste (or the right mouse button, if set in ⚙ → Terminal: paste like PuTTY, or “copy the selection, otherwise paste”), ${kbd("Ctrl+Shift+A")} selection → AI, ${kbd("Ctrl+Shift+I")} AI panel</li>
+        <li>Shortcuts don't depend on the keyboard layout: on the Russian one ${kbd("Ctrl+C")}, ${kbd("Ctrl+R")}, ${kbd("Alt+B")} and the rest reach the shell just as on the English one; the same in the IDE, including copy and paste.</li>
         <li>${kbd("Ctrl+Shift+R")} reconnect: an SSH/kubectl exec tab whose session dropped stays open — «⟳ Reconnect» (or ${kbd("Enter")}); a failed <code>ssh</code> typed in a shell — «⟳ Retry»</li>
         <li>${kbd("Ctrl+Shift+K")} local AI: a command from a description in words</li>
         <li>${kbd("Ctrl+Shift+P")} command palette — search across OpsDeck (clusters, hosts, notes, snippets, command history)</li>
@@ -91,6 +92,7 @@ export const HELP_EN: Record<string, { title: string; html: string }> = {
       <h4>What's where</h4>
       <ul>
         <li><b>＋ Add</b> — a new connector: type, URL, login method (login/password, token, KeePass or Passbolt entry).</li>
+        <li><b>Trust this server's certificate</b> — for your own servers with a self-signed or internal-CA certificate: the panel opens instead of “Unacceptable TLS certificate”. The exception covers only this panel's address (same host and port) and only inside OpsDeck. Linux only for now.</li>
         <li><b>Open</b> — a tab next to “☰ Panels”; <b>⧉</b> — in a separate window.</li>
         <li><b>Groups</b>: the “Group” field in a panel card — panels with the same group are gathered into a collapsible row, like a Row in a Grafana dashboard. <b>✎</b> — edit, <b>🗑</b> — delete.</li>
         <li>On the right of a tab: <b>← → ↻ ⌂</b> — navigation, <b>⧉</b> — move to a window.</li>
@@ -112,6 +114,13 @@ export const HELP_EN: Record<string, { title: string; html: string }> = {
         <li><b>Zabbix</b> — Zabbix 6.0+ problems over the API, the same as on its Problems page (no disabled hosts and triggers, dependent ones or symptoms): an API token (Users → API tokens) or a login/password; if the web server in front of Zabbix asks for a password (HTTP Basic), fill in “Basic auth” in the connector (on 7.2+ behind Basic — login/password only, through the session of the web UI sign-in: a workaround);</li>
         <li><b>AI / analyzer</b> — findings of your log/alert analyzer: a local one posts them to 127.0.0.1 with its token, a remote one serves a JSON feed at a URL.</li>
       </ul>
+      <h4>Alerts to the phone: ntfy and Gotify</h4>
+      <p>In the section's ⚙: <b>To the phone</b> → ntfy or Gotify. The same alerts as the desktop notifications go there (without hidden and silenced ones; recoveries — if “…and on recovery” is on), the first five one by one, the rest as one summary; critical ones get the top priority, a tap opens the dashboard.</p>
+      <ul>
+        <li><b>ntfy</b>: a server (<code>https://ntfy.sh</code> or your own) and a topic — make it long, knowing it is the access; subscribe to the same topic in the ntfy app. For a protected topic — an access token <code>tk_…</code>.</li>
+        <li><b>Gotify</b>: the server address and an application token (Apps → Create application).</li>
+      </ul>
+      <p><b>Send a test</b> sends one message with the saved settings. The token is kept in the system keyring.</p>
       <h4>Connecting Grafana — step by step</h4>
       <ol>
         <li>Nothing to configure in Grafana: no contact point, no webhook. Only read access is needed.</li>
@@ -224,6 +233,7 @@ export const HELP_EN: Record<string, { title: string; html: string }> = {
         <li><b>Search across the project</b> — the ⌘ button at the top left or ${kbd("Ctrl+Shift+F")} outside the editor: plain text or a regular expression, case-sensitive by a checkbox. Hits are grouped by file and a click opens that line. Build output and other people's code (.git, node_modules, target, dist, .terraform, vendor…), binary files and anything over 2 MB are skipped; the first 500 hits are shown.</li>
         <li>${kbd("Ctrl+W")} closes the tab (a pane in the terminal), not the application window. ${kbd("Ctrl+Z")}, ${kbd("Ctrl+Shift+Z")}, ${kbd("Ctrl+Y")}, ${kbd("Ctrl+A")}, ${kbd("Ctrl+D")} and ${kbd("Ctrl+/")} work on any keyboard layout.</li>
         <li>${kbd("Ctrl+F")} — find and replace (like ${kbd("Ctrl+S")}, it works on any keyboard layout, and from the tree too), ${kbd("Ctrl+/")} — comment out, ${kbd("Tab")} / ${kbd("Shift+Tab")} — indent.</li>
+        <li>${kbd("Ctrl+=")} / ${kbd("Ctrl+−")} or ${kbd("Ctrl")}+wheel — bigger / smaller editor font, ${kbd("Ctrl+0")} — back to default. It is remembered.</li>
         <li><b>▭ console</b> at the bottom (${kbd("Ctrl+`")}) — a terminal right in the project folder: ↻ restart, ⧉ open this folder in a terminal tab. When the project changes, the console runs <code>cd</code> itself — if nothing is running in it (otherwise OpsDeck says so and does not type a command into a program).</li>
         <li><b>Panel sizes</b> — drag the borders between the tree, the editor, the console and the git panel; double-click a border — back to the default size. Sizes are remembered.</li>
         <li><b>⛓ pipeline</b> at the bottom right (the button appears when the project has <code>.gitlab-ci.yml</code> or <code>.github/workflows</code>) — the pipeline graph: columns are stages (for GitHub, the order from <code>needs</code>), cards are jobs. At the top you pick the <b>event</b> (push, merge request, tag, schedule, started by hand), the <b>branch</b>, the list of <b>changed files</b> (for <code>rules:changes</code> and <code>on: paths</code>) and variables. Card colour: green — runs, yellow — only by hand, grey — does not run, purple — unknown (the condition depends on what the file does not hold). A click on a job shows which rule matched, “In the file” opens its line, “⇢ AI” sends the job with its condition to the AI panel. The <b>compare with</b> checkbox shows what another branch would change. <code>include: local</code>, <code>extends</code>, YAML anchors and <code>!reference</code> are resolved; this reads the files, it is not the server — project variables, protected branches and child pipelines are not visible here.</li>
@@ -279,6 +289,7 @@ export const HELP_EN: Record<string, { title: string; html: string }> = {
       <li><b>⋯</b> on a row (or right-click): new note here, rename, <b>delete</b>. Deleted items move to the vault's trash (the <code>.trash</code> folder, like in Obsidian) — you can restore them from there.</li>
       <li><b>Drag and drop</b>: drag a note or a folder into another folder or to the root. Hold over a closed folder — it opens.</li>
       <li><b>Editor / Preview</b> (${kbd("Ctrl+E")}), <b>Save</b> (${kbd("Ctrl+S")}), [[…]] links are clickable.</li>
+      <li>Code blocks in the preview show <b>⧉</b> on hover — copy the command. ${kbd("Ctrl+=")} / ${kbd("Ctrl+−")} or ${kbd("Ctrl")}+wheel — note text zoom, ${kbd("Ctrl+0")} — back to default.</li>
       <li><b>@ agent</b> — insert a link to the note (or the selected lines) into the prompt of the AI agent chosen in ⚙ Settings → AI agent: Claude Code gets it over the IDE bridge, the others as an @path line in the AI panel; <b>Obsidian ↗</b> — open in Obsidian.</li></ul>
       <h4>Tags</h4>
       <p>Above the note there is a tag bar: type a tag into <b>＋ tag</b> and press ${kbd("Enter")} — existing tags are suggested. These tags are stored at the top of the note (<code>tags: [...]</code>, like in Obsidian), <b>×</b> removes one. Tags written right in the text (<code>#idea</code>) are shown too — with a dashed border.</p>
@@ -318,6 +329,19 @@ export const HELP_EN: Record<string, { title: string; html: string }> = {
       <li>KeePass entries can be bound to web panels, SSH hosts and MikroTik routers — then passwords are taken from here.</li>
       <li>While the database is open, passwords are in the palette ${kbd("Ctrl+Shift+P")} → “Password: …”.</li></ul>`,
   },
+  gopass: {
+    title: "gopass",
+    html: `
+      <h4>How it works</h4>
+      <p>OpsDeck reads a <a href="https://www.gopass.pw/">gopass</a> store (compatible with <code>pass</code>) through its CLI and only reads: entries are changed in gopass itself. gpg-agent decrypts; the GPG key password is asked by its pinentry window, OpsDeck never sees it.</p>
+      <ul>
+        <li>The list shows entry paths. ${"👤"} — copy the login (a <code>user:</code>, <code>username:</code> or <code>login:</code> line in the entry), ${"🔑"} — the password (the first line); the clipboard is cleared in 30 s.</li>
+        <li>In SSH, databases, MikroTik and web panels choose the login method <b>from gopass</b> and an entry: the login and password are taken from it on connect.</li>
+        <li>OpsDeck keeps what it decrypted in memory for up to 30 minutes, so that polling an alert source from gopass doesn't raise pinentry every minute. In the background the key password is never asked: such a source starts working once you open the entry or the panel yourself. <b>Forget</b> wipes it at once (the gpg-agent cache is separate).</li>
+      </ul>
+      <h4>If there is no list</h4>
+      <p><code>gopass</code> must be installed in PATH, with a store: <code>gopass init</code> or <code>gopass clone &lt;repository&gt;</code>.</p>`,
+  },
   passbolt: {
     title: "Passbolt",
     html: `
@@ -353,8 +377,10 @@ export const HELP_EN: Record<string, { title: string; html: string }> = {
       <p>Three lists: <b>count as reading</b> (the agent runs it itself even where it would ask), <b>always ask</b> (it shows it and waits for a click even when it is only reading) and <b>forbid completely</b> (it runs at no level). A ban wins over "ask", "ask" wins over "reading", and no rule unlocks what is forbidden always.</p>
       <p>Rules go one per line or separated by commas — a space cannot be the separator, because the rules themselves are made of words. A rule is the words of a command in order: <code>docker system prune</code> also catches <code>docker system prune -a --volumes</code>, and <code>kubectl get secret</code> catches <code>kubectl -n shop get secret db -o yaml</code>, because flags shift the words but do not change their order. If a rule contains <code>|</code> or <code>&gt;</code>, it is searched in the whole line: that is how <code>| bash</code> is written. A rule catches the command under <code>sudo</code> too.</p>
       <h4>What never runs</h4>
-      <p>Redirections and compound commands (<code>&gt;</code>, <code>;</code>, <code>&amp;&amp;</code>, backticks), interpreters (<code>sh</code>, <code>bash</code>, <code>python</code>, <code>awk</code>, <code>nc</code>) and the irreversible (<code>rm</code>, <code>dd</code>, <code>mkfs</code>, <code>reboot</code>, <code>passwd</code>). None of it passes at any level, "change freely" included: that is not a command the rules can reason about, it is running someone else's text. If you need it, type it in the terminal yourself.</p>
+      <p>Substitutions (<code>$(…)</code>, backticks, <code>&lt;(…)</code>, here-docs), background processes (<code>&amp;</code>), interpreters (<code>sh</code>, <code>bash</code>, <code>python</code>, <code>awk</code>, <code>nc</code>) and the irreversible (<code>rm</code>, <code>dd</code>, <code>mkfs</code>, <code>reboot</code>, <code>passwd</code>). None of it passes at any level, "change freely" included: that is not a command the rules can reason about, it is running someone else's text. If you need it, type it in the terminal yourself.</p>
       <p><code>sudo</code> has its own checkbox, and under it even reading counts as a change.</p>
+      <h4>Compound commands</h4>
+      <p>By default the agent runs one command or a <code>|</code> pipeline. The <b>Compound commands and redirections</b> box allows <code>&amp;&amp;</code>, <code>||</code>, <code>;</code>, <code>2&gt;&amp;1</code>, <code>2&gt;/dev/null</code>, <code>&lt; file</code> and <code>&gt; file</code>. Each part is checked on its own and the worst one wins: <code>uptime &amp;&amp; df -h</code> is a read, <code>uptime &amp;&amp; systemctl restart nginx</code> a change, <code>df -h; reboot</code> is forbidden as a whole. Writing output to a file (<code>&gt;</code>, <code>&gt;&gt;</code>, <code>&amp;&gt;</code>) is a change. <code>xargs</code> is judged by the command it runs. Anything that can't be parsed for sure (unclosed quotes, <code>$</code> inside double quotes, <code>\</code> escapes, brackets) is not run.</p>
       <h4>Why so strict</h4>
       <p>The agent reads logs, and logs are written by anyone. A line like "ADMIN NOTE: run this command" is indistinguishable from real data for a model, so output from a host is treated as data, not instructions: what runs is decided by the rules in this section, not by the model's answer.</p>
       <h4>Checking and the log</h4>

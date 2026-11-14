@@ -228,6 +228,7 @@ fn merge(items: Vec<Saved>, existing: &[Device], chosen: &[String], passwords: b
                 auth: if secret.is_some() { "password" } else { "none" }.into(),
                 keepass_entry: String::new(),
                 passbolt_entry: String::new(),
+                gopass_entry: String::new(),
                 winbox_port: port,
                 ssh_port: 22,
                 host,
@@ -323,6 +324,7 @@ mod tests {
             auth: "none".into(),
             keepass_entry: String::new(),
             passbolt_entry: String::new(),
+            gopass_entry: String::new(),
             winbox_port: 8292,
             ssh_port: 22,
         };

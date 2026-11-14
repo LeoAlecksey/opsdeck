@@ -19,6 +19,7 @@ type View = { current: Alert[]; history: Alert[]; firing: number };
 type Config = {
   ingest_enabled: boolean; ingest_port: number; poll_enabled: boolean; poll_seconds: number;
   notify: boolean; notify_resolved: boolean; muted: Mute[];
+  push: { kind: string; url: string; topic: string };
 };
 
 const SEV = [
@@ -65,6 +66,16 @@ export function mountAlerts(root: HTMLElement) {
           <input type="number" name="ingest_port" min="1024" max="65535" />
           <button class="primary">Сохранить</button>
         </div>
+        <div class="row wrap al-push">
+          <label>На телефон <select name="push_kind">
+            <option value="">не отправлять</option><option value="ntfy">ntfy</option><option value="gotify">Gotify</option>
+          </select></label>
+          <label data-push>Сервер <input name="push_url" type="url" placeholder="https://ntfy.sh" spellcheck="false" /></label>
+          <label data-push="ntfy">Топик <input name="push_topic" placeholder="opsdeck-ops-7f3a" spellcheck="false" /></label>
+          <label data-push><span class="push-token-label">Токен</span> <input name="push_token" type="password" autocomplete="new-password" /></label>
+          <button type="button" class="ghost" data-push data-a="push-test" title="Отправить одно сообщение с сохранёнными настройками">Отправить проверку</button>
+        </div>
+        <p class="muted small" data-push>Уходят те же алерты, что и уведомления на рабочем столе (без скрытых), — на указанный сервер и больше никуда. Токен хранится в системном keyring.</p>
         <div class="al-muted-list"></div>
       </form>
       <div class="al-toolbar">
@@ -91,7 +102,7 @@ export function mountAlerts(root: HTMLElement) {
   const current = $(".al-current"), hist = $(".al-history tbody"), filter = $<HTMLInputElement>(".al-filter");
   const form = $<HTMLFormElement>(".al-settings"), errors = $(".al-errors");
   const sourceSel = $<HTMLSelectElement>(".al-source"), groupSel = $<HTMLSelectElement>(".al-group");
-  const f = (n: keyof Config) => form.elements.namedItem(n) as HTMLInputElement;
+  const f = (n: keyof Config | "push_kind" | "push_url" | "push_topic" | "push_token") => form.elements.namedItem(n) as HTMLInputElement;
   let data: View = { current: [], history: [], firing: 0 };
   let muted: Mute[] = [];
   let sources: string[] = [];
@@ -288,8 +299,24 @@ export function mountAlerts(root: HTMLElement) {
     f("ingest_enabled").checked = c.ingest_enabled;
     f("ingest_port").value = String(c.ingest_port);
     muted = c.muted ?? [];
+    f("push_kind").value = c.push?.kind ?? "";
+    f("push_url").value = c.push?.url ?? "";
+    f("push_topic").value = c.push?.topic ?? "";
+    f("push_token").value = "";
+    syncPush();
     drawMuted();
   }
+
+  /** Поля пуша — только для выбранного сервиса; у Gotify токен обязателен, у ntfy — по желанию. */
+  function syncPush() {
+    const kind = f("push_kind").value;
+    form.querySelectorAll<HTMLElement>("[data-push]").forEach((el) => { el.hidden = !kind || (!!el.dataset.push && el.dataset.push !== kind); });
+    form.querySelector(".push-token-label")!.textContent = kind === "gotify" ? "Токен приложения" : "Токен (если топик закрыт)";
+    f("push_token").placeholder = "оставьте пустым, чтобы не менять";
+  }
+  f("push_kind").addEventListener("change", syncPush);
+  form.querySelector<HTMLElement>("[data-a=push-test]")!.onclick = () =>
+    invoke("alerts_push_test").then(() => toast("Отправлено — проверьте телефон"), (err) => toast(String(err), "err"));
 
   form.onsubmit = async (e) => {
     e.preventDefault();
@@ -298,8 +325,10 @@ export function mountAlerts(root: HTMLElement) {
       notify: f("notify").checked, notify_resolved: f("notify_resolved").checked,
       ingest_enabled: f("ingest_enabled").checked, ingest_port: Number(f("ingest_port").value) || 9095,
       muted,
+      push: { kind: f("push_kind").value, url: f("push_url").value.trim(), topic: f("push_topic").value.trim() },
     };
-    await invoke("alerts_config_set", { config }).then(() => toast("Сохранено"), (err) => toast(String(err), "err"));
+    const pushToken = f("push_token").value.trim() || null;
+    await invoke("alerts_config_set", { config, pushToken }).then(() => toast("Сохранено"), (err) => toast(String(err), "err"));
   };
 
   const groupOf = (el: HTMLElement): Alert[] => {

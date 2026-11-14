@@ -35,6 +35,9 @@ pub struct Connector {
     /// Passbolt resource uuid when auth == "passbolt"
     #[serde(default)]
     pub passbolt_entry: String,
+    /// путь записи gopass, когда auth == "gopass"
+    #[serde(default)]
+    pub gopass_entry: String,
     /// kind "ai": token the analyzer uses to push findings to OpsDeck's local ingest endpoint
     #[serde(default)]
     pub ingest_token: String,
@@ -42,6 +45,10 @@ pub struct Connector {
     /// password is a separate keyring secret
     #[serde(default)]
     pub basic_user: String,
+    /// Веб-панель с самоподписанным сертификатом или сертификатом внутреннего CA: сертификат,
+    /// который предъявляет хост этой панели, принимается (только этот хост, только в панели).
+    #[serde(default)]
+    pub insecure_tls: bool,
 }
 
 fn new_token() -> String {
@@ -131,7 +138,7 @@ impl Drop for ForgetOnDrop {
     }
 }
 
-fn load() -> Result<Vec<Connector>, String> {
+pub(crate) fn load() -> Result<Vec<Connector>, String> {
     store::load_json(FILE)
 }
 
@@ -182,6 +189,9 @@ pub fn connector_save(
     }
     if connector.auth == "passbolt" && connector.passbolt_entry.is_empty() {
         return Err("выберите запись Passbolt".into());
+    }
+    if connector.auth == "gopass" && connector.gopass_entry.is_empty() {
+        return Err("выберите запись gopass".into());
     }
     let basic_secret = basic_secret.filter(|s| !s.is_empty());
     if !connector.basic_user.is_empty()
@@ -256,6 +266,10 @@ pub async fn credentials(
             let (user, pass) = keepass::credentials(kp, &c.keepass_entry, used)?;
             (if c.username.is_empty() { user } else { c.username.clone() }, pass)
         }
+        "gopass" => {
+            let (user, pass) = crate::gopass::credentials(&c.gopass_entry, used).await?;
+            (if c.username.is_empty() { user } else { c.username.clone() }, pass)
+        }
         "passbolt" => {
             let (user, pass) = passbolt::credentials(pb, &c.passbolt_entry, used).await?;
             (
@@ -297,6 +311,14 @@ pub async fn prepare(
             c.auth = "password".into();
             pass
         }
+        "gopass" => {
+            let (user, pass) = crate::gopass::credentials(&c.gopass_entry, keepass::Use::User).await?;
+            if c.username.is_empty() {
+                c.username = user;
+            }
+            c.auth = "password".into();
+            pass
+        }
         _ => store::secret_get(&keyring_entry(&c.id)).unwrap_or_default(),
     };
     let script = (!secret.is_empty()).then(|| login_script(&c, &url, &secret));
@@ -317,7 +339,9 @@ pub async fn connector_open(
         return w.set_focus().map_err(|e| e.to_string());
     }
     let (c, url, script) = prepare(&kp, &pb, &id).await?;
-    let mut builder = WebviewWindowBuilder::new(&app, &label, WebviewUrl::External(url))
+    // с недоверенным сертификатом окно открывается пустым, а адрес грузится, когда стоит обработчик ошибки TLS
+    let start = if c.insecure_tls { Url::parse("about:blank").map_err(|e| e.to_string())? } else { url.clone() };
+    let mut builder = WebviewWindowBuilder::new(&app, &label, WebviewUrl::External(start))
         .title(format!("{} — {}", c.name, crate::profile::app_title()))
         .inner_size(1360.0, 860.0)
         .zoom_hotkeys_enabled(true); // Ctrl +/−/0 inside the window
@@ -326,7 +350,11 @@ pub async fn connector_open(
     if let Some(js) = script {
         builder = builder.initialization_script(&js);
     }
-    builder.build().map_err(|e| e.to_string())?;
+    let w = builder.build().map_err(|e| e.to_string())?;
+    if c.insecure_tls {
+        crate::embed::trust_host_certificate(&w, &url)?;
+        w.navigate(url).map_err(|e| e.to_string())?;
+    }
     Ok(())
 }
 

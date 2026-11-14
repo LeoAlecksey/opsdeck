@@ -7,8 +7,9 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Mutex;
+use std::time::Duration;
 use tauri::Emitter;
-use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder};
+use tauri::{AppHandle, LogicalPosition, LogicalSize, Manager, WebviewUrl, WebviewWindowBuilder};
 
 /// Что можно вынести: идентификатор раздела и заголовок окна (он же ключ перевода).
 /// Раздела `web` (Grafana · ArgoCD · GitLab) здесь нет: его страницы — нативные webview,
@@ -28,6 +29,7 @@ const VIEWS: &[(&str, &str)] = &[
     ("tasks", "Задачи и напоминания"),
     ("vault", "KeePass"),
     ("passbolt", "Passbolt"),
+    ("gopass", "gopass"),
     ("winbox", "MikroTik / WinBox"),
     ("agent", "ИИ-агент"),
 ];
@@ -61,18 +63,123 @@ fn visible_on(spot: &Spot, monitors: &[(f64, f64, f64, f64)]) -> bool {
 fn saved_spot(app: &AppHandle, view: &str) -> Option<Spot> {
     let saved: HashMap<String, Spot> = crate::store::load_json(FILE).unwrap_or_default();
     let spot = *saved.get(view)?;
-    let monitors: Vec<(f64, f64, f64, f64)> = app
+    let monitors = monitor_areas(app);
+    // мониторы не удалось получить — верим сохранённому месту
+    (monitors.is_empty() || visible_on(&spot, &monitors)).then_some(spot)
+}
+
+/// Прямоугольник в логических точках: x, y, ширина, высота.
+type Area = (f64, f64, f64, f64);
+
+/// Мониторы в логических точках, основной — первым: на него уходят окна, которым больше некуда.
+fn monitor_areas(app: &AppHandle) -> Vec<Area> {
+    let primary = app.primary_monitor().ok().flatten().map(|m| *m.position());
+    let mut list: Vec<(bool, Area)> = app
         .available_monitors()
         .unwrap_or_default()
         .iter()
         .map(|m| {
             let p = m.position().to_logical::<f64>(m.scale_factor());
             let s = m.size().to_logical::<f64>(m.scale_factor());
-            (p.x, p.y, s.width, s.height)
+            (Some(*m.position()) == primary, (p.x, p.y, s.width, s.height))
         })
         .collect();
-    // мониторы не удалось получить — верим сохранённому месту
-    (monitors.is_empty() || visible_on(&spot, &monitors)).then_some(spot)
+    list.sort_by_key(|(is_primary, _)| !is_primary);
+    list.into_iter().map(|(_, a)| a).collect()
+}
+
+fn overlap(a: Area, b: Area) -> f64 {
+    let w = (a.0 + a.2).min(b.0 + b.2) - a.0.max(b.0);
+    let h = (a.1 + a.3).min(b.1 + b.3) - a.1.max(b.1);
+    if w > 0.0 && h > 0.0 {
+        w * h
+    } else {
+        0.0
+    }
+}
+
+/// Куда переставить окно после смены мониторов. Отключили внешний экран — окно осталось в его
+/// координатах (развернуть его из панели задач можно, но на экране его нет) или размером с него.
+/// Тогда ставим его по центру монитора, где окна больше всего (иначе основного), и ужимаем до экрана.
+/// `None` — окно на месте: заголовок виден и почти всё окно лежит на мониторах (растянутое на два
+/// экрана — тоже на месте).
+fn refit(win: Area, monitors: &[Area]) -> Option<Area> {
+    if monitors.is_empty() || win.2 <= 0.0 || win.3 <= 0.0 {
+        return None;
+    }
+    let area = win.2 * win.3;
+    let title = (win.0, win.1, win.2, win.3.min(48.0));
+    let title_seen = monitors.iter().any(|m| overlap(title, *m) > 0.0);
+    let covered = monitors.iter().map(|m| overlap(win, *m)).sum::<f64>().min(area);
+    if title_seen && covered >= 0.75 * area {
+        return None;
+    }
+    let target = monitors
+        .iter()
+        .copied()
+        .filter(|m| overlap(win, *m) > 0.0)
+        .max_by(|a, b| overlap(win, *a).total_cmp(&overlap(win, *b)))
+        .unwrap_or(monitors[0]);
+    let (w, h) = (win.2.min(target.2), win.3.min(target.3));
+    Some((target.0 + (target.2 - w) / 2.0, target.1 + (target.3 - h) / 2.0, w, h))
+}
+
+/// Вернуть окно на экран, если после смены мониторов оно оказалось за его пределами.
+fn bring_on_screen(w: &tauri::WebviewWindow, monitors: &[Area]) {
+    // свёрнутое окно отдаёт чужие координаты; поправим, когда его развернут и оно получит фокус
+    if w.is_minimized().unwrap_or(true) {
+        return;
+    }
+    let Ok(scale) = w.scale_factor() else { return };
+    let (Ok(pos), Ok(outer), Ok(inner)) = (w.outer_position(), w.outer_size(), w.inner_size()) else { return };
+    let (p, o, i) = (pos.to_logical::<f64>(scale), outer.to_logical::<f64>(scale), inner.to_logical::<f64>(scale));
+    let Some((x, y, width, height)) = refit((p.x, p.y, o.width, o.height), monitors) else { return };
+    log::info!("window {}: off screen after a monitor change, moved to {x:.0},{y:.0} {width:.0}x{height:.0}", w.label());
+    let maximized = w.is_maximized().unwrap_or(false);
+    if maximized {
+        let _ = w.unmaximize();
+    }
+    // set_size задаёт внутренний размер, а уместить на экране нужно окно с рамкой
+    let _ = w.set_size(LogicalSize::new((width - (o.width - i.width)).max(1.0), (height - (o.height - i.height)).max(1.0)));
+    let _ = w.set_position(LogicalPosition::new(x, y));
+    // развёрнутое окно разворачиваем заново — уже по размеру оставшегося экрана
+    if maximized {
+        let _ = w.maximize();
+    }
+}
+
+/// Проверить окно не на UI-потоке: геттеры окна ходят в главный цикл, а он сейчас занят событием.
+fn check_on_screen(app: &AppHandle, label: &str) {
+    let (app, label) = (app.clone(), label.to_string());
+    std::thread::spawn(move || {
+        if let Some(w) = app.get_webview_window(&label) {
+            bring_on_screen(&w, &monitor_areas(&app));
+        }
+    });
+}
+
+/// Мониторы подключают и отключают на ходу, а события об этом у Tauri нет: раз в две секунды
+/// сверяем список и при изменении возвращаем окна на экран. Окно, свёрнутое в этот момент,
+/// проверяется, когда получит фокус (см. `install` и `window_popout`).
+fn watch_monitors(app: &AppHandle) {
+    let app = app.clone();
+    std::thread::spawn(move || {
+        let mut last = monitor_areas(&app);
+        loop {
+            std::thread::sleep(Duration::from_secs(2));
+            let now = monitor_areas(&app);
+            if now == last || now.is_empty() {
+                continue;
+            }
+            log::info!("monitors changed: {} → {}", last.len(), now.len());
+            last = now;
+            for (label, w) in app.webview_windows() {
+                if label == "main" || label.starts_with("pop-") {
+                    bring_on_screen(&w, &last);
+                }
+            }
+        }
+    });
 }
 
 /// Куда окно поставили и каким его растянули — чтобы в следующий раз открылось там же.
@@ -120,11 +227,13 @@ pub async fn window_popout(app: AppHandle, view: String) -> Result<(), String> {
     builder = crate::profile::isolate_window(builder).initialization_script(crate::profile::init_script());
     let window = builder.build().map_err(crate::store::err)?;
     let (handle, id, lbl) = (app.clone(), view.clone(), label.clone());
-    window.on_window_event(move |e| {
-        if matches!(e, tauri::WindowEvent::CloseRequested { .. }) {
+    window.on_window_event(move |e| match e {
+        tauri::WindowEvent::CloseRequested { .. } => {
             remember(&handle, &id, &lbl);
             close_sessions(&handle, &lbl);
         }
+        tauri::WindowEvent::Focused(true) => check_on_screen(&handle, &lbl),
+        _ => {}
     });
     Ok(())
 }
@@ -165,11 +274,15 @@ pub fn window_focus_main(app: AppHandle) -> Result<(), String> {
 }
 
 /// Главное окно закрыли — вынесенные окна закрываем вместе с ним: без боковой колонки
-/// вернуться в приложение из них нельзя.
+/// вернуться в приложение из них нельзя. Здесь же — слежение за мониторами.
 pub fn install(app: &AppHandle) {
     let Some(main) = app.get_webview_window("main") else { return };
+    watch_monitors(app);
     let handle = app.clone();
     main.on_window_event(move |e| {
+        if matches!(e, tauri::WindowEvent::Focused(true)) {
+            check_on_screen(&handle, "main");
+        }
         if !matches!(e, tauri::WindowEvent::CloseRequested { .. }) {
             return;
         }
@@ -218,5 +331,27 @@ mod tests {
     fn two_monitors() {
         let screens = [(0.0, 0.0, 1920.0, 1080.0), (1920.0, -200.0, 2560.0, 1440.0)];
         assert!(visible_on(&Spot { x: 2200.0, y: 100.0, w: 1100.0, h: 720.0 }, &screens));
+    }
+
+    #[test]
+    fn a_window_left_on_an_unplugged_monitor_comes_back() {
+        let laptop = [(0.0, 0.0, 1920.0, 1080.0)];
+        // окно стояло на внешнем экране справа
+        assert_eq!(refit((2300.0, 100.0, 1100.0, 720.0), &laptop), Some((410.0, 180.0, 1100.0, 720.0)));
+        // развёрнутое на 2560×1440: заголовок виден, но окно больше экрана — ужимаем
+        assert_eq!(refit((0.0, 0.0, 2560.0, 1440.0), &laptop), Some((0.0, 0.0, 1920.0, 1080.0)));
+        // обычное окно на месте не трогаем, и развёрнутое с рамкой за краем (Windows) — тоже
+        assert_eq!(refit((100.0, 80.0, 1100.0, 720.0), &laptop), None);
+        assert_eq!(refit((-8.0, -8.0, 1936.0, 1096.0), &laptop), None);
+        // мониторы не получены — ничего не делаем
+        assert_eq!(refit((5000.0, 0.0, 800.0, 600.0), &[]), None);
+    }
+
+    #[test]
+    fn a_window_across_two_monitors_stays() {
+        let screens = [(0.0, 0.0, 1920.0, 1080.0), (1920.0, 0.0, 1920.0, 1080.0)];
+        assert_eq!(refit((1000.0, 100.0, 2000.0, 800.0), &screens), None);
+        // уехало наполовину за нижний край второго — возвращаем на него, а не на основной
+        assert_eq!(refit((2000.0, 700.0, 1000.0, 800.0), &screens), Some((2380.0, 140.0, 1000.0, 800.0)));
     }
 }

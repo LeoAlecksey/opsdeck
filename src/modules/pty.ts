@@ -12,6 +12,8 @@ import type { Launched } from "./shellkind";
 import { copyText } from "./ui";
 import { uid } from "./winid";
 import { rightClickAction, rightClickMode, type RightClick } from "./rightclick";
+import { isMac, macNav } from "./mackeys";
+import { termSeq } from "./layout";
 
 export type SpawnOpts = { program?: string; args?: string[]; cwd?: string; env?: Record<string, string> };
 
@@ -172,8 +174,23 @@ export class PtyTerminal {
     }, { passive: false, capture: true });
     this.term.onData((data) => this.send(data));
     this.term.attachCustomKeyEventHandler((e) => {
+      // macOS: Cmd/Option + стрелки и ⌫ (#122); с серой подсказкой Cmd+→ и Option+→ принимают её
+      const nav = e.type === "keydown" && isMac() ? macNav(e) : null;
+      if (nav) {
+        e.preventDefault();
+        if (!nav.like || !this.sugg.key(new KeyboardEvent("keydown", nav.like))) this.send(nav.seq);
+        return false;
+      }
       // → / End accept the grey suggestion
       if (this.sugg.key(e)) { e.preventDefault(); return false; }
+      // русская раскладка: Ctrl+С, Ctrl+К, Alt+И доходят до оболочки как ^C, ^R, ESC b — xterm
+      // переводит их по букве раскладки и не отправлял ничего
+      const seq = e.type === "keydown" ? termSeq(e) : null;
+      if (seq) {
+        e.preventDefault();
+        this.send(seq);
+        return false;
+      }
       if (e.type !== "keydown" || !e.ctrlKey) return true;
       // Ctrl+Shift+K: ask the local AI for a command (by key position, so any layout works)
       if (e.code === "KeyK" && e.shiftKey && !e.altKey) {

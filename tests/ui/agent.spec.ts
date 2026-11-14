@@ -135,3 +135,11 @@ test.describe("ИИ-агент: правила", () => {
     await expect(rows.nth(1)).toContainText("с разрешения");
   });
 });
+
+test("галочка составных команд сохраняется в политике", async ({ app, page }) => {
+  await app.view("agent");
+  const box = page.locator("input[data-a=compound]");
+  await expect(box).not.toBeChecked();
+  await box.check();
+  await expect.poll(async () => (await saved(app)).compound).toBe(true);
+});

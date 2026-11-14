@@ -49,6 +49,9 @@ pub struct DbProfile {
     /// Passbolt resource uuid when auth == "passbolt"
     #[serde(default)]
     pub passbolt_entry: String,
+    /// путь записи gopass, когда auth == "gopass"
+    #[serde(default)]
+    pub gopass_entry: String,
     /// off | require (encrypt, don't check the certificate) | verify
     #[serde(default = "default_tls")]
     pub tls: String,
@@ -120,6 +123,10 @@ async fn credentials(
             let (u, pw) = keepass::credentials(kp, &p.keepass_entry, keepass::Use::User)?;
             Ok((if p.username.is_empty() { u } else { p.username.clone() }, pw))
         }
+        "gopass" => {
+            let (u, pw) = crate::gopass::credentials(&p.gopass_entry, keepass::Use::User).await?;
+            Ok((if p.username.is_empty() { u } else { p.username.clone() }, pw))
+        }
         "passbolt" => {
             let (u, pw) = passbolt::credentials(pb, &p.passbolt_entry, keepass::Use::User).await?;
             Ok((
@@ -160,6 +167,9 @@ pub fn db_save(profile: DbProfile, secret: Option<String>) -> Result<(), String>
     }
     if profile.auth == "passbolt" && profile.passbolt_entry.is_empty() {
         return Err("выберите запись Passbolt".into());
+    }
+    if profile.auth == "gopass" && profile.gopass_entry.is_empty() {
+        return Err("выберите запись gopass".into());
     }
     if let Some(s) = secret.filter(|s| !s.is_empty()) {
         store::secret_set(&secret_key(&profile.id), &s)?;
