@@ -32,4 +32,8 @@ describe("ssh arguments for the resource bar", () => {
     expect(t("host.example.com -p")).toBeNull();
     expect(t("-- host.example.com")).toEqual(["host.example.com"]);
   });
+  it("the profile's IdentitiesOnly=yes stays, any other -o is dropped", () => {
+    expect(t("-p 2222 -o IdentitiesOnly=yes -i ~/.ssh/id ops@192.0.2.1")).toEqual(["-p", "2222", "-o", "IdentitiesOnly=yes", "-i", "~/.ssh/id", "ops@192.0.2.1"]);
+    expect(t("-o ProxyCommand=sh -oIdentitiesOnly=yes host")).toEqual(["-o", "IdentitiesOnly=yes", "host"]);
+  });
 });

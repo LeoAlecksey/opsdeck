@@ -4,7 +4,7 @@ import { locale, t } from "../i18n";
 import { helpBtn } from "./help-btn";
 import { icon } from "./icons";
 import { invoke } from "@tauri-apps/api/core";
-import { ask, esc, popupMenu, toast } from "./ui";
+import { ask, attachZoom, copyText, esc, popupMenu, toast } from "./ui";
 import { registerProvider } from "./palette";
 import { terminalApi } from "./terminal";
 import { hcl, hclBalance } from "./hcl";
@@ -14,7 +14,8 @@ import { diffContext, fileContext, projectContext } from "./aictx";
 import { attachPathLinks } from "./files";
 import { fileIcon, folderIcon } from "./fileicons";
 import { basicSetup } from "codemirror";
-import { Decoration, EditorView, keymap, type DecorationSet } from "@codemirror/view";
+import { Decoration, EditorView, keymap, runScopeHandlers, type DecorationSet } from "@codemirror/view";
+import { latinKey } from "./layout";
 import { Compartment, EditorState, Prec, StateEffect, StateField, type Extension } from "@codemirror/state";
 import { openSearchPanel, selectNextOccurrence } from "@codemirror/search";
 import { StreamLanguage, indentUnit } from "@codemirror/language";
@@ -241,6 +242,8 @@ export function mountCode(root: HTMLElement) {
   const langC = new Compartment(), lintC = new Compartment(), roC = new Compartment();
   const view = new EditorView({ parent: host });
   view.dom.style.height = "100%";
+  // Ctrl+= / Ctrl+− / Ctrl+0 и Ctrl+колесо — размер шрифта в редакторе, как в терминале
+  attachZoom(host, "opsdeck.code.zoom", (k) => { host.style.setProperty("--code-font", `${13 * k}px`); view.requestMeasure(); }, root);
 
   const tfLinter = linter(async (v) => {
     if (!isTf(active?.path ?? null)) return [];
@@ -257,6 +260,30 @@ export function mountCode(root: HTMLElement) {
     syncStatus();
     return errs.map((e) => ({ ...lineRange(v, e.line), severity: "error" as const, message: e.message, source: tfTool || "проверка скобок" }));
   }, { delay: 700 });
+
+  /**
+   * Остальные сочетания на русской раскладке: CodeMirror ищет привязку по букве раскладки, так что
+   * Ctrl+], Ctrl+Shift+K, Ctrl+Enter и прочие молчали. Повторяем событие с латинской буквой той же
+   * клавиши. Копирование и вставку на «с», «ч», «м» WebKit тоже не узнаёт — делаем их сами.
+   */
+  function onLayout(e: KeyboardEvent, v: EditorView): boolean {
+    const ch = latinKey(e);
+    if (!ch) return false;
+    const plain = !e.shiftKey && !e.altKey;
+    const sel = v.state.selection.ranges.filter((r) => !r.empty).map((r) => v.state.sliceDoc(r.from, r.to)).join("\n");
+    if (plain && (ch === "c" || ch === "x")) {
+      if (!sel) return false;
+      copyText(sel);
+      if (ch === "x" && !v.state.readOnly) v.dispatch(v.state.replaceSelection(""));
+      return true;
+    }
+    if (plain && ch === "v") {
+      if (!v.state.readOnly) invoke<string>("clip_read").then((text) => text && v.dispatch(v.state.replaceSelection(text)), () => {});
+      return true;
+    }
+    const latin = new KeyboardEvent("keydown", { key: ch, code: e.code, ctrlKey: e.ctrlKey, metaKey: e.metaKey, altKey: e.altKey, shiftKey: e.shiftKey });
+    return runScopeHandlers(v, latin, "editor");
+  }
 
   function extensionsFor(t: { path: string | null; readonly: boolean; lang: Extension }): Extension[] {
     const lint: Extension[] = [];
@@ -286,7 +313,7 @@ export function mountCode(root: HTMLElement) {
             : e.code === "KeyA" ? run(selectAll)
             : e.code === "KeyD" ? run(selectNextOccurrence)
             : e.code === "Slash" ? run(toggleComment)
-            : false;
+            : onLayout(e, v);
           if (!done) return false;
           e.preventDefault();
           return true;
@@ -299,7 +326,7 @@ export function mountCode(root: HTMLElement) {
       langC.of(t.lang),
       lintC.of(lint),
       roC.of(EditorState.readOnly.of(t.readonly)),
-      EditorView.theme({ "&": { height: "100%", fontSize: "13px" }, ".cm-scroller": { fontFamily: "'JetBrains Mono', 'Fira Code', monospace" } }),
+      EditorView.theme({ "&": { height: "100%", fontSize: "var(--code-font, 13px)" }, ".cm-scroller": { fontFamily: "'JetBrains Mono', 'Fira Code', monospace" } }),
     ];
   }
 
@@ -537,26 +564,42 @@ export function mountCode(root: HTMLElement) {
     const chip = (e.target as HTMLElement).closest<HTMLElement>("[data-p]");
     if (!chip) return;
     const p = chip.dataset.p!;
-    if ((e.target as HTMLElement).classList.contains("x")) {
-      open = open.filter((x) => x !== p);
-      ls.set("opsdeck.code.projects", JSON.stringify(open));
-      try { localStorage.removeItem(stateKey(p)); } catch { /* ignore */ }
-      if (p === project) {
-        const next = open[0];
-        project = ""; // the closed project must not have its state written back
-        drawProjects();
-        if (next) setProject(next);
-      }
-      else drawProjects();
-      return;
-    }
+    if ((e.target as HTMLElement).classList.contains("x")) { closeProject(p); return; }
     if (p !== project) setProject(p);
   });
+
+  /** Закрытие проекта закрывает и его файлы: раньше вкладки оставались и смешивались с файлами следующего проекта. */
+  async function closeProject(p: string) {
+    if (p === project) {
+      if (active) active.state = view.state;
+      const unsaved = tabs.filter(isDirty).length;
+      if (unsaved && (await ask("Несохранённые изменения", `Несохранённых файлов в проекте: ${unsaved}. Изменения будут потеряны. Закрыть проект?`, { ok: "Закрыть без сохранения", danger: true })) === null) return;
+    }
+    open = open.filter((x) => x !== p);
+    ls.set("opsdeck.code.projects", JSON.stringify(open));
+    try { localStorage.removeItem(stateKey(p)); } catch { /* ignore */ }
+    if (p !== project) { drawProjects(); return; }
+    project = ""; // the closed project must not have its state written back
+    dropTabs();
+    const next = open[0];
+    drawProjects();
+    if (next) setProject(next);
+  }
+
+  /** Убрать все вкладки без вопросов: решение о несохранённом уже принято. */
+  function dropTabs() {
+    for (const tb of [...tabs]) { tabs.splice(tabs.indexOf(tb), 1); tb.btn.remove(); }
+    active = null;
+    activate(null);
+  }
 
   async function setProject(dir: string) {
     if (!dir) return;
     const next = dir.replace(/\/+$/, "") || "/";
     if (next === project) return;
+    // вкладки уходящего проекта закрываются, а запоминаются только пути: несохранённое пропало бы молча
+    const unsaved = project ? tabs.filter(isDirty).length : 0;
+    if (unsaved && (await ask("Несохранённые изменения", `Несохранённых файлов в проекте: ${unsaved}. Изменения будут потеряны. Перейти в другой проект?`, { ok: "Перейти без сохранения", danger: true })) === null) return;
     // remember where we were, then come back to the other project exactly as it was
     saveProjectState();
     switching = true;
@@ -564,9 +607,7 @@ export function mountCode(root: HTMLElement) {
     project = next;
     if (prev) {
       // close the files of the project we are leaving
-      for (const tb of [...tabs]) { tabs.splice(tabs.indexOf(tb), 1); tb.btn.remove(); }
-      active = null;
-      activate(null);
+      dropTabs();
     }
     expanded.clear();
     ls.set("opsdeck.code.root", project);

@@ -66,4 +66,19 @@ test.describe("reconnect a dropped connection (from feedback)", () => {
     await expect(page.locator(".fail-chip:visible")).toContainText("ls /nope");
     await expect(page.locator(".fail-chip:visible [data-f=retry]")).toBeHidden();
   });
+
+  test("typing the next command hides the failure chip, Ctrl+Shift+R still retries", async ({ app, page }) => {
+    await app.view("terminal");
+    const id = ((await app.called("pty_spawn")).args as any).req.id;
+    await app.emit(`pty-data-${id}`, b64(block("ssh deploy@198.51.100.11", "client_loop: send disconnect: Broken pipe", 255)));
+    await expect(page.locator(".fail-chip:visible")).toHaveCount(1);
+    await page.locator(".pane-term:visible").click();
+    await page.keyboard.press("Shift"); // a bare modifier is not typing
+    await expect(page.locator(".fail-chip:visible")).toHaveCount(1);
+    await page.keyboard.type("l");
+    await expect(page.locator(".fail-chip:visible")).toHaveCount(0);
+    const writes = (await app.calls("pty_write")).length;
+    await page.keyboard.press("Control+Shift+KeyR");
+    await expect.poll(async () => (await app.calls("pty_write")).slice(writes).map((c) => (c.args as any).data).join("")).toContain("ssh deploy@198.51.100.11\r");
+  });
 });

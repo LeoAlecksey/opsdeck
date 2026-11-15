@@ -1,3 +1,5 @@
+import { nextZoom, parseZoom, zoomKey } from "./zoom";
+
 export function esc(s: unknown): string {
   return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
 }
@@ -105,4 +107,36 @@ export function popupMenu(rect: { left: number; top: number; bottom: number }, i
   m.style.top = `${Math.max(4, y)}px`;
   m.onclick = (e) => { const i = (e.target as HTMLElement).closest<HTMLElement>("[data-i]")?.dataset.i; m.remove(); if (i !== undefined) items[Number(i)][1](); };
   setTimeout(() => document.addEventListener("click", () => m.remove(), { once: true }), 0);
+}
+
+/** Колесо над `el`, клавиши — в разделе `scope`; `apply` вызывается сразу с сохранённым масштабом и после каждого шага. */
+export function attachZoom(el: HTMLElement, key: string, apply: (scale: number) => void, scope: HTMLElement = el) {
+  let scale = 1;
+  try { scale = parseZoom(localStorage.getItem(key)); } catch { /* ignore */ }
+  apply(scale);
+  const set = (step: number) => {
+    const next = nextZoom(scale, step);
+    if (next !== scale) {
+      scale = next;
+      try { localStorage.setItem(key, String(scale)); } catch { /* ignore */ }
+      apply(scale);
+    }
+    toast(`Масштаб ${Math.round(scale * 100)}%`);
+  };
+  // клавиши — когда раздел на экране и фокус в нём (или нигде: после клика по тексту заметки);
+  // во встроенной консоли Ctrl+= остаётся шрифтом терминала
+  window.addEventListener("keydown", (e) => {
+    const step = zoomKey(e);
+    if (step === null || scope.offsetParent === null) return;
+    const target = e.target as HTMLElement;
+    if (!(scope.contains(target) || target === document.body) || target.closest?.(".xterm")) return;
+    e.preventDefault();
+    e.stopPropagation();
+    set(step);
+  }, true);
+  el.addEventListener("wheel", (e) => {
+    if (!e.ctrlKey) return;
+    e.preventDefault();
+    set(e.deltaY < 0 ? 1 : -1);
+  }, { passive: false, capture: true });
 }

@@ -3,6 +3,7 @@ use tauri::Manager;
 mod agent;
 mod ai;
 mod aichat;
+mod alertpush;
 mod alerts;
 mod cmdindex;
 mod code;
@@ -22,6 +23,7 @@ mod keepass;
 mod mikrotik;
 mod net;
 mod notes;
+mod gopass;
 mod passbolt;
 mod popout;
 mod ports;
@@ -65,6 +67,9 @@ pub fn run() {
     process::fix_macos_path();
     // до сборки приложения: от окружения зависят папка настроек, имя журнала и данные вебвью
     profile::init();
+    // ConPTY (kubectl/ssh/shell): hidden parent console so release builds do not flash conhost
+    #[cfg(all(windows, not(debug_assertions)))]
+    process::hide_console_for_conpty();
 
     tauri::Builder::default()
         .plugin(diag::log_plugin())
@@ -192,6 +197,11 @@ pub fn run() {
             keepass::kp_open_external,
             keepass::clip_write,
             keepass::clip_read,
+            gopass::gp_status,
+            gopass::gp_entries,
+            gopass::gp_copy,
+            gopass::gp_username,
+            gopass::gp_forget,
             passbolt::pb_status,
             passbolt::pb_import_kit,
             passbolt::pb_forget,
@@ -298,6 +308,7 @@ pub fn run() {
             alerts::alerts_clear,
             alerts::alerts_config_get,
             alerts::alerts_config_set,
+            alerts::alerts_push_test,
             alerts::alerts_poll_now,
             alerts::alerts_resolve,
             alerts::alerts_mute,

@@ -288,7 +288,9 @@ pub fn kp_notes(state: State<KeepassState>, id: String) -> Result<String, String
 #[tauri::command]
 pub fn kp_open_external() -> Result<(), String> {
     let path = settings::load().keepass_path;
-    let mut child = std::process::Command::new("keepassxc")
+    let mut keepassxc = std::process::Command::new("keepassxc");
+    crate::process::host_env(&mut keepassxc);
+    let mut child = keepassxc
         .arg(path)
         .spawn()
         .map_err(|e| format!("keepassxc: {e}"))?;

@@ -204,9 +204,12 @@ pub async fn web_embed_show(
         return place(&wv, rect);
     }
     let url = target.unwrap_or(base);
+    let insecure = connectors::load()?.iter().any(|c| c.id == id && c.insecure_tls);
+    // с недоверенным сертификатом панель создаётся пустой, а адрес грузится, когда стоит обработчик ошибки TLS
+    let start = if insecure { tauri::Url::parse("about:blank").map_err(|e| e.to_string())? } else { url.clone() };
     let window = app.get_window("main").ok_or("no main window")?;
     // входы в веб-панели у каждого окружения свои
-    let mut builder = crate::profile::isolate_webview(tauri::webview::WebviewBuilder::new(label(&id), WebviewUrl::External(url)).zoom_hotkeys_enabled(true));
+    let mut builder = crate::profile::isolate_webview(tauri::webview::WebviewBuilder::new(label(&id), WebviewUrl::External(start)).zoom_hotkeys_enabled(true));
     if let Some(js) = script {
         builder = builder.initialization_script(&js);
     }
@@ -215,7 +218,63 @@ pub async fn web_embed_show(
         .map_err(|e| e.to_string())?;
     forget_zoom(&id);
     apply_zoom(&wv, &id, zoom)?;
+    if insecure {
+        trust_host_certificate(&wv, &url)?;
+        wv.navigate(url).map_err(|e| e.to_string())?;
+    }
     place(&wv, rect)
+}
+
+/// Ошибка сертификата на этом адресе снимается галочкой панели: тот же хост (и порт), что у панели.
+/// Чужой хост — переход по ссылке, редирект на SSO — проверяется как обычно.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+fn tls_exception_applies(failing: &str, panel: &tauri::Url) -> bool {
+    tauri::Url::parse(failing).is_ok_and(|u| u.scheme() == "https" && u.host_str().is_some() && u.host_str() == panel.host_str() && u.port_or_known_default() == panel.port_or_known_default())
+}
+
+/// Галочка «Доверять сертификату этого сервера» (самоподписанный, внутренний CA). WebKitGTK
+/// останавливает загрузку с «Unacceptable TLS certificate»; для хоста панели сертификат, который он
+/// предъявил, добавляется в исключения её вебвью, и страница грузится заново. На Windows и macOS
+/// пока не поддерживается: там панель покажет ошибку, как и без галочки.
+#[cfg(target_os = "linux")]
+pub(crate) fn trust_host_certificate<R: tauri::Runtime>(wv: &impl WithWebview<R>, panel: &tauri::Url) -> Result<(), String> {
+    let panel = panel.clone();
+    wv.with_platform_webview(move |pw| {
+        use webkit2gtk::{WebContextExt, WebViewExt};
+        pw.inner().connect_load_failed_with_tls_errors(move |view, failing, cert, _| {
+            if !tls_exception_applies(failing, &panel) {
+                return false;
+            }
+            let (Some(ctx), Some(host)) = (view.context(), panel.host_str()) else { return false };
+            log::info!("web panel: accepted the TLS certificate of {host} (insecure_tls)");
+            ctx.allow_tls_certificate_for_host(cert, host);
+            view.load_uri(failing);
+            true
+        });
+    })
+}
+
+#[cfg(not(target_os = "linux"))]
+pub(crate) fn trust_host_certificate<R: tauri::Runtime>(_wv: &impl WithWebview<R>, _panel: &tauri::Url) -> Result<(), String> {
+    Ok(())
+}
+
+/// Вебвью панели во вкладке и в отдельном окне — у обоих `with_webview`, но общего трейта у Tauri нет.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+pub(crate) trait WithWebview<R: tauri::Runtime> {
+    fn with_platform_webview<F: FnOnce(tauri::webview::PlatformWebview) + Send + 'static>(&self, f: F) -> Result<(), String>;
+}
+
+impl<R: tauri::Runtime> WithWebview<R> for tauri::Webview<R> {
+    fn with_platform_webview<F: FnOnce(tauri::webview::PlatformWebview) + Send + 'static>(&self, f: F) -> Result<(), String> {
+        self.with_webview(f).map_err(|e| e.to_string())
+    }
+}
+
+impl<R: tauri::Runtime> WithWebview<R> for tauri::WebviewWindow<R> {
+    fn with_platform_webview<F: FnOnce(tauri::webview::PlatformWebview) + Send + 'static>(&self, f: F) -> Result<(), String> {
+        self.with_webview(f).map_err(|e| e.to_string())
+    }
 }
 
 #[tauri::command]
@@ -269,6 +328,23 @@ pub fn open_external(url: String) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
+    #[test]
+    fn the_tls_exception_is_only_for_the_panel_host() {
+        let panel = tauri::Url::parse("https://grafana.example.com/d/abc").unwrap();
+        assert!(tls_exception_applies("https://grafana.example.com/login", &panel));
+        assert!(tls_exception_applies("https://grafana.example.com:443/", &panel));
+        // другой хост (SSO, ссылка наружу), другой порт, поддомен — как обычно
+        assert!(!tls_exception_applies("https://sso.example.com/auth", &panel));
+        assert!(!tls_exception_applies("https://grafana.example.com:8443/", &panel));
+        assert!(!tls_exception_applies("https://evil.grafana.example.com/", &panel));
+        assert!(!tls_exception_applies("http://grafana.example.com/", &panel));
+        assert!(!tls_exception_applies("не адрес", &panel));
+        let by_ip = tauri::Url::parse("https://192.0.2.10:3000/").unwrap();
+        assert!(tls_exception_applies("https://192.0.2.10:3000/login", &by_ip));
+    }
+
     use super::mac_y;
 
     #[test]

@@ -3,22 +3,23 @@ import { icon } from "./icons";
 import { invoke } from "@tauri-apps/api/core";
 import { pickEntry } from "./keepass";
 import { pickEntry as pickPassbolt } from "./passbolt";
+import { pickEntry as pickGopass } from "./gopass";
 import { ask, esc, toast, overlay } from "./ui";
 import { registerProvider } from "./palette";
 import { natCmp } from "./natsort";
 
-type Connector = { id: string; kind: string; name: string; group?: string; url: string; username: string; auth: string; keepass_entry?: string; passbolt_entry?: string; ingest_token?: string; basic_user?: string };
+type Connector = { id: string; kind: string; name: string; group?: string; url: string; username: string; auth: string; keepass_entry?: string; passbolt_entry?: string; gopass_entry?: string; ingest_token?: string; basic_user?: string; insecure_tls?: boolean };
 
 const KINDS: Record<string, { label: string; auth: string[]; hint: string }> = {
-  grafana: { label: "Grafana", auth: ["keepass", "passbolt", "password", "token", "none"], hint: "Логин/пароль — автологин в панель и сбор алертов. Токен service account — только для сбора алертов (роль Viewer достаточно), в панель входите вручную." },
-  argocd: { label: "ArgoCD", auth: ["keepass", "passbolt", "password", "token"], hint: "admin/пароль или API-токен (argocd account generate-token)." },
-  gitlab: { label: "GitLab", auth: ["keepass", "passbolt", "password", "none"], hint: "Логин/пароль заполняются в форму входа. 2FA вводится руками." },
-  alertmanager: { label: "Alertmanager", auth: ["none", "password", "token", "keepass", "passbolt"], hint: "Prometheus Alertmanager, URL вида http://alertmanager:9093. OpsDeck опрашивает /api/v2/alerts — алерты появятся в разделе «Алерты»." },
-  zabbix: { label: "Zabbix", auth: ["token", "keepass", "passbolt", "password"], hint: "Zabbix 6.0+: проблемы забираются по API раз в минуту. Удобнее всего API-токен (Users → API tokens), можно логин/пароль." },
-  ai: { label: "AI / анализатор", auth: ["none", "token", "password", "keepass", "passbolt"], hint: "Локальный или удалённый анализатор логов и алертов. Как подключить — ниже." },
+  grafana: { label: "Grafana", auth: ["keepass", "passbolt", "gopass", "password", "token", "none"], hint: "Логин/пароль — автологин в панель и сбор алертов. Токен service account — только для сбора алертов (роль Viewer достаточно), в панель входите вручную." },
+  argocd: { label: "ArgoCD", auth: ["keepass", "passbolt", "gopass", "password", "token"], hint: "admin/пароль или API-токен (argocd account generate-token)." },
+  gitlab: { label: "GitLab", auth: ["keepass", "passbolt", "gopass", "password", "none"], hint: "Логин/пароль заполняются в форму входа. 2FA вводится руками." },
+  alertmanager: { label: "Alertmanager", auth: ["none", "password", "token", "keepass", "passbolt", "gopass"], hint: "Prometheus Alertmanager, URL вида http://alertmanager:9093. OpsDeck опрашивает /api/v2/alerts — алерты появятся в разделе «Алерты»." },
+  zabbix: { label: "Zabbix", auth: ["token", "keepass", "passbolt", "gopass", "password"], hint: "Zabbix 6.0+: проблемы забираются по API раз в минуту. Удобнее всего API-токен (Users → API tokens), можно логин/пароль." },
+  ai: { label: "AI / анализатор", auth: ["none", "token", "password", "keepass", "passbolt", "gopass"], hint: "Локальный или удалённый анализатор логов и алертов. Как подключить — ниже." },
   generic: { label: "Другое (URL)", auth: ["none"], hint: "Просто открыть веб-интерфейс в отдельном окне." },
 };
-const AUTH_LABEL: Record<string, string> = { keepass: "из KeePass", passbolt: "из Passbolt", password: "логин/пароль", token: "токен", none: "без автологина" };
+const AUTH_LABEL: Record<string, string> = { keepass: "из KeePass", passbolt: "из Passbolt", gopass: "из gopass", password: "логин/пароль", token: "токен", none: "без автологина" };
 
 export function mountConnectors(root: HTMLElement) {
   root.classList.add("web");
@@ -63,12 +64,15 @@ export function mountConnectors(root: HTMLElement) {
           <label>Авторизация <select name="auth"></select></label>
           <div data-a="keepass" class="kp-bind"><span class="kp-bound muted">запись не выбрана</span><button type="button" data-a="pick">Выбрать запись…</button></div>
           <div data-a="passbolt" class="kp-bind"><span class="pb-bound muted">запись не выбрана</span><button type="button" data-a="pb-pick">Выбрать запись…</button></div>
+          <div data-a="gopass" class="kp-bind"><span class="gp-bound muted">запись не выбрана</span><button type="button" data-a="gp-pick">Выбрать запись…</button></div>
           <label data-a="user">Логин <input name="username" autocomplete="off" /></label>
           <label data-a="secret"><span class="secret-label">Пароль</span> <input name="secret" type="password" autocomplete="new-password" placeholder="" /></label>
           <div class="grid2" data-a="basic" hidden>
             <label>Basic auth: логин <input name="basic_user" autocomplete="off" placeholder="если веб-сервер спрашивает пароль" /></label>
             <label>Basic auth: пароль <input name="basic_secret" type="password" autocomplete="new-password" /></label>
           </div>
+          <label class="check" data-a="tls"><input type="checkbox" name="insecure_tls" /> Доверять сертификату этого сервера (самоподписанный, внутренний CA)</label>
+          <p class="muted small" data-a="tls-hint" hidden>Ошибка сертификата будет пропускаться только для этого адреса и только в веб-панели — пароль автологина уйдёт серверу, даже если сертификат подменили. Включайте для своих внутренних серверов. Пока работает на Linux.</p>
           <p class="muted hint"></p>
           <div class="ai-help" hidden></div>
           <div class="src-help" hidden></div>
@@ -98,6 +102,15 @@ export function mountConnectors(root: HTMLElement) {
     if (e) setBound(e.id, `${e.title}${e.username ? " · " + e.username : ""}`);
   };
   const pbLabels = new Map<string, string>();
+  let gpEntry = "";
+  const setGpBound = (id: string) => {
+    gpEntry = id;
+    form.querySelector(".gp-bound")!.textContent = id || "запись не выбрана";
+  };
+  form.querySelector<HTMLElement>("[data-a=gp-pick]")!.onclick = async () => {
+    const e = await pickGopass();
+    if (e) setGpBound(e.id);
+  };
   let pbEntry = "";
   const setPbBound = (id: string, label?: string) => {
     pbEntry = id;
@@ -118,17 +131,21 @@ export function mountConnectors(root: HTMLElement) {
     for (const a of kind.auth) authSel.add(new Option(AUTH_LABEL[a], a));
     authSel.value = kind.auth.includes(prev) ? prev : kind.auth[0];
     const auth = authSel.value;
-    form.querySelector<HTMLElement>("[data-a=user]")!.hidden = auth !== "password" && auth !== "keepass" && auth !== "passbolt";
-    form.querySelector<HTMLElement>("[data-a=secret]")!.hidden = auth === "none" || auth === "keepass" || auth === "passbolt";
+    form.querySelector<HTMLElement>("[data-a=user]")!.hidden = auth !== "password" && auth !== "keepass" && auth !== "passbolt" && auth !== "gopass";
+    form.querySelector<HTMLElement>("[data-a=secret]")!.hidden = auth === "none" || auth === "keepass" || auth === "passbolt" || auth === "gopass";
     form.querySelector<HTMLElement>("[data-a=keepass]")!.hidden = auth !== "keepass";
     form.querySelector<HTMLElement>("[data-a=passbolt]")!.hidden = auth !== "passbolt";
-    f("username").placeholder = auth === "keepass" ? "из записи KeePass" : auth === "passbolt" ? "из записи Passbolt" : "";
+    form.querySelector<HTMLElement>("[data-a=gopass]")!.hidden = auth !== "gopass";
+    f("username").placeholder = auth === "keepass" ? "из записи KeePass" : auth === "passbolt" ? "из записи Passbolt" : auth === "gopass" ? "из записи gopass (user:)" : "";
     form.querySelector<HTMLElement>(".secret-label")!.textContent = auth === "token" ? "Токен" : "Пароль";
     f("secret").placeholder = editing ? "оставьте пустым, чтобы не менять" : "";
     form.querySelector<HTMLElement>(".hint")!.textContent = kind.hint;
     form.querySelector<HTMLElement>("[data-a=basic]")!.hidden = f("kind").value !== "zabbix";
     f("basic_secret").placeholder = editing?.basic_user ? "оставьте пустым, чтобы не менять" : "";
     const ai = f("kind").value === "ai";
+    // ИИ-анализатор в панели не открывается — галочке про сертификат там нечего делать
+    form.querySelector<HTMLElement>("[data-a=tls]")!.hidden = ai;
+    form.querySelector<HTMLElement>("[data-a=tls-hint]")!.hidden = ai || !f("insecure_tls").checked;
     f("url").required = !ai;
     f("url").placeholder = ai ? "необязательно: http://analyzer:8080/findings" : "https://grafana.example.com";
     form.querySelector<HTMLElement>(".url-label")!.textContent = ai ? "URL ленты (pull, необязательно)" : "URL";
@@ -219,6 +236,7 @@ export function mountConnectors(root: HTMLElement) {
   });
   f("kind").onchange = syncForm;
   f("auth").onchange = syncForm;
+  f("insecure_tls").onchange = syncForm;
   f("url").addEventListener("input", () => renderSourceHelp());
 
   /** Save, then poll this source once and show the outcome in the dialog. */
@@ -233,8 +251,10 @@ export function mountConnectors(root: HTMLElement) {
       username: f("username").value.trim(), auth: f("auth").value,
       keepass_entry: f("auth").value === "keepass" ? boundEntry : "",
       passbolt_entry: f("auth").value === "passbolt" ? pbEntry : "",
+      gopass_entry: f("auth").value === "gopass" ? gpEntry : "",
       ingest_token: editing?.ingest_token ?? "",
       basic_user: f("kind").value === "zabbix" ? f("basic_user").value.trim() : "",
+      insecure_tls: f("insecure_tls").checked,
     };
     if (!connector.name) connector.name = new URL(connector.url || "http://x").hostname;
     try {
@@ -265,8 +285,10 @@ export function mountConnectors(root: HTMLElement) {
     f("url").value = c?.url ?? "";
     f("username").value = c?.username ?? "";
     f("basic_user").value = c?.basic_user ?? "";
+    f("insecure_tls").checked = !!c?.insecure_tls;
     setBound(c?.keepass_entry ?? "");
     setPbBound(c?.passbolt_entry ?? "");
+    setGpBound(c?.gopass_entry ?? "");
     syncForm();
     if (c) { f("auth").value = c.auth; syncForm(); }
     dialog.showModal();
@@ -286,8 +308,10 @@ export function mountConnectors(root: HTMLElement) {
       username: f("username").value.trim(), auth: f("auth").value,
       keepass_entry: f("auth").value === "keepass" ? boundEntry : "",
       passbolt_entry: f("auth").value === "passbolt" ? pbEntry : "",
+      gopass_entry: f("auth").value === "gopass" ? gpEntry : "",
       ingest_token: editing?.ingest_token ?? "",
       basic_user: f("kind").value === "zabbix" ? f("basic_user").value.trim() : "",
+      insecure_tls: f("insecure_tls").checked,
     };
     try {
       await invoke("connector_save", { connector, secret: f("secret").value || null, basicSecret: f("basic_secret").value || null });

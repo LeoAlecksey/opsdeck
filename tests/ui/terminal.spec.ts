@@ -245,3 +245,43 @@ test.describe("terminal", () => {
     await expect.poll(async () => (await app.calls("pty_spawn")).map((c) => (c.args as any).req.program)).toContain("claude");
   });
 });
+
+test.describe("macOS keys (#122)", () => {
+  test("Cmd/Option + arrows move along the line; tabs go to Cmd+Option+arrows", async ({ app, page }) => {
+    await app.view("terminal");
+    await page.evaluate(() => Object.defineProperty(navigator, "platform", { get: () => "MacIntel" }));
+    await page.locator(".pane-term:visible").click();
+    const written = async () => (await app.calls("pty_write")).map((c) => c.args.data as string).join("");
+    const before = (await written()).length;
+    await page.keyboard.press("Meta+ArrowLeft");
+    await page.keyboard.press("Meta+ArrowRight");
+    await page.keyboard.press("Alt+ArrowLeft");
+    await page.keyboard.press("Alt+ArrowRight");
+    await page.keyboard.press("Alt+Backspace");
+    await page.keyboard.press("Meta+Backspace");
+    await expect.poll(async () => (await written()).slice(before)).toBe("\x01\x05\x1bb\x1bf\x17\x15");
+
+    await page.keyboard.press("Control+Shift+KeyT");
+    const active = () => activeIndex(page);
+    await expect.poll(active).toBe(1);
+    await page.keyboard.press("Alt+ArrowLeft"); // a word, not a tab
+    expect(await active()).toBe(1);
+    await page.keyboard.press("Meta+Alt+ArrowLeft");
+    await expect.poll(active).toBe(0);
+  });
+});
+
+test.describe("Russian layout", () => {
+  test("Ctrl+С, Ctrl+К, Alt+И reach the shell as ^C, ^R, ESC b", async ({ app, page }) => {
+    await app.view("terminal");
+    const written = async () => (await app.calls("pty_write")).map((c) => c.args.data as string).join("");
+    const before = (await written()).length;
+    const press = (key: string, code: string, mods: Record<string, boolean>) =>
+      page.locator(".pane-term:visible .xterm-helper-textarea").evaluate((el, a) =>
+        el.dispatchEvent(new KeyboardEvent("keydown", { key: a.key, code: a.code, bubbles: true, cancelable: true, ...a.mods })), { key, code, mods });
+    await press("с", "KeyC", { ctrlKey: true });
+    await press("к", "KeyR", { ctrlKey: true });
+    await press("и", "KeyB", { altKey: true });
+    await expect.poll(async () => (await written()).slice(before)).toBe("\x03\x12\x1bb");
+  });
+});

@@ -104,6 +104,8 @@ pub fn pty_spawn(app: AppHandle, window: tauri::WebviewWindow, state: State<PtyS
     }
     let program = chosen.map(|s| s.program).or(req.program.clone()).unwrap_or_else(default_shell);
     let mut cmd = CommandBuilder::new(&program);
+    // fish, eza, git внутри AppImage цепляли бы библиотеки из образа (см. host_env)
+    crate::process::host_env_pty(&mut cmd);
     if plain_shell {
         // best effort: without integration the tab still works, just without command blocks
         let _ = shell_integration(&program, &mut cmd);

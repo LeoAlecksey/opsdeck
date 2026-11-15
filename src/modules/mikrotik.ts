@@ -3,6 +3,7 @@ import { icon } from "./icons";
 import { invoke } from "@tauri-apps/api/core";
 import { kpEntries, kpStatus, pickEntry } from "./keepass";
 import { pbTitles, pickEntry as pickPassbolt } from "./passbolt";
+import { pickEntry as pickGopass } from "./gopass";
 import { ask, esc, toast } from "./ui";
 import { t } from "../i18n";
 import { registerProvider } from "./palette";
@@ -10,10 +11,10 @@ import { natCmp } from "./natsort";
 
 type Device = {
   id: string; name: string; host: string; group: string; username: string;
-  auth: string; keepass_entry: string; passbolt_entry: string; winbox_port: number; ssh_port: number;
+  auth: string; keepass_entry: string; passbolt_entry: string; gopass_entry?: string; winbox_port: number; ssh_port: number;
 };
 
-const AUTH: Record<string, string> = { keepass: "из KeePass", passbolt: "из Passbolt", password: "пароль (keyring)", none: "без пароля" };
+const AUTH: Record<string, string> = { keepass: "из KeePass", passbolt: "из Passbolt", gopass: "из gopass", password: "пароль (keyring)", none: "без пароля" };
 
 export function mountMikrotik(root: HTMLElement) {
   root.innerHTML = `
@@ -50,6 +51,7 @@ export function mountMikrotik(root: HTMLElement) {
           <label>Учётные данные <select name="auth">${Object.entries(AUTH).map(([k, v]) => `<option value="${k}">${v}</option>`).join("")}</select></label>
           <div data-s="keepass" class="kp-bind"><span class="kp-bound muted">запись не выбрана</span><button type="button" data-a="pick">Выбрать запись…</button></div>
           <div data-s="passbolt" class="kp-bind"><span class="pb-bound muted">запись не выбрана</span><button type="button" data-a="pb-pick">Выбрать запись…</button></div>
+          <div data-s="gopass" class="kp-bind"><span class="gp-bound muted">запись не выбрана</span><button type="button" data-a="gp-pick">Выбрать запись…</button></div>
           <label data-s="user">Логин <input name="username" autocomplete="off" spellcheck="false" placeholder="" /></label>
           <label data-s="password">Пароль <input name="secret" type="password" autocomplete="new-password" /></label>
           <p class="err form-err"></p>
@@ -72,8 +74,9 @@ export function mountMikrotik(root: HTMLElement) {
     const a = f("auth").value;
     form.querySelector<HTMLElement>("[data-s=keepass]")!.hidden = a !== "keepass";
     form.querySelector<HTMLElement>("[data-s=passbolt]")!.hidden = a !== "passbolt";
+    form.querySelector<HTMLElement>("[data-s=gopass]")!.hidden = a !== "gopass";
     form.querySelector<HTMLElement>("[data-s=password]")!.hidden = a !== "password";
-    f("username").placeholder = a === "keepass" ? "из записи KeePass" : a === "passbolt" ? "из записи Passbolt" : "admin";
+    f("username").placeholder = a === "keepass" ? "из записи KeePass" : a === "passbolt" ? "из записи Passbolt" : a === "gopass" ? "из записи gopass (user:)" : "admin";
     f("secret").placeholder = editing ? "оставьте пустым, чтобы не менять" : "";
   };
   f("auth").onchange = sync;
@@ -85,6 +88,15 @@ export function mountMikrotik(root: HTMLElement) {
   form.querySelector<HTMLElement>("[data-a=pick]")!.onclick = async () => {
     const e = await pickEntry();
     if (e) setBound(e.id, `${e.title}${e.username ? " · " + e.username : ""}`);
+  };
+  let gpEntry = "";
+  const setGpBound = (id: string) => {
+    gpEntry = id;
+    form.querySelector(".gp-bound")!.textContent = id || "запись не выбрана";
+  };
+  form.querySelector<HTMLElement>("[data-a=gp-pick]")!.onclick = async () => {
+    const e = await pickGopass();
+    if (e) setGpBound(e.id);
   };
   let pbEntry = "";
   let pbLabels = new Map<string, string>();
@@ -107,6 +119,7 @@ export function mountMikrotik(root: HTMLElement) {
     f("auth").value = d?.auth ?? "keepass";
     setBound(d?.keepass_entry ?? "");
     setPbBound(d?.passbolt_entry ?? "");
+    setGpBound(d?.gopass_entry ?? "");
     sync();
     dialog.showModal();
   };
@@ -117,7 +130,7 @@ export function mountMikrotik(root: HTMLElement) {
     const device: Device = {
       id: editing?.id ?? crypto.randomUUID(),
       name: f("name").value.trim(), group: f("group").value.trim(), host: f("host").value.trim(),
-      username: f("username").value.trim(), auth: f("auth").value, keepass_entry: f("auth").value === "keepass" ? boundEntry : "", passbolt_entry: f("auth").value === "passbolt" ? pbEntry : "",
+      username: f("username").value.trim(), auth: f("auth").value, keepass_entry: f("auth").value === "keepass" ? boundEntry : "", passbolt_entry: f("auth").value === "passbolt" ? pbEntry : "", gopass_entry: f("auth").value === "gopass" ? gpEntry : "",
       winbox_port: Number(f("winbox_port").value) || 8291, ssh_port: Number(f("ssh_port").value) || 22,
     };
     try {
@@ -148,7 +161,7 @@ export function mountMikrotik(root: HTMLElement) {
         <tr data-id="${esc(d.id)}">
           <td class="mt-name">${esc(d.name)}</td>
           <td>${esc(d.host)}${d.winbox_port !== 8291 ? `<span class="muted">:${d.winbox_port}</span>` : ""}</td>
-          <td class="muted">${esc(d.username || "")} ${d.auth === "keepass" ? `${icon("key", 14)} ${esc(titles.get(d.keepass_entry) ?? "KeePass")}` : d.auth === "passbolt" ? `${icon("lock", 14)} ${esc(pbLabels.get(d.passbolt_entry) ?? "Passbolt")}` : d.auth === "password" ? "· keyring" : ""}</td>
+          <td class="muted">${esc(d.username || "")} ${d.auth === "keepass" ? `${icon("key", 14)} ${esc(titles.get(d.keepass_entry) ?? "KeePass")}` : d.auth === "passbolt" ? `${icon("lock", 14)} ${esc(pbLabels.get(d.passbolt_entry) ?? "Passbolt")}` : d.auth === "gopass" ? `${icon("key", 14)} ${esc(d.gopass_entry ?? "gopass")}` : d.auth === "password" ? "· keyring" : ""}</td>
           <td class="mt-acts">
             <button class="primary" data-a="winbox">WinBox</button>
             <button data-a="ssh">SSH</button>
