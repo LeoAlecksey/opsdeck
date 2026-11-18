@@ -228,6 +228,25 @@ textarea:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 1
 .lfilter.bad { border-color: var(--danger); }
 .auto { display: flex; align-items: center; gap: 4px; }
 .k8s.loading [data-act=refresh] svg { animation: spin 1s linear infinite; }
+.page.vkcs.loading [data-a=refresh] svg { animation: spin 1s linear infinite; }
+.page.vkcs.loading .vkcs-body.vkcs-cached { opacity: 0.72; pointer-events: none; }
+.page.vkcs { overflow: hidden; min-height: 0; }
+.vkcs > .page-head, .vkcs > p { flex: none; }
+.vkcs-body { flex: 1; min-height: 0; overflow: auto; }
+.vkcs-log-dock { flex: none; min-height: 0; display: flex; flex-direction: column; margin: 0 -24px -20px; }
+.vkcs-log-panel { height: 200px; flex: none; min-height: 0; overflow: hidden; background: var(--bg); }
+.vkcs-log-entries { height: 100%; overflow: auto; }
+.vkcs-log-row { display: flex; align-items: flex-start; gap: 10px; padding: 5px 12px; border-bottom: 1px solid var(--border); font-size: 12px; }
+.vkcs-log-row time { flex: none; color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.vkcs-log-phase { width: 16px; flex: none; text-align: center; color: var(--muted); }
+.vkcs-log-row[data-phase=success] .vkcs-log-phase { color: var(--accent); }
+.vkcs-log-row[data-phase=error] .vkcs-log-phase, .vkcs-log-row[data-phase=timeout] .vkcs-log-phase { color: var(--danger); }
+.vkcs-log-row code { flex: 1; min-width: 0; white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
+.vkcs-log-row button.icon { width: 22px; height: 22px; margin-top: -2px; }
+.vkcs-log-split { height: 5px; flex: none; background: var(--border); cursor: row-resize; touch-action: none; }
+.vkcs-log-split:hover, .vkcs-log-split.drag, .vkcs-log-split:focus-visible { background: var(--accent); outline: none; }
+.vkcs-statusbar { display: flex; align-items: center; gap: 16px; flex: none; min-height: 32px; padding: 3px 12px; border-top: 1px solid var(--border); background: var(--panel); font-size: 12px; }
+.vkcs-log-toggle { margin-left: auto; height: 26px; font-size: 12px; }
 @keyframes spin { to { transform: rotate(360deg); } }
 .k8s-err { padding: 8px 12px; border-bottom: 1px solid var(--border); white-space: pre-wrap; }
 .k8s-err.reconnecting { color: #e6c07b; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; }

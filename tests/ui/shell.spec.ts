@@ -15,7 +15,7 @@ test.describe("start and modules", () => {
   });
 
   test("every section opens without errors", async ({ app, page }) => {
-    for (const id of ["terminal", "k8s", "web", "alerts", "net", "ssh", "monitor", "sftp", "yc", "code", "db", "notes", "tasks", "vault", "winbox", "settings"]) {
+    for (const id of ["terminal", "k8s", "web", "alerts", "net", "ssh", "monitor", "sftp", "yc", "vkcs", "code", "db", "notes", "tasks", "vault", "winbox", "settings"]) {
       await app.view(id);
       await expect(page.locator("section.view:not([hidden])")).toHaveCount(1);
     }

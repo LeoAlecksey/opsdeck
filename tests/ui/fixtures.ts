@@ -2,7 +2,7 @@ import { test as base, expect, type Page } from "@playwright/test";
 import { fileURLToPath } from "node:url";
 
 export type Call = { cmd: string; args: Record<string, unknown> };
-const ALL = ["terminal", "k8s", "web", "alerts", "net", "ssh", "monitor", "sftp", "yc", "code", "db", "notes", "tasks", "vault", "winbox", "agent"];
+const ALL = ["terminal", "k8s", "web", "alerts", "net", "ssh", "monitor", "sftp", "yc", "vkcs", "code", "db", "notes", "tasks", "vault", "winbox", "agent"];
 
 /** Options for the fake backend, set per test with `test.use({ demo: {...} })`. */
 // lang "auto": opsdeck.lang is not set (a fresh install), the storage is cleared only on the first
