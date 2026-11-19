@@ -25,6 +25,7 @@ import { popoutOpen, popoutViews, routeToMain, type Route } from "./modules/popo
 import { popoutView, winLabel } from "./modules/winid";
 import { watchJs } from "./modules/jswatch";
 import { bootInfo, DEFAULT_ID, markWindow, mountProfileBadge, openProfilesDialog } from "./modules/profiles";
+import { matchShortcut, SHORTCUTS } from "./modules/keybindings";
 
 // стояла ли сама страница во время зависания окна (строка рядом с «UI FREEZE» в журнале)
 watchJs((m) => logUi("warn", m));
@@ -353,18 +354,26 @@ if (!POP) {
   }, 8000);
 }
 
-// Ctrl+Shift+1…9 — модуль по его месту в колонке слева (9 — последний): на ноутбуке без мыши
-// переключаться быстрее, чем тыкать иконки (#79). Alt+цифры заняты вкладками терминала.
-document.addEventListener("keydown", (e) => {
-  if (POP || !e.ctrlKey || !e.shiftKey || e.altKey || e.metaKey) return;
-  const n = Number(e.code.startsWith("Digit") ? e.code.slice(5) : "");
-  if (!n || n < 1 || n > 9) return;
-  const on = movable().filter((b) => !b.hidden);
-  const btn = n === 9 ? on.at(-1) : on[n - 1];
-  if (!btn?.dataset.view) return;
+// App and Kubernetes shortcuts are dispatched before xterm or a focused editor can consume them.
+window.addEventListener("keydown", (e) => {
+  const target = e.target as HTMLElement | null;
+  if (target?.closest(".keybinding-record.recording")) return;
+  if (!target?.closest(".xterm") && target?.closest("input, textarea, select, dialog, [contenteditable=true]")) return;
+  const def = SHORTCUTS.find((s) => !s.macOnly && !s.id.startsWith("terminal.") && matchShortcut(e, s.id));
+  if (!def) return;
+  if (def.id.startsWith("k8s.") && panes.get("k8s")?.hidden !== false) return;
+  if (POP && def.id.startsWith("view.")) return;
   e.preventDefault();
-  show(btn.dataset.view);
-  // capture: иначе в терминале сочетание до нас не доходит — xterm останавливает событие
+  e.stopImmediatePropagation();
+  const viewIndex = /^view\.([1-9])$/.exec(def.id)?.[1];
+  if (viewIndex) {
+    const on = movable().filter((b) => !b.hidden);
+    const n = Number(viewIndex);
+    const btn = n === 9 ? on.at(-1) : on[n - 1];
+    if (btn?.dataset.view) show(btn.dataset.view);
+    return;
+  }
+  window.dispatchEvent(new CustomEvent("opsdeck-shortcut", { detail: def.id }));
 }, true);
 
 registerProvider(() => views.filter((v) => isOn(v.id)).map((v) => ({ group: "Перейти", title: v.title, hint: v.id, run: () => show(v.id) })));

@@ -6,7 +6,7 @@ import { listen, UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
-import { ask, esc, toast } from "./ui";
+import { ask, copyText, esc, toast } from "./ui";
 import { age, detailsHtml, jsonPath, statusClass } from "./k8s-details";
 import { decodeSecret } from "./secretval";
 import { findProblems, isSystemNs, issueForAi, runChecks, type Finding, type Issue, type Snapshot } from "./k8s-issues";
@@ -1210,21 +1210,38 @@ export function mountK8s(root: HTMLElement) {
   }
   const atCursor = () => items.find((x) => keyOf(x) === cursor);
 
-  document.addEventListener("keydown", (e) => {
-    if (root.hidden || e.ctrlKey || e.metaKey) return;
+  window.addEventListener("opsdeck-shortcut", (event) => {
+    if (root.hidden) return;
+    const id = (event as CustomEvent<string>).detail;
     const kinds = () => [...kindList.querySelectorAll<HTMLElement>(".kind-item")];
-    // Alt+↑/↓ — предыдущий или следующий раздел слева; работает и когда курсор в поле фильтра
-    if (e.altKey && (e.key === "ArrowUp" || e.key === "ArrowDown")) {
+    if (id === "k8s.prev-kind" || id === "k8s.next-kind") {
       const all = kinds();
       const at = all.findIndex((b) => b.classList.contains("active"));
-      const next = all[Math.min(all.length - 1, Math.max(0, (at < 0 ? 0 : at) + (e.key === "ArrowDown" ? 1 : -1)))];
-      if (!next) return;
-      e.preventDefault();
+      const step = id === "k8s.next-kind" ? 1 : -1;
+      const next = all[Math.min(all.length - 1, Math.max(0, (at < 0 ? 0 : at) + step))];
+      if (!next || next === all[at]) return;
       next.click();
       next.scrollIntoView({ block: "nearest" });
       return;
     }
-    if (e.altKey || e.isComposing) return;
+    const o = atCursor() ?? items.find((x) => keyOf(x) === selected);
+    if (id === "k8s.pod-shell") {
+      if (o && kind.id === "pods" && !isReadonly()) execShell(o);
+      return;
+    }
+    if (id === "k8s.logs") {
+      if (o && (kind.id === "pods" || POD_OWNERS.includes(kind.id))) openDrawer(o);
+      return;
+    }
+    if (id === "k8s.port-forward") {
+      if (o && kind.id === "pods") portForward(o, "pod");
+      else if (o && kind.id === "services") portForward(o, "svc");
+      return;
+    }
+  });
+
+  document.addEventListener("keydown", (e) => {
+    if (root.hidden || e.ctrlKey || e.metaKey || e.altKey || e.isComposing) return;
     // в полях ввода и в терминале стрелки и пробел принадлежат им
     if ((e.target as HTMLElement | null)?.closest("input, textarea, select, .xterm, .cm-editor, dialog")) return;
     if (e.key === "ArrowDown" || e.key === "ArrowUp") {
@@ -1445,16 +1462,24 @@ export function mountK8s(root: HTMLElement) {
     el.onclick = (e) => {
       const a = (e.target as HTMLElement).closest<HTMLElement>(".dlink");
       if (a) return navigateTo(a.dataset.kind!, a.dataset.ns ?? "", a.dataset.name!);
-      const btn = (e.target as HTMLElement).closest<HTMLElement>("[data-secret]");
+      const copyBtn = (e.target as HTMLElement).closest<HTMLElement>("[data-secret-copy]");
+      if (copyBtn) {
+        const value = decodeSecret(o.data[copyBtn.dataset.secretCopy!]).text;
+        void copyText(value).then(() => toast(t("Скопировано"))).catch(() => toast(t("Не удалось скопировать"), "err"));
+        return;
+      }
+      const btn = (e.target as HTMLElement).closest<HTMLElement>("[data-secret], [data-secret-key]");
       if (!btn) return;
+      const secretKey = btn.dataset.secretKey ?? btn.dataset.secret!;
       // the value goes under its key on the full width of the table (a narrow cell broke long values into a column of letters)
       const tr = btn.closest("tr")!;
       if (tr.nextElementSibling?.classList.contains("secret-row")) {
         tr.nextElementSibling.remove();
-        btn.textContent = "показать";
+        tr.querySelector<HTMLElement>(".secret-key")?.classList.remove("is-revealed");
+        tr.querySelectorAll<HTMLElement>("[data-secret]:not(.secret-key)").forEach((el) => { el.textContent = "показать"; });
         return;
       }
-      const v = decodeSecret(o.data[btn.dataset.secret!]);
+      const v = decodeSecret(o.data[secretKey]);
       const row = document.createElement("tr");
       row.className = "secret-row";
       const td = row.appendChild(document.createElement("td"));
@@ -1464,11 +1489,17 @@ export function mountK8s(root: HTMLElement) {
         note.className = "muted secret-note";
         note.textContent = v.size ? `Бинарные данные, ${v.size} байт — base64:` : "Не base64 — значение как есть:";
       }
+      const copyButton = td.appendChild(document.createElement("button"));
+      copyButton.type = "button";
+      copyButton.className = "ghost secret-copy";
+      copyButton.dataset.secretCopy = secretKey;
+      copyButton.textContent = "⧉ Скопировать значение";
       const code = td.appendChild(document.createElement("pre"));
       code.className = "secret-value";
       code.textContent = v.text;
       tr.after(row);
-      btn.textContent = "скрыть";
+      tr.querySelector<HTMLElement>(".secret-key")?.classList.add("is-revealed");
+      tr.querySelectorAll<HTMLElement>("[data-secret]:not(.secret-key)").forEach((el) => { el.textContent = "скрыть"; });
       detailsVersion = "pinned"; // keep the revealed value until the object actually changes
     };
   }

@@ -13,7 +13,7 @@ type Mode = "off" | "read" | "ask" | "trusted";
 type ModelChoice = { source: "app" | "server" | ""; host: string; port: string; name: string };
 type Brain = { source: string; title: string; weak: boolean; problem: string };
 type Policy = {
-  enabled: boolean; mode: Mode; hosts: Record<string, Mode>; allow_sudo: boolean; allow_local: boolean; compound?: boolean;
+  enabled: boolean; mode: Mode; hosts: Record<string, Mode>; allow_sudo: boolean; allow_local: boolean; compound?: boolean; allow_background?: boolean;
   max_steps: number; step_timeout_s: number; output_limit: number;
   extra_read: string[]; always_ask: string[]; deny: string[];
   model: ModelChoice;
@@ -72,10 +72,11 @@ export function mountAiAgent(root: HTMLElement) {
           <h3>Уровень доступа</h3>
           <label class="row">По умолчанию <select data-a="mode"></select></label>
           <ul class="agent-levels">${MODES.map(([id, title]) => `<li data-m="${id}"><b>${title}</b> — ${MODE_TEXT[id]}</li>`).join("")}</ul>
-          <p class="muted">Что бы ни стояло в уровне, не выполнятся никогда: подстановки (<code>$(…)</code>, обратные кавычки), фоновые процессы (<code>&amp;</code>), интерпретаторы (<code>sh</code>, <code>bash</code>, <code>python</code>, <code>awk</code>, <code>nc</code>) и необратимое (<code>rm</code>, <code>dd</code>, <code>mkfs</code>, <code>reboot</code>, <code>passwd</code>).</p>
+          <p class="muted">Что бы ни стояло в уровне, не выполнятся никогда: подстановки (<code>$(…)</code>, обратные кавычки), интерпретаторы (<code>sh</code>, <code>bash</code>, <code>python</code>, <code>awk</code>, <code>nc</code>) и необратимое (<code>rm</code>, <code>dd</code>, <code>mkfs</code>, <code>reboot</code>, <code>passwd</code>). Фоновый запуск — отдельная настройка ниже, такая команда считается изменением.</p>
           <label class="check"><input type="checkbox" data-a="allow_local" /><span>Разрешить работать на этой машине</span></label>
           <label class="check"><input type="checkbox" data-a="allow_sudo" /><span>Разрешить sudo <span class="muted">(любая команда под ним считается изменением)</span></span></label>
-          <label class="check"><input type="checkbox" data-a="compound" /><span>Составные команды и перенаправления <span class="muted">(<code>&amp;&amp;</code>, <code>||</code>, <code>;</code>, <code>2&gt;&amp;1</code>, <code>&gt; файл</code>: каждая часть проверяется отдельно, запись в файл — изменение)</span></span></label>
+          <label class="check"><input type="checkbox" data-a="compound" /><span>Составные команды и перенаправления <span class="muted">(<code>&amp;&amp;</code>, <code>||</code>, <code>;</code>, <code>2&gt;&amp;1</code>, <code>&gt; файл</code>: каждая часть проверяется отдельно, запись в файл — изменение; конвейеры <code>|</code> доступны всегда и также проверяются по каждой части)</span></span></label>
+          <label class="check"><input type="checkbox" data-a="allow_background" /><span>Разрешить фоновый запуск <span class="muted">(<code>команда &amp;</code> запускается без ожидания и возвращает PID; считается изменением, работает только в Unix)</span></span></label>
         </section>
         <section class="agent-card">
           <h3>Рамки одного расследования</h3>
@@ -155,6 +156,8 @@ export function mountAiAgent(root: HTMLElement) {
     check("allow_local").checked = policy.allow_local;
     check("allow_sudo").checked = policy.allow_sudo;
     check("compound").checked = !!policy.compound;
+    check("allow_background").checked = !!policy.allow_background;
+    check("allow_background").disabled = !policy.compound;
     num("max_steps").value = String(policy.max_steps);
     num("step_timeout_s").value = String(policy.step_timeout_s);
     num("output_limit").value = String(policy.output_limit);
@@ -190,8 +193,9 @@ export function mountAiAgent(root: HTMLElement) {
     if (host) {
       if (el.value) policy.hosts[host] = el.value as Mode;
       else delete policy.hosts[host];
-    } else if (name === "enabled" || name === "allow_sudo" || name === "allow_local" || name === "compound") {
+    } else if (name === "enabled" || name === "allow_sudo" || name === "allow_local" || name === "compound" || name === "allow_background") {
       policy[name] = el.checked;
+      if (name === "compound" && !el.checked) policy.allow_background = false;
     } else if (name === "mode") {
       policy.mode = el.value as Mode;
     } else if (name === "max_steps" || name === "step_timeout_s" || name === "output_limit") {
