@@ -173,7 +173,10 @@ type VaultCheck = { ok: boolean; exists: boolean; is_dir: boolean; is_obsidian: 
 export function mountSettings(root: HTMLElement) {
   root.innerHTML = `
     <div class="page settings">
-      <h2>Настройки ${helpBtn("settings")}</h2>
+      <div class="settings-heading">
+        <h2>Настройки ${helpBtn("settings")}</h2>
+        <a class="settings-thanks" href="${DONATE_URL}" data-ext title="Перевод автору через ЮMoney — по желанию"><span aria-hidden="true">♡</span> <span>Спасибо</span></a>
+      </div>
       <fieldset class="lang-field" data-no-i18n><legend>Язык · Language</legend>
         <select class="lang-sel">
           <option value="auto">Как в системе · System</option>
