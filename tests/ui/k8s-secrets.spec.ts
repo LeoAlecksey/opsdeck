@@ -49,6 +49,17 @@ test.describe("kubernetes secrets (#67)", () => {
     await expect(row.locator(".secret-value")).toContainText(gz.slice(0, 20));
   });
 
+  test("the key toggles the value and copy preserves its exact text", async ({ page, context }) => {
+    await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+    const key = page.locator('.drawer [data-secret-key="tls.crt"]');
+    await key.click();
+    await page.locator('.drawer [data-secret-copy="tls.crt"]').click();
+    expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(pem);
+    await key.click();
+    await expect(page.locator(".drawer .secret-row")).toHaveCount(0);
+    await expect(page.locator('.drawer [data-secret="tls.crt"]')).toHaveText("показать");
+  });
+
   test("plain text values are shown as they are", async ({ page }) => {
     await page.locator('.drawer [data-secret="password"]').click();
     await expect(page.locator(".drawer .secret-row .secret-value")).toHaveText("p@ss w0rd");

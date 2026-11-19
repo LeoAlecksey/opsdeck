@@ -354,6 +354,7 @@ export function mountSettings(root: HTMLElement) {
       el.classList.remove("recording");
     });
     btn.classList.add("recording");
+    btn.focus();
     btn.textContent = "Нажмите сочетание…";
     root.querySelectorAll<HTMLElement>("[data-keybinding-status]").forEach((el) => { el.textContent = ""; });
   });
@@ -368,7 +369,7 @@ export function mountSettings(root: HTMLElement) {
     if (value) {
       const conflict = changedBinding(value, id);
       if (conflict) {
-        root.querySelector<HTMLElement>(`[data-keybinding-status="${CSS.escape(id)}"]`)!.textContent = `Уже назначено: ${conflict}`;
+        root.querySelector<HTMLElement>(`[data-keybinding-status="${CSS.escape(id)}"]`)!.textContent = t("Уже назначено: {}").replace("{}", t(conflict));
         return;
       }
     }

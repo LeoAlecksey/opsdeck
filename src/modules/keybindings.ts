@@ -51,7 +51,11 @@ export function bindingLabel(value: string): string {
 }
 
 export function bindings(): Record<string, string> {
-  try { return JSON.parse(localStorage.getItem(KEY) ?? "{}"); } catch { return {}; }
+  try {
+    const saved: unknown = JSON.parse(localStorage.getItem(KEY) ?? "{}");
+    if (!saved || typeof saved !== "object" || Array.isArray(saved)) return {};
+    return Object.fromEntries(Object.entries(saved).filter(([, value]) => typeof value === "string"));
+  } catch { return {}; }
 }
 
 export function bindingFor(id: string): string {
@@ -64,8 +68,8 @@ export function setBinding(id: string, value: string | null): void {
   const saved = bindings();
   const def = SHORTCUTS.find((s) => s.id === id);
   if (!def) return;
-  if (value === null || value === def.default) delete saved[id];
-  else saved[id] = value;
+  if (value === def.default) delete saved[id];
+  else saved[id] = value ?? "";
   try { localStorage.setItem(KEY, JSON.stringify(saved)); } catch { /* unavailable storage */ }
   window.dispatchEvent(new Event("keybindings-changed"));
 }
@@ -86,6 +90,7 @@ export function matchShortcut(e: KeyboardEvent, id: string): boolean {
 }
 
 export function changedBinding(value: string, ignoreId: string): string | null {
+  if (value === "Ctrl+Shift+KeyP") return "Палитра команд";
   for (const def of SHORTCUTS) {
     if (def.id !== ignoreId && bindingFor(def.id) === value) return def.title;
   }

@@ -912,6 +912,27 @@ mod tests {
     }
 
     #[test]
+    fn background_is_opt_in_and_always_requires_write_access() {
+        let p = Policy { allow_background: true, ..compound() };
+        for cmd in ["uptime &", "uptime && df -h &", "ps aux | head -n 3 > /tmp/processes &"] {
+            assert!(forbidden(&classify(cmd, &compound())), "{cmd}");
+            let v = classify(cmd, &p);
+            assert_eq!(v, Verdict::Write, "{cmd}");
+            assert!(allowed(&Policy { mode: Mode::Read, ..p.clone() }, "id:h1", &v, true).is_err());
+            let ask = Policy { mode: Mode::Ask, ..p.clone() };
+            assert!(allowed(&ask, "id:h1", &v, false).is_err());
+            assert!(allowed(&ask, "id:h1", &v, true).is_ok());
+        }
+        assert!(forbidden(&classify("uptime &", &Policy { compound: false, ..p.clone() })));
+        for cmd in ["uptime & reboot", "uptime && &", "uptime | &", "uptime & &", "rm -rf / &", "echo $(id) &"] {
+            assert!(forbidden(&classify(cmd, &p)), "{cmd}");
+        }
+        assert!(!parse_compound("echo 'a & b'").unwrap().background);
+        assert!(parse_compound("uptime &  ").unwrap().background);
+        assert!(!serde_json::from_str::<Policy>("{}").unwrap().allow_background);
+    }
+
+    #[test]
     fn writing_to_a_file_is_a_change() {
         let p = compound();
         assert_eq!(classify("df -h > /tmp/df.txt", &p), Verdict::Write);

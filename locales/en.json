@@ -2307,5 +2307,18 @@
  "Фоновый запуск — отдельная настройка ниже, такая команда считается изменением.": "Background execution is a separate setting below; these commands count as changes.",
  "запускается без ожидания и возвращает PID; считается изменением, работает только в Unix": "starts without waiting and returns a PID; counts as a change, Unix only",
  "каждая часть проверяется отдельно, запись в файл — изменение; конвейеры": "each part is checked separately, writing to a file counts as a change; pipelines",
- "доступны всегда и также проверяются по каждой части": "are always available and checked stage by stage"
+ "доступны всегда и также проверяются по каждой части": "are always available and checked stage by stage",
+ "Показать или скрыть значение": "Show or hide the value",
+ "⧉ Скопировать значение": "⧉ Copy value",
+ "команда &": "command &",
+ "Палитра команд": "Command palette",
+ "Не удалось скопировать": "Could not copy",
+ ", обратные кавычки), интерпретаторы (": ", backticks), interpreters (",
+ "). Фоновый запуск — отдельная настройка ниже, такая команда считается изменением.": "). Background execution is a separate setting below; these commands count as changes.",
+ ": каждая часть проверяется отдельно, запись в файл — изменение; конвейеры": ": each part is checked separately, writing to a file counts as a change; pipelines",
+ "доступны всегда и также проверяются по каждой части)": "are always available and checked stage by stage)",
+ "запускается без ожидания и возвращает PID; считается изменением, работает только в Unix)": "starts without waiting and returns a PID; counts as a change, Unix only)",
+ "«&» разрешён только в конце команды для запуска в фоне": "“&” is only allowed at the end of a command to run it in the background",
+ "запуск в фоне выключен в настройках агента": "background execution is disabled in the agent settings",
+ "запуск фоновой команды на этой машине пока поддерживается только в Unix-оболочке": "background commands on this machine are currently only supported in a Unix shell"
 }

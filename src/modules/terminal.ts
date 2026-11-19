@@ -15,7 +15,7 @@ import { addressable, throughTunnel, type Target } from "./urls";
 import { ask, copyText, esc, overlay, toast } from "./ui";
 import { t } from "../i18n";
 import { isWindows } from "./themes";
-import { isMac } from "./mackeys";
+import { isMac, macNav } from "./mackeys";
 import { AI_PROVIDERS, aiAgent, setAiAgent } from "./ai-agents";
 import { LocalChat, type ChatTarget } from "./aichat";
 import { isProgramPath, isWsl, shellName, webShareCommand, wslDistro } from "./shellkind";
@@ -1127,8 +1127,12 @@ export function mountTerminal(root: HTMLElement) {
     }
   });
 
+  // Configured macOS editing keys reach xterm before the built-in tab/window shortcuts.
+  const editingShortcut = (e: KeyboardEvent) => isMac() && !!(e.target as HTMLElement | null)?.closest(".xterm") && !!macNav(e);
+
   // Ctrl+W: a terminal closes its tab, the webview would close the whole window (#79)
   window.addEventListener("keydown", (e) => {
+    if (editingShortcut(e)) return;
     if (root.hidden || !e.ctrlKey || e.shiftKey || e.altKey || e.code !== "KeyW") return;
     e.preventDefault();
     const p = activePane();
@@ -1136,6 +1140,7 @@ export function mountTerminal(root: HTMLElement) {
   }, true);
 
   window.addEventListener("keydown", (e) => {
+    if (editingShortcut(e)) return;
     if (root.hidden || !e.ctrlKey || !e.shiftKey) return;
     // letters by key position, so the shortcuts also work on the Russian layout
     const k = e.code.startsWith("Key") ? e.code.slice(3) : e.key.length === 1 ? e.key.toUpperCase() : e.key;
@@ -1164,6 +1169,7 @@ export function mountTerminal(root: HTMLElement) {
     activate(tabs[(tabs.indexOf(activeTab) + step + tabs.length) % tabs.length]);
   };
   window.addEventListener("keydown", (e) => {
+    if (editingShortcut(e)) return;
     // на macOS Option+←/→ — переход по словам в строке (#122), а вкладки — Cmd+Option+←/→, как в браузерах
     const tabArrow = isMac() ? e.metaKey && e.altKey && !e.ctrlKey && !e.shiftKey : e.altKey && !e.metaKey && !e.ctrlKey && !e.shiftKey;
     if (root.hidden || (e.metaKey && !tabArrow)) return;

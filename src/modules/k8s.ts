@@ -1230,7 +1230,7 @@ export function mountK8s(root: HTMLElement) {
       return;
     }
     if (id === "k8s.logs") {
-      if (o && (kind.id === "pods" || POD_OWNERS.includes(kind.id))) openDrawer(o);
+      if (o && (kind.id === "pods" || POD_OWNERS.includes(kind.id))) { openDrawer(o); openDrawerTab("Логи"); }
       return;
     }
     if (id === "k8s.port-forward") {
@@ -1287,6 +1287,7 @@ export function mountK8s(root: HTMLElement) {
     drawerCleanup?.();
     drawerCleanup = null;
     selected = keyOf(o);
+    setCursor(selected, false);
     tbody.querySelectorAll("tr").forEach((r) => r.classList.toggle("sel", r.dataset.key === selected));
     drawer.hidden = false;
     const objNs: string = o.metadata.namespace ?? "";
@@ -1904,7 +1905,8 @@ export function mountK8s(root: HTMLElement) {
   }
 
   function execShell(o: Obj) {
-    const c = o.spec.containers.length > 1 ? drawerBody.querySelector<HTMLSelectElement>(".lc")?.value ?? o.spec.containers[0].name : o.spec.containers[0].name;
+    const chosen = selected === keyOf(o) ? drawerBody.querySelector<HTMLSelectElement>(".lc")?.value : undefined;
+    const c = o.spec.containers.find((c: Obj) => c.name === chosen)?.name ?? o.spec.containers[0].name;
     kubectlTab(`⎈ ${o.metadata.name}`, ["exec", "-it", "-n", o.metadata.namespace, o.metadata.name, "-c", c, "--",
       "sh", "-c", "command -v bash >/dev/null && exec bash || exec sh"]);
   }

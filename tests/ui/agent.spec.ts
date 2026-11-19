@@ -143,3 +143,18 @@ test("галочка составных команд сохраняется в �
   await box.check();
   await expect.poll(async () => (await saved(app)).compound).toBe(true);
 });
+
+test("background execution depends on compound commands and is cleared with them", async ({ app, page }) => {
+  await app.view("agent");
+  const compound = page.locator("input[data-a=compound]");
+  const background = page.locator("input[data-a=allow_background]");
+  await expect(background).toBeDisabled();
+  await compound.check();
+  await expect(background).toBeEnabled();
+  await background.check();
+  await expect.poll(async () => (await saved(app)).allow_background).toBe(true);
+  await compound.uncheck();
+  await expect.poll(async () => (await saved(app)).allow_background).toBe(false);
+  await expect(background).not.toBeChecked();
+  await expect(background).toBeDisabled();
+});

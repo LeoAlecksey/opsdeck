@@ -165,6 +165,31 @@ function show(id: string) {
   window.dispatchEvent(new CustomEvent("view-shown", { detail: id }));
 }
 
+// App and Kubernetes shortcuts are dispatched before xterm or a focused editor can consume them.
+window.addEventListener("keydown", (e) => {
+  const target = e.target as HTMLElement | null;
+  if (e.isComposing) return;
+  if (target?.closest(".keybinding-record.recording")) return;
+  if (target?.closest("dialog")) return;
+  const def = SHORTCUTS.find((s) => !s.macOnly && !s.id.startsWith("terminal.") && matchShortcut(e, s.id));
+  if (!def) return;
+  const kindNavigation = def.id === "k8s.prev-kind" || def.id === "k8s.next-kind";
+  if (!def.id.startsWith("view.") && !kindNavigation && !target?.closest(".xterm") && target?.closest("input, textarea, select, [contenteditable=true]")) return;
+  if (def.id.startsWith("k8s.") && panes.get("k8s")?.hidden !== false) return;
+  if (POP && def.id.startsWith("view.")) return;
+  e.preventDefault();
+  e.stopImmediatePropagation();
+  const viewIndex = /^view\.([1-9])$/.exec(def.id)?.[1];
+  if (viewIndex) {
+    const on = movable().filter((b) => !b.hidden);
+    const n = Number(viewIndex);
+    const btn = n === 9 ? on.at(-1) : on[n - 1];
+    if (btn?.dataset.view) show(btn.dataset.view);
+    return;
+  }
+  window.dispatchEvent(new CustomEvent("opsdeck-shortcut", { detail: def.id }));
+}, true);
+
 for (const v of views) {
   const btn = document.createElement("button");
   btn.dataset.view = v.id;
@@ -353,28 +378,6 @@ if (!POP) {
       .catch(() => {});
   }, 8000);
 }
-
-// App and Kubernetes shortcuts are dispatched before xterm or a focused editor can consume them.
-window.addEventListener("keydown", (e) => {
-  const target = e.target as HTMLElement | null;
-  if (target?.closest(".keybinding-record.recording")) return;
-  if (!target?.closest(".xterm") && target?.closest("input, textarea, select, dialog, [contenteditable=true]")) return;
-  const def = SHORTCUTS.find((s) => !s.macOnly && !s.id.startsWith("terminal.") && matchShortcut(e, s.id));
-  if (!def) return;
-  if (def.id.startsWith("k8s.") && panes.get("k8s")?.hidden !== false) return;
-  if (POP && def.id.startsWith("view.")) return;
-  e.preventDefault();
-  e.stopImmediatePropagation();
-  const viewIndex = /^view\.([1-9])$/.exec(def.id)?.[1];
-  if (viewIndex) {
-    const on = movable().filter((b) => !b.hidden);
-    const n = Number(viewIndex);
-    const btn = n === 9 ? on.at(-1) : on[n - 1];
-    if (btn?.dataset.view) show(btn.dataset.view);
-    return;
-  }
-  window.dispatchEvent(new CustomEvent("opsdeck-shortcut", { detail: def.id }));
-}, true);
 
 registerProvider(() => views.filter((v) => isOn(v.id)).map((v) => ({ group: "Перейти", title: v.title, hint: v.id, run: () => show(v.id) })));
 if (!POP) registerProvider(() => [{ group: "Окружения", title: "Окружения: открыть другое, создать новое", hint: "", run: () => openProfilesDialog() }]);
