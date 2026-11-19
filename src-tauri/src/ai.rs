@@ -1512,20 +1512,24 @@ mod tests {
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let port = listener.local_addr().unwrap().port();
         let asked: std::sync::Arc<std::sync::Mutex<Vec<(u64, u64)>>> = Default::default();
-        // первая попытка: каждая часть отдаёт только четверть своего диапазона и обрывается
+        // Попытка помечена заголовком: после первого обрыва загрузчик отменяет остальные
+        // запросы, поэтому первая попытка может не дойти до сервера всеми четырьмя частями.
         let srv = {
             let (body, asked) = (body.clone(), asked.clone());
             std::thread::spawn(move || {
-                let mut round = 0;
-                while round < 8 {
+                let mut resumed = 0;
+                while resumed < 4 {
                     let Ok((mut s, _)) = listener.accept() else { return };
                     let Some(req) = read_request(&mut s) else { continue };
                     let r = req.lines().find(|l| l.to_ascii_lowercase().starts_with("range:")).and_then(|l| l.split('=').nth(1).map(str::trim).map(str::to_string)).unwrap();
                     let (a, b) = r.split_once('-').unwrap();
                     let (from, to) = (a.parse::<u64>().unwrap(), b.parse::<u64>().unwrap());
-                    asked.lock().unwrap().push((from, to));
-                    round += 1;
-                    let cut = if round <= 4 { (to - from + 1) / 4 } else { to - from + 1 };
+                    let interrupted = req.lines().any(|l| l.eq_ignore_ascii_case("x-test-attempt: interrupted"));
+                    if !interrupted {
+                        asked.lock().unwrap().push((from, to));
+                        resumed += 1;
+                    }
+                    let cut = if interrupted { (to - from + 1) / 4 } else { to - from + 1 };
                     let slice = &body[from as usize..(from + cut) as usize];
                     // длину объявляем полную, а отдаём кусок и закрываем: для клиента это обрыв
                     let head = format!(
@@ -1545,22 +1549,27 @@ mod tests {
         // без пула: первую порцию соединений сервер закрывает нарочно, и переиспользование уже
         // закрытого соединения во второй попытке иногда ломало сам тест (macOS в CI)
         let client = reqwest::Client::builder().pool_max_idle_per_host(0).build().unwrap();
+        let mut headers = reqwest::header::HeaderMap::new();
+        headers.insert("x-test-attempt", reqwest::header::HeaderValue::from_static("interrupted"));
+        let interrupted_client = reqwest::Client::builder().pool_max_idle_per_host(0).default_headers(headers).build().unwrap();
         let url = format!("http://127.0.0.1:{port}/model.gguf");
         let total = body.len() as u64;
 
         // первая попытка обрывается, но состояние остаётся
-        let first = tauri::async_runtime::block_on(download_parts(&client, &url, &part, total, 4, &cancel, &|_| {}));
+        let first = tauri::async_runtime::block_on(download_parts(&interrupted_client, &url, &part, total, 4, &cancel, &|_| {}));
         assert!(first.is_err(), "сервер оборвал отдачу — загрузка должна была не дойти");
         let st = load_state(&part, &url, total).expect("состояние докачки не сохранилось");
         let got_before: u64 = st.parts.iter().map(|(.., d)| *d).sum();
         assert!(got_before > 0 && got_before < total, "скачано {got_before} из {total}");
 
         // вторая попытка: спрашиваются только остатки
-        asked.lock().unwrap().clear();
         tauri::async_runtime::block_on(download_parts(&client, &url, &part, total, 4, &cancel, &|_| {})).unwrap();
         srv.join().unwrap();
         let second = asked.lock().unwrap().clone();
         assert_eq!(second.len(), 4);
+        for (from, to, done) in &st.parts {
+            assert!(second.contains(&(from + done, *to)), "часть продолжается с сохранённого смещения");
+        }
         let again: u64 = second.iter().map(|(a, b)| b - a + 1).sum();
         assert_eq!(again, total - got_before, "докачивается ровно остаток, а не файл заново");
 
