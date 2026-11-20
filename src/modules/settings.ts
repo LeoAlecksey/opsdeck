@@ -14,6 +14,8 @@ import { AI_PROVIDERS, aiAgent, setAiAgent } from "./ai-agents";
 import { addThemes, allThemes, currentThemeName, isWindows, parseSchemes, setTheme } from "./themes";
 import { listen } from "@tauri-apps/api/event";
 import { cleanPath } from "./paths";
+import { bindingFor, bindingLabel, bindingString, bindings, changedBinding, resetBindings, setBinding, SHORTCUTS } from "./keybindings";
+import { isMac } from "./mackeys";
 
 const AUTHOR_TG = "https://t.me/sys_admin_expert";
 const REPO_URL = "https://github.com/LeoAlecksey/opsdeck";
@@ -171,7 +173,10 @@ type VaultCheck = { ok: boolean; exists: boolean; is_dir: boolean; is_obsidian: 
 export function mountSettings(root: HTMLElement) {
   root.innerHTML = `
     <div class="page settings">
-      <h2>Настройки ${helpBtn("settings")}</h2>
+      <div class="settings-heading">
+        <h2>Настройки ${helpBtn("settings")}</h2>
+        <a class="settings-thanks" href="${DONATE_URL}" data-ext title="Перевод автору через ЮMoney — по желанию"><span aria-hidden="true">♡</span> <span>Спасибо</span></a>
+      </div>
       <fieldset class="lang-field" data-no-i18n><legend>Язык · Language</legend>
         <select class="lang-sel">
           <option value="auto">Как в системе · System</option>
@@ -220,6 +225,11 @@ export function mountSettings(root: HTMLElement) {
           </div>
           <p class="muted hint">Шрифты из списка, которых нет в системе, помечены «не установлен» — их нужно поставить отдельно, иначе используется запасной. Для иконок Powerlevel10k — MesloLGS NF или Nerd Font. Любой другой установленный шрифт — пункт «Другой…». Выбор сохраняется и сразу применяется ко всем терминалам, включая SSH и AI.</p>
           <p class="muted hint">Применяется сразу. Подсветка ввода работает в локальных вкладках (нужна интеграция с bash/zsh). Вывод, который программа уже раскрасила сама, и полноэкранные программы (vim, htop, less) не трогаются.</p>
+        </fieldset>
+        <fieldset class="keybindings-field"><legend>Сочетания клавиш</legend>
+          <p class="muted hint">Нажмите кнопку рядом с действием и затем нужное сочетание. Клавиши букв назначаются по физическому положению и работают при любой раскладке. Escape снимает назначение.</p>
+          <div class="keybindings-list"></div>
+          <div class="row"><button type="button" class="ghost" data-keybindings-reset>Вернуть сочетания по умолчанию</button></div>
         </fieldset>
         <fieldset class="win-field" hidden><legend>Windows</legend>
           <label>Оболочка для новых вкладок <select name="term_shell"><option value="">Windows PowerShell (по умолчанию)</option></select></label>
@@ -324,12 +334,50 @@ export function mountSettings(root: HTMLElement) {
   langSel.onchange = () => setLang(langSel.value as "auto" | "ru" | "en");
   invoke<string>("app_version").then((v) => (root.querySelector(".about-ver")!.textContent = `v${v}`)).catch(() => { });
   // links open in the system browser / Telegram, not inside the app window
-  root.querySelector(".about")!.addEventListener("click", (e) => {
+  root.addEventListener("click", (e) => {
     const a = (e.target as HTMLElement).closest<HTMLAnchorElement>("a[data-ext]");
     if (!a) return;
     e.preventDefault();
     invoke("open_external", { url: a.href }).catch((err) => toast(String(err), "err"));
   });
+  const shortcutList = root.querySelector<HTMLElement>(".keybindings-list")!;
+  const drawKeybindings = () => {
+    const saved = bindings();
+    shortcutList.innerHTML = SHORTCUTS.filter((s) => !s.macOnly || isMac()).map((s) => `<div class="keybinding-row"><span>${esc(s.title)}</span><button type="button" class="ghost keybinding-record" data-keybinding="${esc(s.id)}">${esc(bindingLabel(saved[s.id] ?? s.default))}</button><span class="keybinding-status muted" data-keybinding-status="${esc(s.id)}"></span></div>`).join("");
+  };
+  drawKeybindings();
+  window.addEventListener("keybindings-changed", drawKeybindings);
+  root.addEventListener("click", (e) => {
+    if ((e.target as HTMLElement).closest("[data-keybindings-reset]")) { resetBindings(); return; }
+    const btn = (e.target as HTMLElement).closest<HTMLButtonElement>("[data-keybinding]");
+    if (!btn) return;
+    root.querySelectorAll<HTMLButtonElement>(".keybinding-record.recording").forEach((el) => {
+      const id = el.dataset.keybinding!;
+      el.textContent = bindingLabel(bindingFor(id));
+      el.classList.remove("recording");
+    });
+    btn.classList.add("recording");
+    btn.focus();
+    btn.textContent = "Нажмите сочетание…";
+    root.querySelectorAll<HTMLElement>("[data-keybinding-status]").forEach((el) => { el.textContent = ""; });
+  });
+  root.addEventListener("keydown", (e) => {
+    const btn = (e.target as HTMLElement).closest<HTMLButtonElement>(".keybinding-record.recording[data-keybinding]");
+    if (!btn) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const id = btn.dataset.keybinding!;
+    const value = e.key === "Escape" ? null : bindingString(e);
+    if (value === null && e.key !== "Escape") return;
+    if (value) {
+      const conflict = changedBinding(value, id);
+      if (conflict) {
+        root.querySelector<HTMLElement>(`[data-keybinding-status="${CSS.escape(id)}"]`)!.textContent = t("Уже назначено: {}").replace("{}", t(conflict));
+        return;
+      }
+    }
+    setBinding(id, value);
+  }, true);
   mountSnippets(root.querySelector<HTMLElement>(".sn-root")!);
   mountUpdates(root.querySelector<HTMLElement>(".upd-root")!);
   const hlBoxes = root.querySelectorAll<HTMLInputElement>("[data-hl]");

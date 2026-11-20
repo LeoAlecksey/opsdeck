@@ -208,7 +208,7 @@ function kindSpecific(kind: string, o: Obj): string {
       return section("Секрет", grid(row("Тип", o.type)))
         + section("Ключи", Object.keys(o.data ?? {}).length
           ? `<table class="res dtable"><thead><tr><th>Ключ</th><th>Размер</th><th></th></tr></thead><tbody>${
-            Object.entries(o.data ?? {}).map(([k, v]) => `<tr><td>${esc(k)}</td><td>${Math.floor(String(v).length * 3 / 4)} байт</td>
+          Object.entries(o.data ?? {}).map(([k, v]) => `<tr><td><button class="secret-key" data-secret-key="${esc(k)}" title="Показать или скрыть значение">${esc(k)}</button></td><td>${Math.floor(String(v).length * 3 / 4)} байт</td>
               <td><button class="ghost" data-secret="${esc(k)}">показать</button></td></tr>`).join("")}</tbody></table>` : "");
     case "persistentvolumeclaims":
       return section("PVC", grid(row("Статус", st.phase, statusClass(st.phase ?? "")) + row("Запрошено", s.resources?.requests?.storage) +
