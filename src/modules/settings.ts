@@ -334,7 +334,7 @@ export function mountSettings(root: HTMLElement) {
   langSel.onchange = () => setLang(langSel.value as "auto" | "ru" | "en");
   invoke<string>("app_version").then((v) => (root.querySelector(".about-ver")!.textContent = `v${v}`)).catch(() => { });
   // links open in the system browser / Telegram, not inside the app window
-  root.querySelector(".about")!.addEventListener("click", (e) => {
+  root.addEventListener("click", (e) => {
     const a = (e.target as HTMLElement).closest<HTMLAnchorElement>("a[data-ext]");
     if (!a) return;
     e.preventDefault();
