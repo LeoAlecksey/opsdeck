@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Главная — Wiki OpsDeck</title><meta name="description" content="Руководство OpsDeck: главная, подключения и работа с программой.">
+<link rel="canonical" href="https://leoalecksey.github.io/opsdeck/wiki/index.html">
+<link rel="icon" href="../assets/icon.png"><link rel="stylesheet" href="style.css"></head>
+<body><header><a class="brand" href="../"><img src="../assets/icon.png" alt="">OpsDeck</a><a href="index.html">Wiki</a><a class="site-link" href="../">Сайт проекта ↗</a></header>
+<div class="layout"><aside><div class="aside-title">Руководство</div><nav><a aria-current="page" href="index.html">Главная</a>
+<a  href="getting-started.html">Установка и первый запуск</a>
+<a  href="connections.html">Подключения</a>
+<a  href="usage.html">Использование</a>
+<a  href="ai.html">Локальный ИИ и OpenCode</a></nav><div class="aside-foot">Версия 0.9.1<br><a href="https://github.com/LeoAlecksey/opsdeck/issues">Сообщить о проблеме ↗</a></div></aside>
+<main><h1>Wiki OpsDeck</h1>
+<p>Практическое руководство для версии 0.9.1. OpsDeck — локальное настольное приложение: источники и серверы добавляются в соответствующих разделах, а кнопка <strong>!</strong> в каждом разделе открывает встроенную подсказку.</p>
+<h2>С чего начать</h2>
+<figure><a href="../img/ru/modules.jpg" target="_blank" rel="noopener"><img src="../img/ru/modules.jpg" alt="Включение модулей OpsDeck" loading="lazy" width="2160" height="1350"></a><figcaption>Включение модулей OpsDeck · нажмите для увеличения</figcaption></figure>
+<ol>
+<li><a href="getting-started.html">Установка и первый запуск</a> — требования, установка, модули и окружения.</li>
+<li><a href="connections.html">Подключения</a> — SSH, Kubernetes, веб-панели и алерты, базы, Yandex Cloud, MikroTik, хранилища паролей.</li>
+<li><a href="usage.html">Работа в OpsDeck</a> — терминал, AI, IDE, заметки, мониторинг и перенос настроек.</li>
+<li><a href="ai.html">Локальный ИИ и OpenCode</a> — встроенная модель, внешний сервер и JSON-конфигурация OpenCode.</li>
+</ol>
+<h2>Как связаны разделы</h2>
+<pre><code class="language-mermaid">flowchart LR
+  Secrets[Keyring / KeePass / Passbolt / gopass] --&gt; SSH[SSH-профили]
+  Secrets --&gt; Web[Веб-панели]
+  Secrets --&gt; DB[Базы данных]
+  Secrets --&gt; Router[MikroTik]
+  SSH --&gt; Terminal[Терминал]
+  SSH --&gt; Files[Файлы и мониторинг]
+  SSH --&gt; DB
+  Web --&gt; Alerts[Алерты]
+  Kube[Kubeconfig] --&gt; Kubernetes
+  YC[Профиль yc CLI] --&gt; Cloud[Yandex Cloud]
+</code></pre>
+<p>Разделы включаются кнопкой <strong>⊞</strong> в левой колонке. При новой установке включены Терминал, Kubernetes, SSH, KeePass и Заметки. Открывать все разделы сразу необязательно.</p>
+<p>Дополнительно: <a href="https://github.com/LeoAlecksey/opsdeck/blob/master/README.md">обзор возможностей и сборка из исходников</a>, <a href="https://github.com/LeoAlecksey/opsdeck/issues">сообщить о проблеме</a>.</p>
+</main></div></body></html>

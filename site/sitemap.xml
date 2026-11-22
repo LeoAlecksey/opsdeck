@@ -12,4 +12,9 @@
     <xhtml:link rel="alternate" hreflang="ru" href="https://leoalecksey.github.io/opsdeck/"/>
     <xhtml:link rel="alternate" hreflang="en" href="https://leoalecksey.github.io/opsdeck/en/"/>
   </url>
+  <url><loc>https://leoalecksey.github.io/opsdeck/wiki/index.html</loc></url>
+  <url><loc>https://leoalecksey.github.io/opsdeck/wiki/getting-started.html</loc></url>
+  <url><loc>https://leoalecksey.github.io/opsdeck/wiki/connections.html</loc></url>
+  <url><loc>https://leoalecksey.github.io/opsdeck/wiki/usage.html</loc></url>
+  <url><loc>https://leoalecksey.github.io/opsdeck/wiki/ai.html</loc></url>
 </urlset>

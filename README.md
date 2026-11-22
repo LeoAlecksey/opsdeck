@@ -257,6 +257,8 @@ Found a vulnerability? See [SECURITY.md](SECURITY.md).
 
 # OpsDeck — по-русски
 
+📖 **[Wiki со скриншотами: установка, подключения и использование](https://leoalecksey.github.io/opsdeck/wiki/index.html)** ([исходники wiki](docs/wiki/README.md))
+
 [English](#en) · **Русский**
 
 **Единая рабочая панель DevOps-инженера**: терминал с AI рядом и локальной моделью, ИИ-агент, который сам расследует проблемы на хостах по вашим правилам, Kubernetes, базы данных, IDE с git, Grafana/ArgoCD/GitLab во вкладках, алерты, заметки с задачами и напоминаниями, KeePass и Passbolt, SSH, мониторинг хостов, файлы между хостами, Yandex Cloud и MikroTik — в одном нативном приложении для Linux, Windows и macOS.
