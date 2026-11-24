@@ -700,6 +700,23 @@ pub async fn k8s_get_yaml(
     serde_yaml_ng::to_string(&clean(serde_json::to_value(obj).map_err(err)?)).map_err(err)
 }
 
+/// Replace exactly one Secret key, preserving other keys and rejecting stale edits.
+#[tauri::command]
+pub async fn k8s_secret_set(
+    state: State<'_, K8sState>, ctx: Ctx, namespace: String, name: String,
+    key: String, value: String, resource_version: String,
+) -> Result<(), String> {
+    ensure_writable(&ctx)?;
+    if key.is_empty() || !key.bytes().all(|c| c.is_ascii_alphanumeric() || b"-_.".contains(&c)) {
+        return Err("Invalid Secret key".into());
+    }
+    if resource_version.is_empty() { return Err("resourceVersion missing; reload the Secret".into()); }
+    use base64::Engine;
+    base64::engine::general_purpose::STANDARD.decode(&value).map_err(|_| "Invalid base64")?;
+    let patch = json!({"metadata": {"resourceVersion": resource_version}, "data": {key: value}});
+    merge_patch(&state, &ctx, &format!("update secret/{name}"), "secrets", &namespace, &name, patch).await
+}
+
 /// Server-side apply of an edited manifest. resourceVersion (if kept) acts as a conflict guard.
 #[tauri::command]
 pub async fn k8s_apply_yaml(

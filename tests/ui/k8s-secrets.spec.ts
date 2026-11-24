@@ -11,6 +11,7 @@ const secret = {
 };
 
 test.describe("kubernetes secrets (#67)", () => {
+  test.use({ demo: { overrides: { k8s_prefs_get: { hidden: [], readonly: [] } } } });
   test.beforeEach(async ({ app, page }) => {
     await app.view("k8s");
     await page.locator(".ctx-item", { has: page.locator(".ctx-name", { hasText: "prod-eu" }) }).click();
@@ -64,4 +65,47 @@ test.describe("kubernetes secrets (#67)", () => {
     await page.locator('.drawer [data-secret="password"]').click();
     await expect(page.locator(".drawer .secret-row .secret-value")).toHaveText("p@ss w0rd");
   });
+  test("editing a secret preserves whitespace and updates only the selected key", async ({ app, page }) => {
+    await page.locator('.drawer [data-secret="tls.crt"]').click();
+    await page.getByRole('button', { name: 'Изменить / вставить' }).click();
+    const value = "  пароль\nline two\n";
+    await page.locator('.secret-editor').fill(value);
+    await page.getByRole('button', { name: 'Сохранить значение' }).click();
+    const call = await app.called('k8s_secret_set');
+    expect(call.args).toMatchObject({ namespace: 'shop', name: 'tls-cert', key: 'tls.crt', resourceVersion: '1', value: b64(value) });
+    await expect(page.locator('.secret-editor')).toHaveCount(0);
+  });
+
+  test("cancel does not write a secret", async ({ app, page }) => {
+    await page.locator('.drawer [data-secret="password"]').click();
+    await page.getByRole('button', { name: 'Изменить / вставить' }).click();
+    await page.locator('.secret-editor').fill('replacement');
+    await page.locator('.secret-row').getByRole('button', { name: 'Отмена', exact: true }).click();
+    expect(await app.calls('k8s_secret_set')).toHaveLength(0);
+  });
+
+  test("paste preserves exact clipboard text; failed save keeps the editor", async ({ app, page }) => {
+    await app.override('clip_read', '  pasted\n');
+    await page.evaluate(() => { (window as any).__DEMO_OVERRIDES.k8s_secret_set = () => { throw 'Conflict'; }; });
+    await page.locator('.drawer [data-secret="password"]').click();
+    await page.getByRole('button', { name: 'Изменить / вставить' }).click();
+    await page.getByRole('button', { name: 'Вставить из буфера', exact: true }).click();
+    await expect(page.locator('.secret-editor')).toHaveValue('  pasted\n');
+    await page.getByRole('button', { name: 'Сохранить значение' }).click();
+    await expect(page.locator('.secret-editor')).toHaveValue('  pasted\n');
+    await expect(page.getByRole('button', { name: 'Сохранить значение' })).toBeEnabled();
+    expect((await app.called('k8s_secret_set')).args.value).toBe(b64('  pasted\n'));
+  });
+
+  test("binary editing sends base64 and rejects malformed input", async ({ app, page }) => {
+    await page.locator('.drawer [data-secret="release"]').click();
+    await page.getByRole('button', { name: 'Изменить / вставить' }).click();
+    await page.locator('.secret-editor').fill('%%%');
+    await page.getByRole('button', { name: 'Сохранить значение' }).click();
+    expect(await app.calls('k8s_secret_set')).toHaveLength(0);
+    await page.locator('.secret-editor').fill(gz);
+    await page.getByRole('button', { name: 'Сохранить значение' }).click();
+    expect((await app.called('k8s_secret_set')).args.value).toBe(gz);
+  });
+
 });
