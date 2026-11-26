@@ -2351,5 +2351,8 @@
  "Как в системе": "System",
  "Применяется сразу и сохраняется. Цветовая схема терминала выбирается отдельно.": "Applied immediately and saved. The terminal colour scheme is selected separately.",
  "Меняются только цвета терминала и применяются сразу. Тема интерфейса выбирается в разделе «Внешний вид».": "Changes terminal colours immediately. Choose the interface theme under Appearance.",
- "Подробнее": "Details"
+ "Подробнее": "Details",
+ "IDE: предыдущий проект": "IDE: previous project",
+ "IDE: следующий проект": "IDE: next project",
+ "Перейти в проект": "Switch to project"
 }

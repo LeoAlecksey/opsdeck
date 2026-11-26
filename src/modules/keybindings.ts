@@ -4,6 +4,8 @@ export type Keybinding = { ctrl?: boolean; alt?: boolean; shift?: boolean; meta?
 export type Shortcut = { id: string; title: string; default: string; macOnly?: boolean };
 
 export const SHORTCUTS: Shortcut[] = [
+  { id: "code.prev-project", title: "IDE: предыдущий проект", default: "" },
+  { id: "code.next-project", title: "IDE: следующий проект", default: "" },
   ...Array.from({ length: 9 }, (_, i) => ({ id: `view.${i + 1}`, title: `Перейти к модулю ${i + 1} (9 — последний)`, default: `Ctrl+Shift+Digit${i + 1}` })),
   { id: "k8s.prev-kind", title: "Kubernetes: предыдущий раздел", default: "Alt+ArrowUp" },
   { id: "k8s.next-kind", title: "Kubernetes: следующий раздел", default: "Alt+ArrowDown" },

@@ -175,7 +175,9 @@ window.addEventListener("keydown", (e) => {
   const def = SHORTCUTS.find((s) => !s.macOnly && !s.id.startsWith("terminal.") && matchShortcut(e, s.id));
   if (!def) return;
   const kindNavigation = def.id === "k8s.prev-kind" || def.id === "k8s.next-kind";
-  if (!def.id.startsWith("view.") && !kindNavigation && !target?.closest(".xterm") && target?.closest("input, textarea, select, [contenteditable=true]")) return;
+  const codeAction = def.id.startsWith("code.");
+  if (codeAction && (panes.get("code")?.hidden !== false || document.querySelector(".palette-backdrop"))) return;
+  if (!def.id.startsWith("view.") && !kindNavigation && !codeAction && !target?.closest(".xterm") && target?.closest("input, textarea, select, [contenteditable=true]")) return;
   if (def.id.startsWith("k8s.") && panes.get("k8s")?.hidden !== false) return;
   if (POP && def.id.startsWith("view.")) return;
   e.preventDefault();

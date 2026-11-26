@@ -663,6 +663,13 @@ export function mountCode(root: HTMLElement) {
     try { return JSON.parse(ls.get(stateKey(p)) ?? "") as ProjectState; } catch { return { tabs: [], active: "", expanded: [] }; }
   };
 
+  window.addEventListener("opsdeck-shortcut", (event) => {
+    if (root.hidden || switching || open.length < 2) return;
+    const id = (event as CustomEvent<string>).detail;
+    const step = id === "code.next-project" ? 1 : id === "code.prev-project" ? -1 : 0;
+    if (step) void setProject(open[(open.indexOf(project) + step + open.length) % open.length]);
+  });
+
   function drawProjects() {
     projectsEl.hidden = open.length < 2;
     projectsEl.innerHTML = open.map((p) => `<button class="code-proj-chip ${p === project ? "active" : ""}" data-p="${esc(p)}" title="${esc(p)}">
@@ -1484,6 +1491,10 @@ export function mountCode(root: HTMLElement) {
   }, 2000);
   window.addEventListener("beforeunload", (e) => { if (tabs.some(isDirty)) e.preventDefault(); });
   registerProvider(() => [
+    ...open.map((p) => ({ group: "IDE", title: `${t("Перейти в проект")}: ${base(p)}`, hint: p, run: () => {
+      window.dispatchEvent(new CustomEvent("show-view", { detail: "code" }));
+      if (!switching) return setProject(p);
+    } })),
     { group: "IDE", title: "Открыть папку проекта", run: () => { window.dispatchEvent(new CustomEvent("show-view", { detail: "code" })); $("[data-a=open]").click(); } },
     { group: "IDE", title: "Консоль в папке проекта: показать/скрыть", hint: "Ctrl+`", run: () => { window.dispatchEvent(new CustomEvent("show-view", { detail: "code" })); toggleConsole(); } },
     { group: "IDE", title: "Git: новая ветка", run: () => { window.dispatchEvent(new CustomEvent("show-view", { detail: "code" })); toggleGit(true); $(".cg-branches").hidden = false; drawBranches(); } },

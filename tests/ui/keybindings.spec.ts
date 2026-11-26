@@ -82,3 +82,43 @@ test("a macOS terminal assignment overrides a built-in tab shortcut", async ({ a
   await expect.poll(async () => (await app.calls("pty_write")).slice(before).map(c => c.args.data).join("")).toBe("\x01");
   await expect(page.locator(".tabs .tab")).toHaveCount(tabs);
 });
+
+test("project actions are opt-in, work from the editor and protect unsaved files", async ({ app, page }) => {
+  await app.view("settings");
+  const next = page.locator('[data-keybinding="code.next-project"]');
+  await expect(next).toHaveText("Не назначено");
+  await next.click();
+  await page.keyboard.press("Control+Alt+KeyN");
+  await page.locator('[data-keybinding="code.prev-project"]').click();
+  await page.keyboard.press("Control+Alt+KeyP");
+  await app.view("code");
+  for (const path of ["/home/demo/projects/infra/helm", "/home/demo/projects/infra"]) {
+    await page.evaluate(path => window.dispatchEvent(new CustomEvent("open-in-code", { detail: { path } })), path);
+    await expect(page.locator(".code-proj-chip.active")).toContainText(path.endsWith("helm") ? "helm" : "infra");
+  }
+  await page.locator('.ct-file[data-f$="/README.md"]').click();
+  await page.locator(".cm-content").click();
+  await page.keyboard.type("draft");
+  await page.keyboard.press("Control+Alt+KeyN");
+  await expect(page.locator("dialog[open]")).toContainText("Несохранённых файлов");
+  await page.keyboard.press("Escape");
+  await expect(page.locator(".code-proj-chip.active")).toContainText("infra");
+  await expect(page.locator(".cm-content")).toContainText("draft");
+  await page.locator(".cm-content").click();
+  await page.keyboard.press("Control+KeyS");
+  await expect(page.locator(".code-tab.dirty")).toHaveCount(0);
+  await page.keyboard.press("Control+Alt+KeyN");
+  await expect(page.locator(".code-proj-chip.active")).toContainText("helm");
+  await page.keyboard.press("Control+Alt+KeyP");
+  await expect(page.locator(".code-proj-chip.active")).toContainText("infra");
+  await app.view("settings");
+  await next.click();
+  await page.keyboard.press("Escape");
+  await app.view("code");
+  await page.keyboard.press("Control+Alt+KeyN");
+  await expect(page.locator(".code-proj-chip.active")).toContainText("infra");
+  await page.keyboard.press("Control+Shift+KeyP");
+  await page.locator(".palette-q").fill("Перейти в проект helm");
+  await page.keyboard.press("Enter");
+  await expect(page.locator(".code-proj-chip.active")).toContainText("helm");
+});
