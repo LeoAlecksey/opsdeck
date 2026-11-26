@@ -4920,7 +4920,7 @@ dependencies = [
 
 [[package]]
 name = "opsdeck"
-version = "0.9.1"
+version = "0.9.2"
 dependencies = [
  "axum",
  "base64 0.22.1",
