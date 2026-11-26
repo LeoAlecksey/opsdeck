@@ -1,3 +1,4 @@
+import { quickOpen } from "./code-quick-open";
 import { relTo } from "./paths";
 import { eolOf, toLf, withEol, type Eol } from "./eol";
 import { locale, t } from "../i18n";
@@ -20,7 +21,7 @@ import { Compartment, EditorState, Prec, StateEffect, StateField, type Extension
 import { openSearchPanel, selectNextOccurrence } from "@codemirror/search";
 import { StreamLanguage, indentUnit } from "@codemirror/language";
 import { linter, lintGutter, type Diagnostic } from "@codemirror/lint";
-import { indentWithTab, redo, selectAll, toggleComment, undo } from "@codemirror/commands";
+import { copyLineDown, copyLineUp, deleteLine, moveLineDown, moveLineUp, indentWithTab, redo, selectAll, toggleComment, undo } from "@codemirror/commands";
 import { oneDark } from "@codemirror/theme-one-dark";
 import { javascript } from "@codemirror/lang-javascript";
 import { json, jsonParseLinter } from "@codemirror/lang-json";
@@ -60,6 +61,8 @@ type Tab = {
   mtime: number;
   readonly: boolean;
   btn: HTMLElement;
+  preview?: boolean;
+  group: number;
 };
 
 const ls = {
@@ -184,10 +187,10 @@ export function mountCode(root: HTMLElement) {
       <div class="code-tabs"></div>
       <div class="code-editor"></div>
       <div class="code-pipe" hidden></div>
-      <div class="code-empty muted">Откройте папку проекта и выберите файл слева. ${"Ctrl+S"} — сохранить, ${"Ctrl+Shift+F"} — terraform fmt.</div>
+      <div class="code-empty muted">Откройте папку проекта и выберите файл слева. ${"Ctrl+S"} — сохранить, ${"Shift+Alt+F"} — terraform fmt.</div>
       <div class="code-hsplit" hidden title="Потяните, чтобы изменить высоту консоли"></div>
       <div class="code-console" hidden>
-        <div class="cc-head"><span class="cc-cwd muted"></span><span class="spacer"></span>
+        <div class="cc-head"><select class="cc-select" aria-label="Терминал"><option value="0">Терминал 1</option></select><button class="icon" data-a="cc-add" title="Новый терминал (Ctrl+Shift+\`)">+</button><span class="cc-cwd muted"></span><span class="spacer"></span>
           <button class="icon" data-a="cc-restart" title="Перезапустить shell">${icon("refresh", 16)}</button>
           <button class="icon" data-a="cc-tab" title="Открыть эту папку во вкладке терминала">⧉</button>
           <button class="icon" data-a="console" title="Скрыть (Ctrl+\`)">${icon("close", 16)}</button></div>
@@ -197,7 +200,8 @@ export function mountCode(root: HTMLElement) {
         <span class="cs-lang"></span><span class="cs-pos"></span><span class="cs-diag"></span>
         <span class="spacer"></span>
         <span class="cs-tf muted"></span>
-        <button class="ghost" data-a="fmt" hidden title="terraform fmt (Ctrl+Shift+F); при сохранении выполняется сам">fmt</button>
+        <button class="ghost" data-a="fmt" hidden title="terraform fmt (Shift+Alt+F); при сохранении выполняется сам">fmt</button>
+        <button class="ghost" data-a="split-editor" title="Открыть соседнюю группу редактора (Ctrl+\\)">◫</button>
         <button class="ghost" data-a="ai" title="Спросить ИИ о файле, проекте или изменениях: контекст уйдёт в AI-панель (локальный ИИ или выбранный агент)">⇢ AI ▾</button>
         <button class="ghost" data-a="console" title="Консоль в папке проекта (Ctrl+\`)">▭ консоль</button>
         <button class="ghost" data-a="pipeline" hidden title="Граф пайплайна: что и в каком порядке запустится в GitLab CI или GitHub Actions для выбранной ветки и события">⛓ pipeline</button>
@@ -240,13 +244,49 @@ export function mountCode(root: HTMLElement) {
 
   // ----- editor -----
   const langC = new Compartment(), lintC = new Compartment(), roC = new Compartment();
-  const view = new EditorView({ parent: host });
+  const primary = document.createElement("div");
+  primary.className = "code-editor-group";
+  host.appendChild(primary);
+  let view = new EditorView({ parent: primary, state: EditorState.create({ extensions: EditorState.readOnly.of(true) }) });
   view.dom.style.height = "100%";
+  const groups: { view: EditorView; host: HTMLElement; tab: Tab | null }[] = [{ view, host: primary, tab: null }];
+  let currentGroup = 0;
+  function focusGroup(index: number) {
+    if (currentGroup === index) return;
+    if (active) active.state = view.state;
+    currentGroup = index;
+    view = groups[index].view;
+    active = groups[index].tab;
+    groups.forEach((g, i) => g.host.classList.toggle("focused", i === index));
+    tabs.forEach((t) => t.btn.classList.toggle("active", t === active));
+    syncStatus(); syncPos();
+  }
+  primary.addEventListener("pointerdown", () => focusGroup(0), true);
+  primary.addEventListener("focusin", () => focusGroup(0));
+  function splitEditor() {
+    if (active) pinTab(active);
+    if (groups.length === 1) {
+      const pane = document.createElement("div");
+      pane.className = "code-editor-group";
+      pane.tabIndex = 0;
+      host.appendChild(pane);
+      const second = new EditorView({ parent: pane, state: EditorState.create({ extensions: EditorState.readOnly.of(true) }) });
+      second.dom.style.height = "100%";
+      groups.push({ view: second, host: pane, tab: null });
+      pane.addEventListener("pointerdown", () => focusGroup(1), true);
+      pane.addEventListener("focusin", () => focusGroup(1));
+    }
+    focusGroup(1 - currentGroup);
+    host.hidden = false; empty.hidden = true;
+    view.focus();
+    groups.forEach((g) => g.view.requestMeasure());
+  }
+  $("[data-a=split-editor]").onclick = splitEditor;
   // Ctrl+= / Ctrl+− / Ctrl+0 и Ctrl+колесо — размер шрифта в редакторе, как в терминале
   attachZoom(host, "opsdeck.code.zoom", (k) => { host.style.setProperty("--code-font", `${13 * k}px`); view.requestMeasure(); }, root);
 
   const tfLinter = linter(async (v) => {
-    if (!isTf(active?.path ?? null)) return [];
+    if (!isTf(groups.find((g) => g.view === v)?.tab?.path ?? null)) return [];
     const text = v.state.doc.toString();
     if (tfTool === null) tfTool = (await invoke<FmtResult>("code_tf_fmt", { text: "" }).catch(() => null))?.tool ?? "";
     let errs: { line: number; message: string }[];
@@ -296,17 +336,25 @@ export function mountCode(root: HTMLElement) {
       oneDark,
       unpushedField,
       indentUnit.of("  "),
-      keymap.of([indentWithTab]),
+      Prec.high(keymap.of([
+        { key: "Alt-ArrowUp", run: moveLineUp },
+        { key: "Alt-ArrowDown", run: moveLineDown },
+        { key: "Alt-Shift-ArrowUp", run: copyLineUp },
+        { key: "Alt-Shift-ArrowDown", run: copyLineDown },
+        { key: "Mod-Shift-k", run: deleteLine },
+        indentWithTab,
+      ])),
       // By physical key (event.code): CodeMirror binds by the typed letter, so on the Russian layout
       // Ctrl+Z, Ctrl+F, Ctrl+S and the rest did nothing at all.
       Prec.highest(EditorView.domEventHandlers({
         keydown(e, v) {
+          if (e.shiftKey && e.altKey && e.code === "KeyF") { e.preventDefault(); void fmt(); return true; }
           if (!(e.ctrlKey || e.metaKey) || e.altKey) return false;
           const shift = e.shiftKey;
           const run = (cmd: (v: EditorView) => boolean) => { cmd(v); return true; };
           const done = e.code === "KeyS" && !shift ? (save(), true)
-            : e.code === "KeyF" && shift ? (fmt(), true)
-            : e.code === "KeyF" ? run(openSearchPanel)
+            : e.code === "KeyF" && shift ? (toggleFind(true), true)
+            : e.code === "KeyF" || e.code === "KeyH" ? run(openSearchPanel)
             : e.code === "KeyZ" && shift ? run(redo)
             : e.code === "KeyZ" ? run(undo)
             : e.code === "KeyY" ? run(redo)
@@ -320,7 +368,9 @@ export function mountCode(root: HTMLElement) {
         },
       })),
       EditorView.updateListener.of((u) => {
-        if (u.docChanged && active) markDirty(active);
+        const tab = groups.find((g) => g.view === u.view)?.tab;
+        if (tab) tab.state = u.state;
+        if (u.docChanged && tab) { pinTab(tab); markDirty(tab); }
         if (u.selectionSet || u.docChanged) syncPos();
       }),
       langC.of(t.lang),
@@ -357,12 +407,16 @@ export function mountCode(root: HTMLElement) {
 
   // ----- tabs -----
   function activate(t: Tab | null) {
-    if (active && active !== t) active.state = view.state;
+    if (active) active.state = view.state;
+    if (t && t.group !== currentGroup) focusGroup(t.group);
     active = t;
+    groups[currentGroup].tab = t;
     tabs.forEach((x) => x.btn.classList.toggle("active", x === t));
-    empty.hidden = !!t || !pipeEl.hidden;
-    host.hidden = !t || !pipeEl.hidden;
+    const hasEditor = groups.some((g) => g.tab) || groups.length > 1;
+    empty.hidden = hasEditor || !pipeEl.hidden;
+    host.hidden = !hasEditor || !pipeEl.hidden;
     if (t && !pipeEl.hidden) closePipeline();
+    if (!t) view.setState(EditorState.create({ extensions: EditorState.readOnly.of(true) }));
     if (t) {
       view.setState(t.state);
       t.btn.scrollIntoView({ block: "nearest", inline: "nearest" });
@@ -386,8 +440,9 @@ export function mountCode(root: HTMLElement) {
     btn.title = path ?? title;
     tabsEl.appendChild(btn);
     const lang = langOverride ?? (path ? languageFor(path).ext : []);
-    const t: Tab = { id, title, path, saved: toLf(text), eol: eolOf(text), mtime, readonly, btn, state: EditorState.create({ doc: toLf(text), extensions: extensionsFor({ path, readonly, lang }) }) };
+    const t: Tab = { group: currentGroup, id, title, path, saved: toLf(text), eol: eolOf(text), mtime, readonly, btn, state: EditorState.create({ doc: toLf(text), extensions: extensionsFor({ path, readonly, lang }) }) };
     btn.onclick = () => activate(t);
+    btn.ondblclick = () => pinTab(t);
     btn.onauxclick = (e) => { if (e.button === 1) closeTab(t); };
     btn.querySelector<HTMLElement>(".x")!.onclick = (e) => { e.stopPropagation(); closeTab(t); };
     tabs.push(t);
@@ -395,26 +450,54 @@ export function mountCode(root: HTMLElement) {
   }
 
   async function closeTab(t: Tab) {
+    ++openRequest;
     if (t === active) t.state = view.state;
     if (isDirty(t) && (await ask("Несохранённые изменения", `Изменения в «${t.title}» будут потеряны. Закрыть?`, { ok: "Закрыть без сохранения", danger: true })) === null) return;
     const i = tabs.indexOf(t);
+    if (i < 0) return;
     tabs.splice(i, 1);
     t.btn.remove();
-    if (active === t) { active = null; activate(tabs[i] ?? tabs[i - 1] ?? null); } else activate(active);
+    const group = groups[t.group];
+    if (group.tab === t) {
+      group.tab = null;
+      group.view.setState(EditorState.create({ extensions: EditorState.readOnly.of(true) }));
+      if (active === t) { active = null; activate(tabs.find((x) => x.group === currentGroup) ?? null); }
+    }
+    ls.set("opsdeck.code.tabs", JSON.stringify(tabs.filter((x) => x.path).map((x) => x.path)));
+    saveProjectState();
   }
 
-  /** Open a file (optionally jump to a line). */
-  async function openFile(path: string, line?: number) {
+  function pinTab(t: Tab) {
+    t.preview = false;
+    t.btn.classList.remove("preview");
+  }
+  let openRequest = 0;
+  /** Only the latest navigation may replace the preview, never a changed file. */
+  async function openFile(path: string, line?: number, pinned = false) {
+    const request = ++openRequest;
+    const targetGroup = currentGroup;
     let t = tabs.find((x) => x.id === path);
     if (!t) {
       try {
         const r = await invoke<{ text: string; mtime: number }>("code_read", { path });
+        if (request !== openRequest || targetGroup !== currentGroup) return;
+        const preview = tabs.find((x) => x.preview && x.group === currentGroup && !isDirty(x));
         t = addTab(path, base(path), path, r.text, r.mtime, false);
+        t.preview = !pinned;
+        t.btn.classList.toggle("preview", !pinned);
+        if (preview && !pinned) {
+          const index = tabs.indexOf(preview);
+          tabs.pop();
+          tabs.splice(index, 1, t);
+          preview.btn.replaceWith(t.btn);
+          if (active === preview) active = null;
+        }
       } catch (e) { toast(String(e), "err"); return; }
     }
+    if (pinned) pinTab(t);
     activate(t);
     if (line) {
-      const l = view.state.doc.line(Math.min(line, view.state.doc.lines));
+      const l = view.state.doc.line(Math.max(1, Math.min(line, view.state.doc.lines)));
       view.dispatch({ selection: { anchor: l.from }, effects: EditorView.scrollIntoView(l.from, { y: "center" }) });
     }
   }
@@ -429,9 +512,11 @@ export function mountCode(root: HTMLElement) {
   async function fmt(): Promise<boolean> {
     const t = active;
     if (!t?.path || !isTf(t.path)) return true;
-    const text = view.state.doc.toString();
+    const editor = view;
+    const originalState = editor.state;
+    const text = originalState.doc.toString();
     const r = await invoke<FmtResult>("code_tf_fmt", { text }).catch((e) => { toast(String(e), "err"); return null; });
-    if (!r) return false;
+    if (!r || active !== t || view !== editor || editor.state.doc !== originalState.doc) return false;
     tfTool = r.tool;
     tfErrors = r.errors;
     syncStatus();
@@ -450,8 +535,11 @@ export function mountCode(root: HTMLElement) {
   async function save(force = false) {
     const t = active;
     if (!t?.path || t.readonly) return;
+    const editor = view;
     if (isTf(t.path) && tfTool !== "") await fmt(); // format on save; a syntax error still saves as is
-    const text = view.state.doc.toString();
+    if (active !== t || view !== editor) return;
+    const text = editor.state.doc.toString();
+    pinTab(t);
     try {
       t.mtime = await invoke<number>("code_write", { path: t.path, text: withEol(text, t.eol), expectMtime: t.mtime || null, force });
       t.saved = text;
@@ -462,7 +550,7 @@ export function mountCode(root: HTMLElement) {
     } catch (e) {
       if (String(e).startsWith("CONFLICT")) {
         const choice = await ask("Файл изменён на диске", `«${t.title}» поменялся снаружи после открытия. Перезаписать своей версией?`, { ok: "Перезаписать", danger: true });
-        if (choice !== null) save(true);
+        if (choice !== null && active === t && view === editor) save(true);
       } else toast(String(e), "err");
     }
   }
@@ -471,6 +559,10 @@ export function mountCode(root: HTMLElement) {
   async function readDir(dir: string) {
     listing.set(dir, await invoke<Entry[]>("fs_list", { path: dir, hidden: true }).catch((e) => String(e)));
   }
+  treeEl.addEventListener("dblclick", (e) => {
+    const path = (e.target as HTMLElement).closest<HTMLElement>("[data-f]")?.dataset.f;
+    if (path) void openFile(path, undefined, true);
+  });
   const relToGit = (abs: string) => { const r = relTo(git.root, abs); return r ? r : null; };
   const HIDE = new Set([".git", "node_modules", "target", ".terraform", "dist", "__pycache__", ".venv", ".idea", ".vscode"]);
 
@@ -588,6 +680,8 @@ export function mountCode(root: HTMLElement) {
 
   /** Убрать все вкладки без вопросов: решение о несохранённом уже принято. */
   function dropTabs() {
+    ++openRequest;
+    groups.forEach((g) => { g.tab = null; g.view.setState(EditorState.create({ extensions: EditorState.readOnly.of(true) })); });
     for (const tb of [...tabs]) { tabs.splice(tabs.indexOf(tb), 1); tb.btn.remove(); }
     active = null;
     activate(null);
@@ -813,10 +907,10 @@ export function mountCode(root: HTMLElement) {
   });
   $("[data-a=find]").onclick = () => { toggleFind(); if (!findBox.hidden) runFind(); };
   $("[data-a=find-close]").onclick = () => toggleFind(false);
-  // Ctrl+Shift+F is terraform fmt in the editor, so project search is on the button and Ctrl+Shift+F outside it
+  // Project search uses the same shortcut inside and outside the editor.
   window.addEventListener("keydown", (e) => {
-    if (root.hidden || !e.ctrlKey || !e.shiftKey || e.altKey || e.code !== "KeyF") return;
-    if (view.dom.contains(e.target as Node)) return; // inside the editor it formats Terraform
+    if (root.hidden || !(e.ctrlKey || e.metaKey) || !e.shiftKey || e.altKey || e.code !== "KeyF") return;
+    if (e.defaultPrevented) return;
     e.preventDefault();
     toggleFind(true);
   });
@@ -1106,7 +1200,7 @@ export function mountCode(root: HTMLElement) {
       t.saved = toLf(r.text);
       t.eol = eolOf(r.text);
       t.mtime = r.mtime;
-      if (t === active) { view.setState(next); t.state = next; } else t.state = next;
+      if (t === active) { view.setState(next); t.state = next; } else { t.state = next; if (groups[t.group].tab === t) groups[t.group].view.setState(next); }
       markDirty(t);
     }
   }
@@ -1211,23 +1305,56 @@ export function mountCode(root: HTMLElement) {
   // ----- mini console in the project folder -----
   let con: PtyTerminal | null = null;
   let conDead = false;
-  function startConsole() {
-    const hostEl = $(".cc-host");
-    hostEl.innerHTML = "";
-    conDead = false;
-    const c = (con = new PtyTerminal(hostEl, { cwd: project || undefined }));
-    attachPathLinks(c);
-    $(".cc-cwd").textContent = project || "~";
-    c.onExit = () => { conDead = true; $(".cc-cwd").textContent = `${project || "~"} — shell завершён, ↻ — запустить снова`; };
+  const consoles: { terminal: PtyTerminal; host: HTMLElement; dead: boolean; cwd: string }[] = [];
+  let consoleIndex = 0;
+  function selectConsole(index: number) {
+    const session = consoles[index];
+    if (!session) return;
+    consoleIndex = index;
+    con = session.terminal;
+    conDead = session.dead;
+    consoles.forEach((s, i) => { s.host.hidden = i !== index; });
+    $<HTMLSelectElement>(".cc-select").value = String(index);
+    $(".cc-cwd").textContent = session.cwd + (session.dead ? " — shell завершён, ↻ — запустить снова" : "");
+    requestAnimationFrame(() => { con?.resize(); con?.term.focus(); });
   }
+  function startConsole() {
+    const hostEl = document.createElement("div");
+    hostEl.className = "cc-session";
+    $(".cc-host").appendChild(hostEl);
+    const c = new PtyTerminal(hostEl, { cwd: project || undefined });
+    const session = { terminal: c, host: hostEl, dead: false, cwd: project || "~" };
+    const old = consoles[consoleIndex];
+    if (old) { old.terminal.dispose(); old.host.remove(); }
+    consoles[consoleIndex] = session;
+    attachPathLinks(c);
+    c.onExit = () => {
+      session.dead = true;
+      if (con === c) selectConsole(consoleIndex);
+    };
+    selectConsole(consoleIndex);
+  }
+  function addConsole() {
+    if (!con) toggleConsole(true);
+    if (consoles.length >= 2) { toggleConsole(true); selectConsole(1 - consoleIndex); return; }
+    consoleIndex = consoles.length;
+    const option = document.createElement("option");
+    option.value = String(consoleIndex); option.textContent = `Терминал ${consoleIndex + 1}`;
+    $(".cc-select").appendChild(option);
+    startConsole();
+    toggleConsole(true);
+  }
+  $("[data-a=cc-add]").onclick = addConsole;
+  $<HTMLSelectElement>(".cc-select").onchange = (e) => selectConsole(Number((e.target as HTMLSelectElement).value));
   /** The console goes to the folder of a newly opened project: typed `cd` for an idle shell, a fresh shell otherwise. */
   function followConsole() {
     if (!con) return; // not started yet: it will start in the project folder
-    if (conDead || !con.launched) { con.dispose(); startConsole(); return; }
+    if (conDead || !con.launched) { startConsole(); return; }
     const line = cdCommand(con.launched, project);
     if (line === null) return toast("Консоль в WSL: перейдите в папку проекта вручную", "err");
     if (con.blocks.running) return toast(`В консоли идёт «${con.blocks.running}» — папку не меняю, чтобы не набрать cd в программу`, "err");
     con.send(line + "\r");
+    consoles[consoleIndex].cwd = project;
     $(".cc-cwd").textContent = project;
   }
   function toggleConsole(show?: boolean) {
@@ -1243,11 +1370,44 @@ export function mountCode(root: HTMLElement) {
     }
   }
   root.querySelectorAll<HTMLElement>("[data-a=console]").forEach((b) => (b.onclick = () => toggleConsole()));
-  $("[data-a=cc-restart]").onclick = () => { con?.dispose(); con = null; startConsole(); con!.term.focus(); };
+  $("[data-a=cc-restart]").onclick = () => { startConsole(); con!.term.focus(); };
   $("[data-a=cc-tab]").onclick = () => window.dispatchEvent(new CustomEvent("open-terminal", { detail: { cwd: project || undefined } }));
+  window.addEventListener("keydown", (e) => {
+    if (root.hidden || document.querySelector("dialog[open], .palette-backdrop") || !(e.ctrlKey || e.metaKey)) return;
+    const target = e.target as HTMLElement;
+    if (target.closest(".code-console")) return;
+    let handled = true;
+    if (e.code === "KeyP" && !e.shiftKey && !e.altKey) {
+      if (project) quickOpen(project, (path) => { void openFile(path); });
+      else $("[data-a=open]").click();
+    } else if (e.code === "KeyG" && !e.shiftKey && !e.altKey && active) {
+      const tab = active;
+      void ask("Перейти к строке", "Номер строки", { input: "1", ok: "Перейти" }).then((value) => {
+        if (value === null || !/^\d+$/.test(value)) return;
+        activate(tab);
+        const line = view.state.doc.line(Math.max(1, Math.min(Number(value), view.state.doc.lines)));
+        view.dispatch({ selection: { anchor: line.from }, effects: EditorView.scrollIntoView(line.from, { y: "center" }) });
+      });
+    } else if (e.code === "Backslash" && !e.altKey) splitEditor();
+    else if ((e.code === "Digit1" || e.code === "Digit2") && !e.altKey) {
+      const index = e.code === "Digit1" ? 0 : 1;
+      if (index === 1 && groups.length === 1) splitEditor();
+      else { focusGroup(index); view.focus(); }
+    } else if (e.code === "Tab" && !e.altKey) {
+      const available = tabs.filter((t) => t.group === currentGroup);
+      const index = active ? available.indexOf(active) : -1;
+      if (available.length) activate(available[(index + (e.shiftKey ? -1 : 1) + available.length) % available.length]);
+    } else if (e.code === "KeyB" && !e.shiftKey && !e.altKey) {
+      const side = $(".code-side");
+      side.hidden = !side.hidden; $("[data-split=side]").hidden = side.hidden;
+      groups.forEach((g) => g.view.requestMeasure());
+    } else handled = false;
+    if (handled) { e.preventDefault(); e.stopPropagation(); }
+  }, true);
   // Ctrl+W closes the open file, not the application window (#79)
   window.addEventListener("keydown", (e) => {
-    if (root.hidden || !e.ctrlKey || e.shiftKey || e.altKey || e.code !== "KeyW") return;
+    if (root.hidden || !(e.ctrlKey || e.metaKey) || e.shiftKey || e.altKey || e.code !== "KeyW") return;
+    if ((e.target as HTMLElement).closest(".code-console, dialog")) return;
     e.preventDefault();
     if (!pipeEl.hidden) closePipeline();
     else if (active) closeTab(active);
@@ -1266,7 +1426,7 @@ export function mountCode(root: HTMLElement) {
   window.addEventListener("keydown", (e) => {
     if (root.hidden || !e.ctrlKey || e.code !== "Backquote") return;
     e.preventDefault();
-    toggleConsole();
+    if (e.shiftKey) addConsole(); else toggleConsole();
   }, true);
 
   const toggleGit = (show?: boolean) => {

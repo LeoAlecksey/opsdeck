@@ -159,6 +159,7 @@ pub fn run() {
             k8s::k8s_names,
             k8s::k8s_get_yaml,
             k8s::k8s_apply_yaml,
+            k8s::k8s_secret_set,
             k8s::k8s_delete,
             k8s::k8s_scale,
             k8s::k8s_restart,

@@ -1453,6 +1453,10 @@ export function mountK8s(root: HTMLElement) {
   }
 
   function renderDetails(o: Obj) {
+    // A watch update must not discard text being edited. The captured resourceVersion
+    // still makes Save reject a concurrent change; Cancel refreshes to the latest object.
+    const editing = drawerBody.querySelector<HTMLTextAreaElement>(".secret-editor");
+    if (editing && editing.dataset.uid === o.metadata.uid) return;
     const version = `${o.metadata.resourceVersion}|${detailsEvents?.length ?? -1}`;
     if (version === detailsVersion) return;
     detailsVersion = version;
@@ -1495,6 +1499,63 @@ export function mountK8s(root: HTMLElement) {
       copyButton.className = "ghost secret-copy";
       copyButton.dataset.secretCopy = secretKey;
       copyButton.textContent = "⧉ Скопировать значение";
+      const editButton = td.appendChild(document.createElement("button"));
+      editButton.type = "button";
+      editButton.className = "ghost";
+      editButton.textContent = "Изменить / вставить";
+      editButton.disabled = isReadonly();
+      editButton.onclick = () => {
+        if (td.querySelector(".secret-editor")) return;
+        // Capture the context and version before any asynchronous clipboard or API work.
+        const targetCtx = ref();
+        const editor = document.createElement("textarea");
+        editor.className = "secret-editor";
+        editor.dataset.uid = o.metadata.uid;
+        editor.spellcheck = false;
+        editor.autocomplete = "off";
+        editor.setAttribute("aria-label", v.binary ? "Новое значение (base64)" : "Новое значение");
+        editor.value = v.text;
+        const actions = document.createElement("div");
+        const paste = document.createElement("button");
+        paste.textContent = "Вставить из буфера";
+        paste.onclick = async () => {
+          try { editor.value = await invoke<string>("clip_read"); }
+          catch { toast("Не удалось прочитать буфер обмена", "err"); }
+        };
+        const cancel = document.createElement("button");
+        cancel.textContent = "Отмена";
+        cancel.onclick = () => {
+          editor.remove(); actions.remove();
+          detailsVersion = "";
+          renderDetails(items.find((item) => keyOf(item) === keyOf(o)) ?? o);
+        };
+        const save = document.createElement("button");
+        save.className = "primary";
+        save.textContent = "Сохранить значение";
+        save.onclick = async () => {
+          let value: string;
+          try {
+            value = v.binary ? editor.value.replace(/\s+/g, "") : btoa(Array.from(new TextEncoder().encode(editor.value), (b) => String.fromCharCode(b)).join(""));
+            if (v.binary) atob(value);
+          } catch { toast("Некорректный base64", "err"); return; }
+          save.disabled = paste.disabled = true;
+          try {
+            await invoke("k8s_secret_set", { ctx: targetCtx, namespace: o.metadata.namespace, name: o.metadata.name,
+              key: secretKey, value, resourceVersion: o.metadata.resourceVersion });
+            editor.value = "";
+            editor.remove(); actions.remove();
+            toast("Значение секрета сохранено");
+            // Wait for the watch to provide a fresh resourceVersion before editing again.
+            editButton.disabled = true;
+            code.textContent = decodeSecret(value).text;
+            o.data[secretKey] = value;
+          } catch { toast("Не удалось сохранить секрет. Проверьте права и обновите объект перед повторной попыткой.", "err"); }
+          finally { save.disabled = paste.disabled = false; }
+        };
+        actions.append(paste, cancel, save);
+        td.append(editor, actions);
+        editor.focus();
+      };
       const code = td.appendChild(document.createElement("pre"));
       code.className = "secret-value";
       code.textContent = v.text;

@@ -188,6 +188,10 @@ test.describe("Ctrl+W closes a tab, not the window (#79)", () => {
     await app.view("code");
     for (const f of ["main.tf", "variables.tf"]) {
       await page.evaluate((p) => window.dispatchEvent(new CustomEvent("open-in-code", { detail: { path: p } })), `/home/demo/projects/infra/${f}`);
+      // Pin each file: unmodified preview tabs are intentionally reused.
+      const tab = page.locator(".code-tab.active", { hasText: f });
+      await expect(tab).toBeVisible();
+      await tab.dblclick();
     }
     await expect(page.locator(".code-tab")).toHaveCount(2);
     await page.keyboard.press("Control+KeyW");

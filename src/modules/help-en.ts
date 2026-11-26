@@ -220,6 +220,9 @@ export const HELP_EN: Record<string, { title: string; html: string }> = {
   code: {
     title: "IDE: code & git",
     html: `
+      <p>Files open in an italic preview tab, replaced by the next file. Editing or double-clicking pins it. The ◫ button opens another editor group; Ctrl+1 / Ctrl+2 focus groups.</p>
+      <p>Ctrl+P opens files by name, Ctrl+G goes to a line, Ctrl+Tab / Ctrl+Shift+Tab switches tabs, Ctrl+B toggles the tree. Alt+Up/Down moves a line, Shift+Alt+Up/Down copies it, Ctrl+Shift+K deletes it. Shift+Alt+F runs terraform fmt.</p>
+      <p>The console + button (Ctrl+Shift+&#96;) creates a second terminal. The selector switches independent sessions; hiding the panel keeps them alive.</p>
       <h4>How it works</h4>
       <p>A built-in code editor with syntax highlighting (TypeScript/JavaScript, Python, Go, Rust, YAML, JSON, Terraform/HCL, SQL, Shell, Dockerfile, TOML, Markdown, HTML/CSS…), a project tree and a git panel.</p>
       <h4>What's where</h4>
@@ -245,7 +248,7 @@ export const HELP_EN: Record<string, { title: string; html: string }> = {
       <h4>Checks and formatting</h4>
       <ul>
         <li><b>YAML</b> and <b>JSON</b> — syntax errors are underlined right away, with a marker in the left gutter; hover it — the error text.</li>
-        <li><b>Terraform</b> (.tf, .tfvars, .hcl) — checked with <code>terraform fmt</code> (or <code>tofu</code>), errors are shown on their lines. On save the file is formatted like <code>terraform fmt</code>; ${kbd("Ctrl+Shift+F")} or the <b>fmt</b> button — format now. Without terraform in PATH only brackets and quotes are checked.</li>
+        <li><b>Terraform</b> (.tf, .tfvars, .hcl) — checked with <code>terraform fmt</code> (or <code>tofu</code>), errors are shown on their lines. On save the file is formatted like <code>terraform fmt</code>; ${kbd("Shift+Alt+F")} or the <b>fmt</b> button — format now. Without terraform in PATH only brackets and quotes are checked.</li>
       </ul>`,
   },
   db: {
