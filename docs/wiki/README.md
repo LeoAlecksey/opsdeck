@@ -11,23 +11,17 @@
 
 ## Как связаны разделы
 
-```mermaid
-flowchart LR
-  Secrets[Keyring / KeePass / Passbolt / gopass] --> SSH[SSH-профили]
-  Secrets --> Web[Веб-панели]
-  Secrets --> DB[Базы данных]
-  Secrets --> Router[MikroTik]
-  SSH --> Terminal[Терминал]
-  SSH --> Files[Файлы и мониторинг]
-  SSH --> DB
-  Web --> Alerts[Алерты]
-  Kube[Kubeconfig] --> Kubernetes
-  YC[Профиль yc CLI] --> Cloud[Yandex Cloud]
-```
+| Источник | Где используется |
+|---|---|
+| Keyring, KeePass, Passbolt, gopass | Данные входа SSH, веб-панелей, баз данных и MikroTik |
+| SSH-профили | Терминал, файлы на хостах, мониторинг и SSH-туннели баз данных |
+| Kubeconfig | Кластеры и ресурсы Kubernetes |
+| Веб-панели и источники алертов | Просмотр веб-интерфейсов и опрос событий |
+| Профиль yc CLI | Ресурсы Yandex Cloud |
 
 Разделы включаются кнопкой **⊞** в левой колонке. При новой установке включены Терминал, Kubernetes, SSH, KeePass и Заметки. Открывать все разделы сразу необязательно.
 
-Дополнительно: [обзор возможностей и сборка из исходников](../../README.md), [сообщить о проблеме](https://github.com/LeoAlecksey/opsdeck/issues).
+Дополнительно: [обзор возможностей и сборка из исходников](reference.md), [сообщить о проблеме](https://github.com/LeoAlecksey/opsdeck/issues).
 
 ## Подробно по каждому разделу
 

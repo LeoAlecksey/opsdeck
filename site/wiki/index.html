@@ -4,7 +4,12 @@
 <link rel="canonical" href="https://leoalecksey.github.io/opsdeck/wiki/index.html">
 <link rel="icon" href="../assets/icon.png"><link rel="stylesheet" href="style.css"></head>
 <body><header><a class="brand" href="../"><img src="../assets/icon.png" alt="">OpsDeck</a><a href="index.html">Wiki</a><a class="site-link" href="../">Сайт проекта ↗</a></header>
-<div class="layout"><aside><div class="aside-title">Руководство</div><nav><a  href="module-terminal.html">Терминал и AI</a>
+<div class="layout"><aside><div class="aside-title">Руководство</div><nav><a aria-current="page" href="index.html">Главная</a>
+<a  href="getting-started.html">Установка и первый запуск</a>
+<a  href="connections.html">Подключения</a>
+<a  href="usage.html">Использование</a>
+<a  href="ai.html">Локальный ИИ и OpenCode</a>
+<a  href="module-terminal.html">Терминал и AI</a>
 <a  href="module-k8s.html">Kubernetes</a>
 <a  href="module-web.html">Веб-панели</a>
 <a  href="module-alerts.html">Алерты</a>
@@ -23,12 +28,7 @@
 <a  href="module-agent.html">ИИ-агент</a>
 <a  href="module-winbox.html">MikroTik</a>
 <a  href="module-settings.html">Настройки</a>
-<a  href="reference.html">Установка, сборка и технический справочник</a>
-<a aria-current="page" href="index.html">Главная</a>
-<a  href="getting-started.html">Установка и первый запуск</a>
-<a  href="connections.html">Подключения</a>
-<a  href="usage.html">Использование</a>
-<a  href="ai.html">Локальный ИИ и OpenCode</a></nav><div class="aside-foot">Версия dev<br><a href="https://github.com/LeoAlecksey/opsdeck/issues">Сообщить о проблеме ↗</a></div></aside>
+<a  href="reference.html">Установка, сборка и технический справочник</a></nav><div class="aside-foot">Версия dev<br><a href="https://github.com/LeoAlecksey/opsdeck/issues">Сообщить о проблеме ↗</a></div></aside>
 <main><h1>Wiki OpsDeck</h1>
 <p>Практическое руководство: возможности 0.9.2 и изменения ветки dev (светлая тема и назначаемое переключение проектов). Новые функции dev появятся в установленном приложении после следующего выпуска. OpsDeck — локальное настольное приложение: источники и серверы добавляются в соответствующих разделах, а кнопка <strong>!</strong> в каждом разделе открывает встроенную подсказку.</p>
 <h2>С чего начать</h2>
@@ -40,20 +40,36 @@
 <li><a href="ai.html">Локальный ИИ и OpenCode</a> — встроенная модель, внешний сервер и JSON-конфигурация OpenCode.</li>
 </ol>
 <h2>Как связаны разделы</h2>
-<pre><code class="language-mermaid">flowchart LR
-  Secrets[Keyring / KeePass / Passbolt / gopass] --&gt; SSH[SSH-профили]
-  Secrets --&gt; Web[Веб-панели]
-  Secrets --&gt; DB[Базы данных]
-  Secrets --&gt; Router[MikroTik]
-  SSH --&gt; Terminal[Терминал]
-  SSH --&gt; Files[Файлы и мониторинг]
-  SSH --&gt; DB
-  Web --&gt; Alerts[Алерты]
-  Kube[Kubeconfig] --&gt; Kubernetes
-  YC[Профиль yc CLI] --&gt; Cloud[Yandex Cloud]
-</code></pre>
+<table>
+<thead>
+<tr>
+<th>Источник</th>
+<th>Где используется</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Keyring, KeePass, Passbolt, gopass</td>
+<td>Данные входа SSH, веб-панелей, баз данных и MikroTik</td>
+</tr>
+<tr>
+<td>SSH-профили</td>
+<td>Терминал, файлы на хостах, мониторинг и SSH-туннели баз данных</td>
+</tr>
+<tr>
+<td>Kubeconfig</td>
+<td>Кластеры и ресурсы Kubernetes</td>
+</tr>
+<tr>
+<td>Веб-панели и источники алертов</td>
+<td>Просмотр веб-интерфейсов и опрос событий</td>
+</tr>
+<tr>
+<td>Профиль yc CLI</td>
+<td>Ресурсы Yandex Cloud</td>
+</tr>
+</tbody></table>
 <p>Разделы включаются кнопкой <strong>⊞</strong> в левой колонке. При новой установке включены Терминал, Kubernetes, SSH, KeePass и Заметки. Открывать все разделы сразу необязательно.</p>
-<p>Дополнительно: <a href="https://github.com/LeoAlecksey/opsdeck/blob/master/README.md">обзор возможностей и сборка из исходников</a>, <a href="https://github.com/LeoAlecksey/opsdeck/issues">сообщить о проблеме</a>.</p>
+<p>Дополнительно: <a href="reference.html">обзор возможностей и сборка из исходников</a>, <a href="https://github.com/LeoAlecksey/opsdeck/issues">сообщить о проблеме</a>.</p>
 <h2>Подробно по каждому разделу</h2>
 <ul>
 <li><a href="module-terminal.html">Терминал и AI</a></li>

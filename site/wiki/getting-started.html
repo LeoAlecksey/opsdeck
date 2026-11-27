@@ -4,7 +4,12 @@
 <link rel="canonical" href="https://leoalecksey.github.io/opsdeck/wiki/getting-started.html">
 <link rel="icon" href="../assets/icon.png"><link rel="stylesheet" href="style.css"></head>
 <body><header><a class="brand" href="../"><img src="../assets/icon.png" alt="">OpsDeck</a><a href="index.html">Wiki</a><a class="site-link" href="../">Сайт проекта ↗</a></header>
-<div class="layout"><aside><div class="aside-title">Руководство</div><nav><a  href="module-terminal.html">Терминал и AI</a>
+<div class="layout"><aside><div class="aside-title">Руководство</div><nav><a  href="index.html">Главная</a>
+<a aria-current="page" href="getting-started.html">Установка и первый запуск</a>
+<a  href="connections.html">Подключения</a>
+<a  href="usage.html">Использование</a>
+<a  href="ai.html">Локальный ИИ и OpenCode</a>
+<a  href="module-terminal.html">Терминал и AI</a>
 <a  href="module-k8s.html">Kubernetes</a>
 <a  href="module-web.html">Веб-панели</a>
 <a  href="module-alerts.html">Алерты</a>
@@ -23,17 +28,12 @@
 <a  href="module-agent.html">ИИ-агент</a>
 <a  href="module-winbox.html">MikroTik</a>
 <a  href="module-settings.html">Настройки</a>
-<a  href="reference.html">Установка, сборка и технический справочник</a>
-<a  href="index.html">Главная</a>
-<a aria-current="page" href="getting-started.html">Установка и первый запуск</a>
-<a  href="connections.html">Подключения</a>
-<a  href="usage.html">Использование</a>
-<a  href="ai.html">Локальный ИИ и OpenCode</a></nav><div class="aside-foot">Версия dev<br><a href="https://github.com/LeoAlecksey/opsdeck/issues">Сообщить о проблеме ↗</a></div></aside>
+<a  href="reference.html">Установка, сборка и технический справочник</a></nav><div class="aside-foot">Версия dev<br><a href="https://github.com/LeoAlecksey/opsdeck/issues">Сообщить о проблеме ↗</a></div></aside>
 <main><h1>Установка и первый запуск</h1>
 <p><a href="index.html">← Wiki</a></p>
 <h2>Установка</h2>
-<p>Скачайте пакет для своей системы из <a href="https://github.com/LeoAlecksey/opsdeck/releases">GitHub Releases</a>: <code>.deb</code>, <code>.rpm</code> или <code>.AppImage</code> для Linux, <code>.msi</code> или <code>.exe</code> для Windows, <code>.dmg</code> для macOS. Требования по версиям ОС и инструкции для неподписанной сборки macOS приведены в <a href="https://github.com/LeoAlecksey/opsdeck/blob/master/README.md#%D1%83%D1%81%D1%82%D0%B0%D0%BD%D0%BE%D0%B2%D0%BA%D0%B0">README</a>.</p>
-<p>Для сборки из исходников нужны Node.js 20+, Rust и системные зависимости Tauri. Команды и пакеты для Linux перечислены в <a href="https://github.com/LeoAlecksey/opsdeck/blob/master/README.md#%D1%81%D0%B1%D0%BE%D1%80%D0%BA%D0%B0-%D0%B8%D0%B7-%D0%B8%D1%81%D1%85%D0%BE%D0%B4%D0%BD%D0%B8%D0%BA%D0%BE%D0%B2">README</a>.</p>
+<p>Скачайте пакет для своей системы из <a href="https://github.com/LeoAlecksey/opsdeck/releases">GitHub Releases</a>: <code>.deb</code>, <code>.rpm</code> или <code>.AppImage</code> для Linux, <code>.msi</code> или <code>.exe</code> для Windows, <code>.dmg</code> для macOS. Требования по версиям ОС и инструкции для неподписанной сборки macOS приведены в <a href="reference.html">README</a>.</p>
+<p>Для сборки из исходников нужны Node.js 20+, Rust и системные зависимости Tauri. Команды и пакеты для Linux перечислены в <a href="reference.html">README</a>.</p>
 <h2>Первые действия</h2>
 <ol>
 <li>Откройте <strong>⚙ Настройки</strong> и проверьте язык, найденные пути KeePass, заметок и WinBox.</li>

@@ -342,6 +342,14 @@ export function mountSettings(root: HTMLElement) {
     summary.textContent = t("Подробнее");
     p.before(details);
     details.append(summary, p);
+    // Actions remain visible even when their explanation is collapsed.
+    const actions = p.querySelectorAll("button, input, select");
+    if (actions.length) {
+      const row = document.createElement("div");
+      row.className = "row";
+      details.after(row);
+      actions.forEach(action => row.append(action));
+    }
   });
 
   const appearanceSel = root.querySelector<HTMLSelectElement>(".app-appearance")!;

@@ -4,9 +4,9 @@
 
 ## Установка
 
-Скачайте пакет для своей системы из [GitHub Releases](https://github.com/LeoAlecksey/opsdeck/releases): `.deb`, `.rpm` или `.AppImage` для Linux, `.msi` или `.exe` для Windows, `.dmg` для macOS. Требования по версиям ОС и инструкции для неподписанной сборки macOS приведены в [README](../../README.md#установка).
+Скачайте пакет для своей системы из [GitHub Releases](https://github.com/LeoAlecksey/opsdeck/releases): `.deb`, `.rpm` или `.AppImage` для Linux, `.msi` или `.exe` для Windows, `.dmg` для macOS. Требования по версиям ОС и инструкции для неподписанной сборки macOS приведены в [README](reference.md).
 
-Для сборки из исходников нужны Node.js 20+, Rust и системные зависимости Tauri. Команды и пакеты для Linux перечислены в [README](../../README.md#сборка-из-исходников).
+Для сборки из исходников нужны Node.js 20+, Rust и системные зависимости Tauri. Команды и пакеты для Linux перечислены в [README](reference.md).
 
 ## Первые действия
 
