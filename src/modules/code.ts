@@ -22,6 +22,7 @@ import { openSearchPanel, selectNextOccurrence } from "@codemirror/search";
 import { StreamLanguage, indentUnit } from "@codemirror/language";
 import { linter, lintGutter, type Diagnostic } from "@codemirror/lint";
 import { copyLineDown, copyLineUp, deleteLine, moveLineDown, moveLineUp, indentWithTab, redo, selectAll, toggleComment, undo } from "@codemirror/commands";
+import { isLight } from "./appearance";
 import { oneDark } from "@codemirror/theme-one-dark";
 import { javascript } from "@codemirror/lang-javascript";
 import { json, jsonParseLinter } from "@codemirror/lang-json";
@@ -243,13 +244,28 @@ export function mountCode(root: HTMLElement) {
   let tfErrors: { line: number; message: string }[] = [];
 
   // ----- editor -----
-  const langC = new Compartment(), lintC = new Compartment(), roC = new Compartment();
+  const langC = new Compartment(), lintC = new Compartment(), roC = new Compartment(), appearanceC = new Compartment();
+  const editorAppearance = () => isLight() ? EditorView.theme({
+    "&": { backgroundColor: "var(--bg)", color: "var(--text)" },
+    ".cm-gutters, .cm-panels": { backgroundColor: "var(--panel)", color: "var(--muted)", borderColor: "var(--border)" },
+    ".cm-activeLine, .cm-activeLineGutter": { backgroundColor: "var(--panel-2)" },
+    ".cm-cursor": { borderLeftColor: "var(--text)" },
+    ".cm-selectionBackground": { backgroundColor: "#b9dbf5" },
+  }, { dark: false }) : oneDark;
   const primary = document.createElement("div");
   primary.className = "code-editor-group";
   host.appendChild(primary);
   let view = new EditorView({ parent: primary, state: EditorState.create({ extensions: EditorState.readOnly.of(true) }) });
   view.dom.style.height = "100%";
   const groups: { view: EditorView; host: HTMLElement; tab: Tab | null }[] = [{ view, host: primary, tab: null }];
+  window.addEventListener("appearance-changed", () => {
+    for (const tab of tabs) {
+      const shown = groups.find(g => g.tab === tab);
+      const effects = appearanceC.reconfigure(editorAppearance());
+      if (shown) { shown.view.dispatch({ effects }); tab.state = shown.view.state; }
+      else tab.state = tab.state.update({ effects }).state;
+    }
+  });
   let currentGroup = 0;
   function focusGroup(index: number) {
     if (currentGroup === index) return;
@@ -333,7 +349,7 @@ export function mountCode(root: HTMLElement) {
     else if (isTf(p)) lint.push(tfLinter, lintGutter());
     return [
       basicSetup,
-      oneDark,
+      appearanceC.of(editorAppearance()),
       unpushedField,
       indentUnit.of("  "),
       Prec.high(keymap.of([

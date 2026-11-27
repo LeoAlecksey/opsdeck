@@ -2304,7 +2304,6 @@
  "Терминал macOS: удалить до начала строки": "macOS terminal: delete to start of line",
  "Терминал macOS: удалить слово": "macOS terminal: delete a word",
  "Разрешить фоновый запуск": "Allow background commands",
- "Составные команды и перенаправления": "Compound commands and redirections",
  "Фоновый запуск — отдельная настройка ниже, такая команда считается изменением.": "Background execution is a separate setting below; these commands count as changes.",
  "запускается без ожидания и возвращает PID; считается изменением, работает только в Unix": "starts without waiting and returns a PID; counts as a change, Unix only",
  "каждая часть проверяется отдельно, запись в файл — изменение; конвейеры": "each part is checked separately, writing to a file counts as a change; pipelines",
@@ -2344,5 +2343,13 @@
  "Сохранить значение": "Save value",
  "Некорректный base64": "Invalid base64",
  "Значение секрета сохранено": "Secret value saved",
- "Не удалось сохранить секрет. Проверьте права и обновите объект перед повторной попыткой.": "Could not save the secret. Check permissions and reload the object before retrying."
+ "Не удалось сохранить секрет. Проверьте права и обновите объект перед повторной попыткой.": "Could not save the secret. Check permissions and reload the object before retrying.",
+ "Внешний вид": "Appearance",
+ "Тема интерфейса": "Interface theme",
+ "Тёмная": "Dark",
+ "Светлая": "Light",
+ "Как в системе": "System",
+ "Применяется сразу и сохраняется. Цветовая схема терминала выбирается отдельно.": "Applied immediately and saved. The terminal colour scheme is selected separately.",
+ "Меняются только цвета терминала и применяются сразу. Тема интерфейса выбирается в разделе «Внешний вид».": "Changes terminal colours immediately. Choose the interface theme under Appearance.",
+ "Подробнее": "Details"
 }

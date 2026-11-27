@@ -1,3 +1,4 @@
+import { appearance, setAppearance, type Appearance } from "./appearance";
 import { helpBtn } from "./help-btn";
 import { langSetting, locale, setLang, t } from "../i18n";
 import { invoke } from "@tauri-apps/api/core";
@@ -188,6 +189,10 @@ export function mountSettings(root: HTMLElement) {
         <p class="muted hint">Несколько независимых рабочих мест: в каждом свои хосты, кластеры, пароли и настройки, открываются в отдельных окнах одновременно. Заметки по умолчанию общие — папку можно сменить в окружении ниже, в разделе «Заметки».</p>
         <div class="row"><button type="button" class="ghost" data-profiles>Окружения…</button></div>
       </fieldset>
+      <fieldset><legend>Внешний вид</legend>
+        <label>Тема интерфейса <select class="app-appearance"><option value="dark">Тёмная</option><option value="light">Светлая</option><option value="system">Как в системе</option></select></label>
+        <p class="muted hint">Применяется сразу и сохраняется. Цветовая схема терминала выбирается отдельно.</p>
+      </fieldset>
       <form>
         <fieldset><legend>KeePass</legend>
           <label>База .kdbx <input name="keepass_path" list="dl-kp" spellcheck="false" /></label>
@@ -217,7 +222,7 @@ export function mountSettings(root: HTMLElement) {
           <p class="muted hint term-font-warn" hidden></p>
           <div class="theme-row"><label>Цветовая схема терминала <select class="term-theme"></select></label>
             <button type="button" class="ghost" data-theme-import>Импорт JSON…</button></div>
-          <p class="muted hint">Меняются только цвета терминала и применяются сразу; остальной интерфейс OpsDeck пока тёмный (светлой темы нет).</p>
+          <p class="muted hint">Меняются только цвета терминала и применяются сразу. Тема интерфейса выбирается в разделе «Внешний вид».</p>
           <div class="theme-import" hidden>
             <textarea class="theme-json" rows="6" spellcheck="false" data-no-i18n placeholder='{"name": "My scheme", "background": "#101010", "foreground": "#e0e0e0", "red": "#ff5555", …}'></textarea>
             <div class="row"><button type="button" class="primary" data-theme-add>Добавить схемы</button><button type="button" class="ghost" data-theme-cancel>Отмена</button></div>
@@ -327,6 +332,21 @@ export function mountSettings(root: HTMLElement) {
         <a href="${DONATE_URL}" data-ext title="Перевод автору через ЮMoney — по желанию">поддержать проект</a></p>
     </div>`;
 
+  // Keep explanations available without making the settings page a wall of text.
+  root.querySelectorAll<HTMLParagraphElement>('p.muted.hint:not([hidden])').forEach(p => {
+    if (p.className !== "muted hint") return; // dynamic warnings keep their own visibility
+    const details = document.createElement("details");
+    details.className = "settings-explanation";
+    const summary = document.createElement("summary");
+    summary.textContent = t("Подробнее");
+    p.before(details);
+    details.append(summary, p);
+  });
+
+  const appearanceSel = root.querySelector<HTMLSelectElement>(".app-appearance")!;
+  appearanceSel.value = appearance();
+  appearanceSel.onchange = () => setAppearance(appearanceSel.value as Appearance);
+  window.addEventListener("appearance-changed", () => { appearanceSel.value = appearance(); });
   const form = root.querySelector("form")!;
   root.querySelector("[data-profiles]")!.addEventListener("click", () => openProfilesDialog());
   const langSel = root.querySelector<HTMLSelectElement>(".lang-sel")!;
