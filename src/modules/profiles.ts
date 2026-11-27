@@ -183,7 +183,8 @@ export async function mountPicker(root: HTMLElement) {
       <p class="muted">Выберите окружение</p>
       ${b.notice ? `<p class="warn picker-notice">${esc(b.notice)}</p>` : ""}
       <ul class="profile-list"></ul>
-      <label class="check"><input type="checkbox" name="remember" /> Запомнить выбор и больше не спрашивать</label>
+      <label class="check"><input type="checkbox" name="remember" /> Больше не показывать при запуске</label>
+      <p class="muted hint">Будет открываться выбранное окружение. Изменить выбор можно в ⚙ → Окружения → «При запуске открывать».</p>
       ${createForm(false)}
     </div>`;
   const ul = root.querySelector<HTMLElement>(".profile-list")!;

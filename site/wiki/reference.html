@@ -1,0 +1,521 @@
+<!doctype html>
+<html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Установка, сборка и технический справочник — Wiki OpsDeck</title><meta name="description" content="Руководство OpsDeck: установка, сборка и технический справочник, подключения и работа с программой.">
+<link rel="canonical" href="https://leoalecksey.github.io/opsdeck/wiki/reference.html">
+<link rel="icon" href="../assets/icon.png"><link rel="stylesheet" href="style.css"></head>
+<body><header><a class="brand" href="../"><img src="../assets/icon.png" alt="">OpsDeck</a><a href="index.html">Wiki</a><a class="site-link" href="../">Сайт проекта ↗</a></header>
+<div class="layout"><aside><div class="aside-title">Руководство</div><nav><a  href="module-terminal.html">Терминал и AI</a>
+<a  href="module-k8s.html">Kubernetes</a>
+<a  href="module-web.html">Веб-панели</a>
+<a  href="module-alerts.html">Алерты</a>
+<a  href="module-net.html">Сеть и DNS</a>
+<a  href="module-yc.html">Yandex Cloud</a>
+<a  href="module-sftp.html">Файлы на хостах</a>
+<a  href="module-monitor.html">Мониторинг хостов</a>
+<a  href="module-ssh.html">SSH</a>
+<a  href="module-code.html">IDE: код и git</a>
+<a  href="module-db.html">Базы данных</a>
+<a  href="module-notes.html">Заметки</a>
+<a  href="module-tasks.html">Задачи и напоминания</a>
+<a  href="module-vault.html">KeePass</a>
+<a  href="module-gopass.html">gopass</a>
+<a  href="module-passbolt.html">Passbolt</a>
+<a  href="module-agent.html">ИИ-агент</a>
+<a  href="module-winbox.html">MikroTik</a>
+<a  href="module-settings.html">Настройки</a>
+<a aria-current="page" href="reference.html">Установка, сборка и технический справочник</a>
+<a  href="index.html">Главная</a>
+<a  href="getting-started.html">Установка и первый запуск</a>
+<a  href="connections.html">Подключения</a>
+<a  href="usage.html">Использование</a>
+<a  href="ai.html">Локальный ИИ и OpenCode</a></nav><div class="aside-foot">Версия dev<br><a href="https://github.com/LeoAlecksey/opsdeck/issues">Сообщить о проблеме ↗</a></div></aside>
+<main><h1>Полный справочник возможностей, установки и сборки</h1>
+<p>Этот раздел сохраняет техническую информацию из прежнего README. Для пошаговой работы используйте страницы разделов в меню wiki.</p>
+<h1>OpsDeck</h1>
+<p><a href="https://github.com/LeoAlecksey/opsdeck/actions/workflows/build.yml"><img src="https://github.com/LeoAlecksey/opsdeck/actions/workflows/build.yml/badge.svg" alt="build"></a>
+<a href="https://github.com/LeoAlecksey/opsdeck/blob/master/LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="license: MIT"></a>
+<a href="https://t.me/sys_admin_expert"><img src="https://img.shields.io/badge/Telegram-sys__admin__expert-26A5E4?logo=telegram&amp;logoColor=white" alt="Telegram"></a>
+<a href="https://yoomoney.ru/to/4100119645604976"><img src="https://img.shields.io/badge/%D0%A1%D0%BA%D0%B0%D0%B7%D0%B0%D1%82%D1%8C_%D1%81%D0%BF%D0%B0%D1%81%D0%B8%D0%B1%D0%BE-YooMoney-8B5CF6?logo=yoomoney&amp;logoColor=white" alt="Сказать спасибо"></a></p>
+<p><strong>English</strong> · <a href="#ru">Русский</a></p>
+<p><a id="en"></a></p>
+<p><strong>A DevOps engineer&#39;s workspace in one window</strong>: a terminal with an AI panel and a local model, an AI agent that investigates hosts under your rules, Kubernetes, databases, an IDE with git, Grafana/ArgoCD/GitLab in tabs, alerts, notes with tasks and reminders, KeePass and Passbolt, SSH, host monitoring, files between hosts, Yandex Cloud and MikroTik — in one native app for Linux, Windows and macOS.</p>
+<p>🌐 <strong>Website with an overview and a guide:</strong> <a href="https://leoalecksey.github.io/opsdeck/en/">https://leoalecksey.github.io/opsdeck/en/</a> (<a href="https://leoalecksey.github.io/opsdeck/">Русский</a>)</p>
+<p>Stack: <strong>Rust + <a href="https://tauri.app">Tauri 2</a></strong> (backend), TypeScript + Vite (UI), <a href="https://xtermjs.org">xterm.js</a> (terminal), <a href="https://kube.rs">kube-rs</a> (Kubernetes), <a href="https://github.com/ggml-org/llama.cpp">llama.cpp</a> (local AI).</p>
+<hr>
+<h2>Features</h2>
+<h3>Warp-style terminal + AI next to it</h3>
+<ul>
+<li>Tabs and splits, a real shell (bash/zsh/PowerShell, WSL and Git Bash on Windows), colour schemes.</li>
+<li><strong>Command blocks</strong>: every command gets an exit code and duration, an action bar (copy command/output, save as a snippet, send to AI), an &quot;ask AI&quot; bar on failure, jumping between commands.</li>
+<li><strong>AI panel</strong> on the right: Claude Code, Codex, Gemini, Aider or OpenCode in their own terminal (up to three side by side); a selection or a command&#39;s output goes there with one key.</li>
+<li><strong>Claude Code IDE integration</strong>: <code>claude</code> started inside OpsDeck connects to it by itself (MCP over WebSocket on 127.0.0.1) — it sees the selection in notes and gets links to them.</li>
+<li><strong>Resource line</strong> at the bottom: CPU, load, RAM, disk — of this machine or of the remote one in the active SSH session.</li>
+<li><strong>Session recording</strong> to a text file with the ⏺ button.</li>
+<li><strong>Command palette</strong> <code>Ctrl+Shift+P</code>: sections, clusters, hosts, notes, passwords, command history, snippets with <code>{{name}}</code> parameters.</li>
+<li><strong>Fish-style suggestions</strong> while typing: the rest of the command in grey from bash/zsh history and code blocks in notes, <code>→</code> accepts.</li>
+<li><strong>Ctrl+click</strong> on a path in the output opens the file at the line; on an address (<code>http://0.0.0.0:8000</code>, a short host name, a private IP inside an SSH session) OpsDeck opens it, raising an <code>ssh -L</code> tunnel when needed.</li>
+<li><strong>&quot;Open folder in web&quot;</strong>: serves the current folder of an SSH session with <code>python3 -m http.server</code> on the host&#39;s 127.0.0.1 and opens it through an <code>ssh -L</code> tunnel — pick up files without sftp.</li>
+<li><strong>Highlighting</strong> of the command being typed and of output (ERROR/WARN, pod statuses, IPs, links), a <strong>files panel</strong> with git status.</li>
+<li><strong>Font</strong> and <strong>right mouse button</strong> (menu, PuTTY-style paste, or Windows Terminal-style &quot;copy selection, otherwise paste&quot;) — ⚙ → Terminal.</li>
+</ul>
+<h3>Local AI</h3>
+<ul>
+<li><code>Ctrl+Shift+K</code>: describe what to do in words and get a command that takes your notes and history into account.</li>
+<li>Runs on llama.cpp, installed from Settings if you want it, works offline: the light Qwen2.5-Coder 1.5B (≈1.1 GB) by default, Qwen3.5 4B/9B, Qwen3.8 27B and Qwen3.6 35B-A3B for powerful machines, or your own <code>.gguf</code>. Settings show for each model whether <strong>this computer can run it</strong> (★ the strongest that fits, ⚠ tight on memory or slow without a GPU, ✕ won&#39;t run) and refuse to start a download that won&#39;t fit on disk. GPU acceleration: Vulkan on Linux/Windows, Metal on Mac. Context size is selectable (16384 tokens by default).</li>
+<li>Or your own server with an OpenAI-compatible API — Ollama, vLLM, LM Studio (the key is kept in the system password store).</li>
+<li><strong>Knowledge base</strong>: built-in cheat sheets for kubectl, helm, docker, systemd, terraform, git, ssh, jq, networking, disks, nginx, PostgreSQL, MySQL, ClickHouse, Kafka, Redis, Vault, PromQL, ansible, Yandex Cloud and certificates (23 topics, over 250 commands). When a request matches a topic, the verified commands go into the model&#39;s prompt — real flags, not made-up ones. Your own commands go into <code>knowledge.md</code> next to the settings and come first.</li>
+<li><strong>Chat with the local AI</strong> in the AI panel: up to 8 tabs, each can be bound to a terminal tab (its folder and shell) or to a server from the SSH list. Conversations are kept between launches on this computer only (<code>ai-chats.json</code>, mode <code>0600</code>; can be turned off in ⚙ → Local AI).</li>
+</ul>
+<h3>AI agent</h3>
+<ul>
+<li>The agent goes to the host itself: picks a command, runs it, reads the output and takes the next step — until it reaches a conclusion or runs out of steps. Every step is visible: host, command, &quot;read&quot; or &quot;change&quot;, exit code and output. Started from the AI panel with the <strong>Investigation</strong> checkbox, &quot;Stop&quot; interrupts between steps.</li>
+<li><strong>Access level per host</strong>: stay away / read only / change with permission / change freely. On a read-only host a changing command doesn&#39;t run at all; a change is shown as the exact command line and goes nowhere without a click.</li>
+<li><strong>Never runs</strong>, at any level: redirections and compound commands (<code>&gt;</code>, <code>;</code>, <code>&amp;&amp;</code>, backticks), interpreters (<code>sh</code>, <code>bash</code>, <code>python</code>, <code>awk</code>, <code>nc</code>) and the irreversible (<code>rm</code>, <code>dd</code>, <code>mkfs</code>, <code>reboot</code>, <code>passwd</code>). Arguments are checked too: <code>sysctl -w</code>, <code>ip link set</code>, <code>sort -o</code> count as changes. <code>sudo</code> is off by a separate checkbox.</li>
+<li><strong>Your own rules</strong> in three lists (count as reading, always ask, forbid completely) and a log of every command run. The backend re-checks the policy right before <code>ssh</code>, and output from hosts is treated as data, not instructions.</li>
+<li><strong>AI context for hosts</strong>: a note on what runs on a server and what matters (&quot;PostgreSQL 16, orders DB; backups at 03:00; don&#39;t restart without approval&quot;) goes to the agent and the chat as information.</li>
+<li>The agent&#39;s model is chosen separately: the chat&#39;s model or your own external server.</li>
+</ul>
+<h3>Kubernetes (Lens-style)</h3>
+<ul>
+<li>Its own kubeconfig store (your <code>~/.kube/config</code> is not changed): import selected contexts, paste YAML, drag &amp; drop files.</li>
+<li>Live tables (watch), CPU/RAM from metrics-server, requests/limits next to usage, any CRD with columns like <code>kubectl get</code>, label filter like <code>kubectl -l</code>.</li>
+<li><strong>Problems and checks</strong>: two tables at the top of the list — what is broken now (CrashLoopBackOff, OOMKilled, image pull errors, unschedulable pods, missing Secrets and ConfigMaps) and what is configured unsafely, with a &quot;how to fix&quot; hint. Nothing has to be installed in the cluster.</li>
+<li>Pod logs and logs of <strong>all pods</strong> of a Deployment/StatefulSet/DaemonSet/Job at once, with filters, a timeline chart of errors and warnings and saving to a file; a &quot;Details&quot; tab with links to related objects; the object&#39;s pods as a tab; YAML with server-side apply.</li>
+<li>Shell, node shell (<code>kubectl debug</code>), port-forward, scale, restart, delete; multi-select and bulk delete; several namespaces as chips; Helm releases (values, history, rollback) and Argo CD Applications (sync/refresh). Keyboard navigation.</li>
+<li><strong>Read-only</strong> mode for production contexts — the backend blocks changes. A lost connection is shown as such, not passed off as fresh data.</li>
+</ul>
+<h3>Databases</h3>
+<ul>
+<li>PostgreSQL, MySQL/MariaDB, ClickHouse, Redis, MongoDB: connect by address and port, password from keyring, KeePass or Passbolt, TLS.</li>
+<li>Structure tree (databases → schemas → tables → columns and indexes), a query editor with history, a results table, copy to CSV/JSON.</li>
+<li><strong>Read-only</strong> mode for production databases: PostgreSQL and ClickHouse forbid writes on the server side.</li>
+</ul>
+<h3>IDE and git</h3>
+<ul>
+<li>Editor with highlighting (Terraform/HCL, YAML, JSON, TS/JS, Python, Go, Rust, SQL, Shell, Dockerfile…), file icons, project tree; several projects as chips, each with its own tabs.</li>
+<li>YAML/JSON/Terraform errors right in the code, <code>terraform fmt</code> on save; <strong>project-wide search</strong> (<code>Ctrl+Shift+F</code>), text or regex.</li>
+<li><strong>Pipeline graph</strong> for <code>.gitlab-ci.yml</code> and <code>.github/workflows</code>: stages and jobs; pick the event, branch, changed files and variables and see what will run, what is manual and what won&#39;t run — before you push. <code>include: local</code>, <code>extends</code>, YAML anchors and <code>!reference</code> are resolved.</li>
+<li>Git panel: commit graph of all branches, diffs, branches (switch, create, merge, delete), fetch/pull/push, commit; lines not yet pushed are marked. A mini console in the project folder.</li>
+</ul>
+<h3>Web panels and alerts</h3>
+<ul>
+<li>Grafana, ArgoCD, GitLab and any sites — <strong>as tabs inside the window</strong> with automatic login (password from keyring, KeePass or Passbolt).</li>
+<li><strong>Alerts</strong> 🔔: OpsDeck polls Grafana Alerting, Prometheus Alertmanager, Zabbix 6.0+ and JSON feeds of your AI analyzers itself — nothing has to be exposed to your machine. Desktop notifications, history, links to dashboards/silences, alert analysis in AI.</li>
+<li><strong>Your own AI analyzer</strong> of logs and alerts can push findings to <code>127.0.0.1</code> with a token — the app has a ready guide and a <code>curl</code> example.</li>
+</ul>
+<h3>Hosts and clouds</h3>
+<ul>
+<li><strong>SSH</strong>: profiles (key, jump host, password from KeePass or Passbolt), hosts from <code>~/.ssh/config</code>, groups, double click connects, a warning and a one-click fix when ssh would reject a key because of its permissions.</li>
+<li><strong>Host monitoring</strong>: a board of SSH hosts — CPU, load, RAM, disk, uptime, coloured by the worst value; metrics are taken by key or through an already open session, one connection per host.</li>
+<li><strong>Files on hosts</strong>: two panes — this machine or a host over SSH; download, upload, create a folder, rename, delete. Host → host goes through <code>scp -3</code>, OpsDeck holds both connections. Uses system <code>sftp</code> and <code>scp</code>, so <code>~/.ssh/config</code>, ProxyJump and keys apply; key login only.</li>
+<li><strong>Yandex Cloud</strong>: instances (state, configuration, addresses, start/stop/restart, SSH in one click), networks and subnets, security groups with readable rules, public addresses, service accounts with roles and billing accounts. Works through the <code>yc</code> CLI and its profiles (<code>yc init</code>) — OpsDeck stores no tokens or service account keys.</li>
+<li><strong>MikroTik</strong>: WinBox and SSH in one click, import of saved routers from WinBox.</li>
+<li><strong>Network and DNS</strong>: ping, mtr, traceroute, dig, nslookup; a host port scan (open/closed/filtered and what answers) and the ports this machine listens on, with processes.</li>
+</ul>
+<h3>Everything else</h3>
+<ul>
+<li><strong>Modules</strong>: the ⊞ button in the left column turns sections on and off — keep only what you need. A new install has Terminal, Kubernetes, SSH, KeePass and Notes on; disabled sections are not loaded.</li>
+<li><strong>Separate windows</strong>: any section opens in its own window (right click on its icon, ↗ or the palette); a terminal tab moves between windows together with its live session — same shell, same <code>cd</code>, a running <code>ssh</code> or <code>top</code> stays.</li>
+<li><strong>KeePass</strong> (.kdbx): read only, the database lives in memory only; stays open until OpsDeck closes (or auto-locks) and picks up file changes. Passwords are copied with automatic clipboard clearing and serve every section.</li>
+<li><strong>Passbolt</strong> (5.x): read only — login with an account kit, TOTP or Yubikey as the second factor, records with folders and search, copy login and password, palette. A password is requested from the server only when used (Passbolt logs every access), decrypted data lives in memory until lock.</li>
+<li><strong>Notes</strong>: several vaults (your own or an Obsidian vault), folder tree with drag and drop, tags, search, a Markdown editor.</li>
+<li><strong>Tasks and reminders</strong>: tasks as lines in notes (Obsidian Tasks format) with a description and subtasks, a combined list by due date, a calendar, reminder pop-ups with &quot;snooze&quot;.</li>
+<li><strong>Moving to another computer</strong>: ⚙ → export/import of settings, hosts, panels, databases, snippets, kubeconfig and notes into an archive (passwords are not included).</li>
+</ul>
+<p>Every section has a <strong>!</strong> button — built-in help: how it works, what to click, hotkeys.</p>
+<p><strong>Interface languages:</strong> English and Russian (⚙ → Language; defaults to the system language).</p>
+<hr>
+<h2>Installation</h2>
+<h3>System requirements</h3>
+<table>
+<thead>
+<tr>
+<th>OS</th>
+<th>Versions</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>Linux</strong> (x64, ARM64)</td>
+<td>Ubuntu 22.04+ (Mint 21+, Pop!_OS 22.04+), Debian 12+, Fedora 36+, openSUSE Tumbleweed, Arch/Manjaro</td>
+<td>Needs glibc 2.35+ and WebKitGTK 4.1. <strong>Not supported:</strong> Ubuntu 20.04, Debian 11, RHEL/Alma/Rocky 9 (glibc 2.34).</td>
+</tr>
+<tr>
+<td><strong>Windows</strong> (x64)</td>
+<td>Windows 10 and 11</td>
+<td>Needs WebView2: Windows 11 and an updated Windows 10 already have it, otherwise the installer downloads it. Windows 7/8 are not supported.</td>
+</tr>
+<tr>
+<td><strong>macOS</strong></td>
+<td>Intel: 10.13 High Sierra+; Apple Silicon (M1–M4): 11 Big Sur+</td>
+<td>Builds are not signed yet — see below.</td>
+</tr>
+</tbody></table>
+<p>The local AI (optional, installed from ⚙) uses <a href="https://github.com/ggml-org/llama.cpp">llama.cpp</a> builds and may need a newer system; if it doesn&#39;t start, the rest of OpsDeck works as usual. Models take from ≈1.1 GB (the default one, ≈1.5 GB of free memory while running) to ≈22 GB of disk; Settings show whether a model suits this computer.</p>
+<h3>Prebuilt packages</h3>
+<p>Installers for Linux (<code>.deb</code>, <code>.rpm</code>, <code>.AppImage</code>), Windows (<code>.msi</code>, <code>.exe</code>) and macOS (<code>.dmg</code>) are published in <a href="https://github.com/LeoAlecksey/opsdeck/releases"><strong>Releases</strong></a> and built by GitHub Actions for every <code>v*</code> tag (see <a href="#ci-builds">CI builds</a>).</p>
+<blockquote>
+<p>macOS builds are not signed with an Apple certificate yet. If macOS says the app is &quot;damaged&quot; and offers to move it to the Bin, it isn&#39;t damaged — this is Gatekeeper&#39;s quarantine for downloaded unsigned apps. Drag OpsDeck to Applications and run in Terminal:</p>
+<pre><code class="language-bash">xattr -cr /Applications/OpsDeck.app
+</code></pre>
+<p>If macOS says it can&#39;t verify the developer: System Settings → Privacy &amp; Security → &quot;Open Anyway&quot; at the bottom (on macOS 15+ right click → &quot;Open&quot; no longer helps).</p>
+</blockquote>
+<h3>Building from source</h3>
+<p>You need <a href="https://rustup.rs">Rust</a> (stable) and Node.js 20+.</p>
+<pre><code class="language-bash">git clone https://github.com/LeoAlecksey/opsdeck.git &amp;&amp; cd opsdeck
+</code></pre>
+<p><strong>Linux (Debian/Ubuntu)</strong> — system libraries:</p>
+<pre><code class="language-bash">sudo apt install libwebkit2gtk-4.1-dev libgtk-3-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev librsvg2-dev libayatana-appindicator3-dev build-essential
+</code></pre>
+<p><strong>Windows</strong> — WebView2 (built into Windows 10/11) and Visual Studio Build Tools (C++). <strong>macOS</strong> — Xcode Command Line Tools.</p>
+<pre><code class="language-bash">npm install
+npm run tauri dev      # development mode
+npm run tauri build    # installers → src-tauri/target/release/bundle/
+</code></pre>
+<p>Optional external programs: <code>kubectl</code>, <code>helm</code>, <code>ssh</code>/<code>sftp</code>/<code>scp</code>, <code>yc</code>, <code>mtr</code>/<code>traceroute</code>/<code>dig</code>, WinBox, KeePassXC, <code>claude</code>/<code>codex</code>/<code>gemini</code>/<code>aider</code>/<code>opencode</code> — OpsDeck uses them if they are installed.</p>
+<hr>
+<h2>Quick start</h2>
+<ol>
+<li><strong>Kubernetes</strong>: section ☸ → <strong>＋</strong> → tick the contexts you need from <code>~/.kube/config</code>. Turn on 🔒 for production.</li>
+<li><strong>Grafana and alerts</strong>: section ◎ → <strong>＋ Add</strong> → type Grafana, URL, &quot;token&quot; auth (a service account with the Viewer role) → <strong>Save and check</strong>. Alerts appear in 🔔.</li>
+<li><strong>Terminal + AI</strong>: <code>Ctrl+Shift+I</code> opens the AI panel, <code>Ctrl+Shift+A</code> sends the selection, <code>Ctrl+Shift+P</code> is the palette, <code>Ctrl+Shift+K</code> is the local AI.</li>
+<li><strong>Local AI and agent</strong>: ⚙ → Local AI → pick a model → &quot;Install&quot;; for investigations turn on the &quot;AI agent&quot; module in ⊞ and set access levels for hosts.</li>
+<li><strong>KeePass, notes, WinBox</strong>: paths are picked up automatically, check them in ⚙.</li>
+</ol>
+<hr>
+<h2>Updates and releases</h2>
+<p>OpsDeck updates itself: on launch (or with the button in ⚙ → Updates) it checks GitHub Releases, and if there is a new version ↑ appears on ⚙; <strong>&quot;Update and restart&quot;</strong> downloads it, <strong>verifies the signature</strong> and installs it (Windows, macOS, Linux: AppImage, <code>.deb</code>, <code>.rpm</code> — for packages the system asks for a password). In ⚙ → Updates → &quot;Other versions&quot; you can go back to any previous version.</p>
+<p>A release takes two steps (<code>master</code> accepts changes only through a pull request):</p>
+<pre><code class="language-bash"># 1. on dev: bump the version in package.json, tauri.conf.json, Cargo.toml and Cargo.lock, commit and push dev
+npm run release -- 0.9.0
+# then a PR dev → master, checks, merge
+
+# 2. on master: an annotated tag v0.9.0 with the release notes
+npm run release -- 0.9.0 @docs/releases/0.9.0.md
+</code></pre>
+<p>GitHub Actions builds every platform, signs the updates and <strong>publishes the release</strong> with <code>latest.json</code> — installed copies see it on their next check. Release notes are written in advance in <code>docs/releases/</code>.</p>
+<p>Signing: updates are signed with a private key (minisign) from the repository secrets <code>TAURI_SIGNING_PRIVATE_KEY</code> and <code>TAURI_SIGNING_PRIVATE_KEY_PASSWORD</code>; the public key is embedded in <code>tauri.conf.json</code>, and the app won&#39;t install a file with someone else&#39;s signature. The key is created with <code>npx tauri signer generate -w ~/.tauri/opsdeck.key</code>. <strong>Keep the key and its password safe</strong> (for example, in KeePass): without them you can&#39;t release an update for already installed copies.</p>
+<h2>CI builds</h2>
+<p><code>.github/workflows/build.yml</code> builds on <strong>native runners</strong> — each platform on its own OS and architecture:</p>
+<table>
+<thead>
+<tr>
+<th>Runner</th>
+<th>Output</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>ubuntu-22.04</code> (x64), <code>ubuntu-22.04-arm</code> (arm64)</td>
+<td><code>.deb</code>, <code>.rpm</code>, <code>.AppImage</code></td>
+</tr>
+<tr>
+<td><code>windows-2025</code> (x64)</td>
+<td><code>.msi</code>, NSIS installer <code>.exe</code></td>
+</tr>
+<tr>
+<td><code>macos-26</code> (Apple Silicon; the Intel build is made there too, with <code>--target x86_64-apple-darwin</code>)</td>
+<td><code>.dmg</code>, <code>.app</code></td>
+</tr>
+</tbody></table>
+<ul>
+<li>Push to <code>main</code>/<code>master</code> (happens only on a release): checks and a build of every platform without publishing — it also fills the Rust cache the next release uses.</li>
+<li>Pull request to <code>master</code>: checks (TypeScript, <code>npm audit</code>, <code>cargo audit</code>) and a quick linux-x64 build; the installer is in the run&#39;s artifacts.</li>
+<li>The <code>dev</code> branch isn&#39;t built by itself; a manual run (Run workflow) builds linux-x64 or, with a checkbox, every platform.</li>
+<li>A <code>v*</code> tag: every platform; the release is assembled as a draft and <strong>published</strong> (with all installers, signed updates and <code>latest.json</code>) only after the checks, all builds and all tests have passed.</li>
+<li><strong>Tests</strong> (on tags, pushes to master, PRs to master and manual runs): Rust tests on Linux, Windows and macOS (<code>cargo test --lib</code>); UI tests — vitest (<code>npm test</code>) and Playwright on demo data (<code>npm run test:ui</code>); end-to-end tests of the real app through tauri-driver on Linux and Windows (<code>tests/e2e</code>). Failed tests leave the release a draft.</li>
+<li>Windows on ARM isn&#39;t built: there are too few such users.</li>
+<li>Linux arm64 runners are free for public repositories; a private one may not have them on your plan — then remove <code>linux-arm64</code> from the platform list in the <code>plan</code> job.</li>
+<li><strong>Emergency rollback</strong>: Actions → &quot;Отозвать версию&quot; (Withdraw version) → version number. The release becomes a pre-release, the previous stable one becomes &quot;latest&quot; again, and copies with the withdrawn version offer to go back to it.</li>
+<li>Dependabot (<code>.github/dependabot.yml</code>) sends monthly grouped dependency PRs to <code>dev</code> (major versions by hand).</li>
+</ul>
+<hr>
+<h2>Architecture</h2>
+<pre><code>src/                  UI (TypeScript, no framework)
+  main.ts             shell: list of sections, left column, mounting on demand, single-section windows
+  modules/            sections: terminal, k8s, code, db, connectors (web panels), alerts, aichat, ai-agents, …
+src-tauri/src/        Rust backend, a module per section
+  pty.rs              terminals (portable-pty) + shell integration (OSC 133)
+  k8s.rs              Kubernetes (kube-rs): lists, watch, logs, Helm, CRD
+  ai.rs, aichat.rs    local AI (llama.cpp): models, command suggestions, chat
+  agent.rs            AI agent: the command policy, re-checked right before ssh
+  embed.rs            web panels embedded in tabs
+  alerts.rs           alert and AI-finding collection
+  ide.rs              bridge for Claude Code (MCP over WebSocket, 127.0.0.1)
+  store.rs            JSON in ~/.config/opsdeck + secrets in the OS keyring
+  keepass.rs, passbolt.rs, ssh.rs, sftp.rs, yc.rs, db.rs, notes.rs, tasks.rs, …
+</code></pre>
+<p>User data: <code>~/.config/opsdeck/</code> (modes 600/700, atomic writes), secrets — in the system store (Secret Service / Keychain / Credential Manager).</p>
+<hr>
+<h2>Security</h2>
+<ul>
+<li>Secrets live only in the system store or KeePass/Passbolt; the KeePass database and Passbolt records are decrypted in memory only; passwords in the clipboard are wiped after 30 s.</li>
+<li>OpsDeck doesn&#39;t listen on external interfaces: the Claude Code bridge and the AI-findings receiver are <code>127.0.0.1</code> only, with a token, protected from browser requests and DNS rebinding.</li>
+<li>Embedded web pages have no access to the app&#39;s API; auto-login works only on the connector&#39;s address.</li>
+<li>A strict UI CSP, escaping of all external data, Markdown through DOMPurify.</li>
+<li>External programs are started without a shell, arguments are validated; importing a kubeconfig with <code>exec</code> shows the commands it will run.</li>
+<li>The AI agent runs only what its policy allows; the policy is checked again in the backend before <code>ssh</code>, and output from hosts and models is data, not instructions.</li>
+<li>In CI — <code>npm audit</code> and <code>cargo audit</code> on every build, CodeQL, Dependabot for dependencies.</li>
+</ul>
+<p>Found a vulnerability? See <a href="https://github.com/LeoAlecksey/opsdeck/blob/master/SECURITY.md">SECURITY.md</a>.</p>
+<hr>
+<h2>Known limitations</h2>
+<ul>
+<li>Web panels are native webviews on top of the UI: while focus is inside a panel, OpsDeck hotkeys don&#39;t work. If embedding misbehaves, start with <code>OPSDECK_NO_EMBED=1</code> — panels will open in separate windows.</li>
+<li>SSO login (Keycloak, Google) and 2FA in web panels are done by hand once.</li>
+<li>Command blocks work in bash and zsh; in PowerShell the terminal works without blocks. Windows usually has no <code>mtr</code> and <code>dig</code>.</li>
+<li>WinBox accepts a password only as a command-line argument — while it runs, the password is visible in your user&#39;s process list.</li>
+<li>Files on hosts and monitoring need key-based SSH login.</li>
+</ul>
+<hr>
+<h2>Contributing</h2>
+<p><a href="https://github.com/LeoAlecksey/opsdeck/issues">Issues</a> and pull requests are welcome — how to build, test and send changes is in <a href="https://github.com/LeoAlecksey/opsdeck/blob/master/CONTRIBUTING.md">CONTRIBUTING.md</a>. Pull requests go to the <code>dev</code> branch.</p>
+<h2>Author and support</h2>
+<ul>
+<li>The author&#39;s Telegram channel: <a href="https://t.me/sys_admin_expert">@sys_admin_expert</a></li>
+<li>If OpsDeck is useful to you, you can <a href="https://yoomoney.ru/to/4100119645604976">support the project</a> (YooMoney). Thank you!</li>
+</ul>
+<h2>License</h2>
+<p><a href="https://github.com/LeoAlecksey/opsdeck/blob/master/LICENSE">MIT</a> © 2026 <a href="https://github.com/LeoAlecksey">LeoAlecksey</a></p>
+<hr>
+<p><a id="ru"></a></p>
+<h1>OpsDeck — по-русски</h1>
+<p><a href="#en">English</a> · <strong>Русский</strong></p>
+<p><strong>Единая рабочая панель DevOps-инженера</strong>: терминал с AI рядом и локальной моделью, ИИ-агент, который сам расследует проблемы на хостах по вашим правилам, Kubernetes, базы данных, IDE с git, Grafana/ArgoCD/GitLab во вкладках, алерты, заметки с задачами и напоминаниями, KeePass и Passbolt, SSH, мониторинг хостов, файлы между хостами, Yandex Cloud и MikroTik — в одном нативном приложении для Linux, Windows и macOS.</p>
+<p>🌐 <strong>Сайт с обзором и инструкцией:</strong> <a href="https://leoalecksey.github.io/opsdeck/">https://leoalecksey.github.io/opsdeck/</a> (<a href="https://leoalecksey.github.io/opsdeck/en/">English</a>)</p>
+<p>Стек: <strong>Rust + <a href="https://tauri.app">Tauri 2</a></strong> (бэкенд), TypeScript + Vite (интерфейс), <a href="https://xtermjs.org">xterm.js</a> (терминал), <a href="https://kube.rs">kube-rs</a> (Kubernetes), <a href="https://github.com/ggml-org/llama.cpp">llama.cpp</a> (локальный ИИ).</p>
+<hr>
+<h2>Возможности</h2>
+<h3>Терминал «как Warp» + AI рядом</h3>
+<ul>
+<li>Вкладки и сплиты, настоящий shell (bash/zsh/PowerShell, на Windows — WSL и Git Bash), цветовые схемы.</li>
+<li><strong>Блоки команд</strong>: у каждой команды — код выхода и время, панель действий (скопировать команду/вывод, сохранить как сниппет, отправить в AI), плашка «спросить AI» при ошибке, навигация по командам.</li>
+<li><strong>AI-панель</strong> справа: Claude Code, Codex, Gemini, Aider или OpenCode в своём терминале (до трёх рядом); выделенный текст или вывод команды отправляется туда одной клавишей.</li>
+<li><strong>Интеграция с Claude Code как IDE</strong>: <code>claude</code>, запущенный в OpsDeck, подключается к нему сам (MCP по WebSocket на 127.0.0.1) — видит выделение в заметках и получает ссылки на них.</li>
+<li><strong>Строка ресурсов</strong> внизу: CPU, load, RAM, диск — этой машины или удалённой в активной SSH-сессии.</li>
+<li><strong>Запись сессии</strong> в текстовый файл кнопкой ⏺.</li>
+<li><strong>Палитра команд</strong> <code>Ctrl+Shift+P</code>: разделы, кластеры, хосты, заметки, пароли, история команд, сниппеты с параметрами <code>{{имя}}</code>.</li>
+<li><strong>Подсказка при наборе</strong>, как в fish: продолжение команды серым из истории bash/zsh и блоков кода в заметках, <code>→</code> — принять.</li>
+<li><strong>Ctrl+клик</strong> по пути в выводе открывает файл на строке; по адресу (<code>http://0.0.0.0:8000</code>, короткое имя хоста, частный IP внутри SSH-сессии) — открывает его, при необходимости поднимая туннель <code>ssh -L</code>.</li>
+<li><strong>«Открыть папку в web»</strong>: текущая папка SSH-сессии раздаётся <code>python3 -m http.server</code> на 127.0.0.1 хоста и открывается через туннель <code>ssh -L</code> — забрать файлы без sftp.</li>
+<li><strong>Подсветка</strong> команды при наборе и вывода (ERROR/WARN, статусы подов, IP, ссылки), <strong>панель файлов</strong> с git-статусом.</li>
+<li><strong>Шрифт</strong> и <strong>правая кнопка мыши</strong> (меню, вставка как в PuTTY или «копировать выделение, иначе вставить», как в Windows Terminal) — ⚙ → Терминал.</li>
+</ul>
+<h3>Локальный ИИ</h3>
+<ul>
+<li><code>Ctrl+Shift+K</code>: опишите словами, что сделать, — получите команду с учётом ваших заметок и истории.</li>
+<li>Работает на llama.cpp, ставится из настроек по желанию и работает без интернета: лёгкая Qwen2.5-Coder 1.5B (≈1,1 ГБ) по умолчанию, Qwen3.5 4B/9B, Qwen3.8 27B и Qwen3.6 35B-A3B для мощных ПК или свой файл <code>.gguf</code>. В настройках у каждой модели видно, <strong>потянет ли её этот компьютер</strong> (★ самая сильная из подходящих, ⚠ памяти впритык или медленно без видеокарты, ✕ не потянет), а загрузка, которой не хватит места на диске, не начнётся. Ускорение на видеокарте: Vulkan на Linux/Windows, Metal на Mac. Размер контекста выбирается (по умолчанию 16384 токена).</li>
+<li>Или свой сервер с OpenAI-совместимым API — Ollama, vLLM, LM Studio (ключ хранится в системном хранилище паролей).</li>
+<li><strong>База знаний</strong>: встроенные шпаргалки по kubectl, helm, docker, systemd, terraform, git, ssh, jq, сетям, дискам, nginx, PostgreSQL, MySQL, ClickHouse, Kafka, Redis, Vault, PromQL, ansible, Yandex Cloud и сертификатам (23 темы, больше 250 команд). Когда запрос похож на тему, проверенные команды уходят в подсказку модели — флаги настоящие, а не выдуманные. Свои команды дописываются в <code>knowledge.md</code> рядом с настройками и идут первыми.</li>
+<li><strong>Чат с локальным ИИ</strong> в AI-панели: до 8 вкладок, каждую можно привязать к вкладке терминала (её папка и оболочка) или к серверу из списка SSH. Разговоры сохраняются между запусками только на этом компьютере (<code>ai-chats.json</code>, права <code>0600</code>; выключается в ⚙ → Локальный ИИ).</li>
+</ul>
+<h3>ИИ-агент</h3>
+<ul>
+<li>Агент сам ходит на хост: выбирает команду, выполняет её, читает вывод и делает следующий шаг — до итога или до конца отведённых шагов. Каждый шаг виден: хост, команда, «чтение» или «изменение», код возврата и вывод. Запускается из AI-панели галочкой <strong>Расследование</strong>, «Стоп» прерывает между шагами.</li>
+<li><strong>Уровень доступа на каждый хост</strong>: не ходить / только чтение / менять с разрешения / менять без вопросов. На хосте «только чтение» изменяющая команда не выполнится вовсе; изменение показывается точной строкой и без нажатия не идёт никуда.</li>
+<li><strong>Не выполнится ни при каком уровне</strong>: перенаправления и составные команды (<code>&gt;</code>, <code>;</code>, <code>&amp;&amp;</code>, обратные кавычки), интерпретаторы (<code>sh</code>, <code>bash</code>, <code>python</code>, <code>awk</code>, <code>nc</code>) и необратимое (<code>rm</code>, <code>dd</code>, <code>mkfs</code>, <code>reboot</code>, <code>passwd</code>). Аргументы тоже проверяются: <code>sysctl -w</code>, <code>ip link set</code>, <code>sort -o</code> считаются изменением. <code>sudo</code> выключен отдельной галочкой.</li>
+<li><strong>Свои правила</strong> тремя списками (считать чтением, спрашивать всегда, запретить) и журнал каждой выполненной команды. Бэкенд проверяет политику ещё раз прямо перед <code>ssh</code>, а вывод с хостов считается данными, а не указаниями.</li>
+<li><strong>Контекст для ИИ у хостов</strong>: что на сервере крутится и что важно («PostgreSQL 16, база заказов; бэкапы в 03:00; без согласования не перезапускать») — уходит агенту и чату как сведения.</li>
+<li>Модель агента выбирается отдельно: та же, что у чата, или свой внешний сервер.</li>
+</ul>
+<h3>Kubernetes (в духе Lens)</h3>
+<ul>
+<li>Собственное хранилище kubeconfig (ваш <code>~/.kube/config</code> не меняется): импорт выбранных контекстов, вставка YAML, drag &amp; drop файлов.</li>
+<li>Живые таблицы (watch), CPU/RAM из metrics-server, requests/limits рядом с потреблением, любые CRD с колонками как у <code>kubectl get</code>, фильтр по меткам как у <code>kubectl -l</code>.</li>
+<li><strong>Проблемы и проверки</strong>: две таблицы в начале списка — что сломано сейчас (CrashLoopBackOff, OOMKilled, образ не скачивается, под не назначается, ссылки на несуществующие Secret и ConfigMap) и что сделано небезопасно, с подсказкой «как исправить». В кластер ничего ставить не нужно.</li>
+<li>Логи пода и <strong>сразу всех подов</strong> Deployment/StatefulSet/DaemonSet/Job с фильтрами, графиком ошибок и предупреждений по времени и сохранением в файл; вкладка «Детали» со ссылками на связанные объекты; поды объекта отдельной вкладкой; YAML с server-side apply.</li>
+<li>Shell, shell на узле (<code>kubectl debug</code>), port-forward, scale, restart, delete; мультивыбор и массовое удаление; несколько namespace плашками; Helm-релизы (values, история, rollback) и Argo CD Applications (sync/refresh). Управление с клавиатуры.</li>
+<li>Режим <strong>«только чтение»</strong> для продовых контекстов — изменения блокирует бэкенд. Обрыв связи с кластером виден, прежний снимок не выдаётся за свежий.</li>
+</ul>
+<h3>Базы данных</h3>
+<ul>
+<li>PostgreSQL, MySQL/MariaDB, ClickHouse, Redis, MongoDB: подключение по адресу и порту, пароль из keyring, KeePass или Passbolt, TLS.</li>
+<li>Дерево структуры (базы → схемы → таблицы → колонки и индексы), редактор запросов с историей, таблица результатов, копирование в CSV/JSON.</li>
+<li>Режим <strong>«только чтение»</strong> для прод-баз: PostgreSQL и ClickHouse запрещают запись на стороне сервера.</li>
+</ul>
+<h3>IDE и git</h3>
+<ul>
+<li>Редактор с подсветкой (Terraform/HCL, YAML, JSON, TS/JS, Python, Go, Rust, SQL, Shell, Dockerfile…), свои иконки файлов, дерево проекта; несколько проектов плашками, у каждого свои вкладки.</li>
+<li>Ошибки YAML/JSON/Terraform прямо в коде, <code>terraform fmt</code> при сохранении; <strong>поиск по всему проекту</strong> (<code>Ctrl+Shift+F</code>), текст или регулярное выражение.</li>
+<li><strong>Граф пайплайна</strong> для <code>.gitlab-ci.yml</code> и <code>.github/workflows</code>: стадии и задачи; выберите событие, ветку, изменённые файлы и переменные — и видно, что запустится, что только вручную, а что нет, ещё до пуша. Раскрываются <code>include: local</code>, <code>extends</code>, якоря YAML и <code>!reference</code>.</li>
+<li>Панель git: граф коммитов всех веток, диффы, ветки (переключить, создать, слить, удалить), fetch/pull/push, коммит; строки, ещё не отправленные в удалённую ветку, помечены. Мини-консоль в папке проекта.</li>
+</ul>
+<h3>Веб-панели и алерты</h3>
+<ul>
+<li>Grafana, ArgoCD, GitLab и любые сайты — <strong>вкладками внутри окна</strong> с автоматическим входом (пароль из keyring, KeePass или Passbolt).</li>
+<li><strong>Алерты</strong> 🔔: OpsDeck сам опрашивает Grafana Alerting, Prometheus Alertmanager, Zabbix 6.0+ и JSON-ленты ваших AI-анализаторов — на машину ничего не нужно пробрасывать. Уведомления на рабочем столе, история, ссылки на панели/silence, разбор алерта в AI.</li>
+<li><strong>Свой AI-анализатор</strong> логов и алертов может присылать находки на <code>127.0.0.1</code> по токену — в приложении есть готовая инструкция и пример <code>curl</code>.</li>
+</ul>
+<h3>Хосты и облака</h3>
+<ul>
+<li><strong>SSH</strong>: профили (ключ, jump-хост, пароль из KeePass или Passbolt), хосты из <code>~/.ssh/config</code>, группы, подключение двойным кликом, предупреждение и исправление в один клик, если ssh отвергнет ключ из-за прав на файл.</li>
+<li><strong>Мониторинг хостов</strong>: доска SSH-хостов — CPU, load, RAM, диск, аптайм, цвет по худшему показателю; метрики снимаются по ключу или через уже открытую сессию, одно соединение на хост.</li>
+<li><strong>Файлы на хостах</strong>: две панели — своя машина или хост по SSH; скачать, загрузить, создать папку, переименовать, удалить. Перенос хост → хост идёт через <code>scp -3</code>, оба соединения ведёт OpsDeck. Работает системными <code>sftp</code> и <code>scp</code>, то есть с <code>~/.ssh/config</code>, ProxyJump и ключами; вход только по ключу.</li>
+<li><strong>Yandex Cloud</strong>: машины (состояние, конфигурация, адреса, включить/выключить/перезагрузить, SSH в один клик), сети и подсети, группы безопасности с правилами по-человечески, публичные адреса, сервисные аккаунты с правами и платёжные аккаунты. Работает через CLI <code>yc</code> и его профили (<code>yc init</code>) — ни токенов, ни ключей сервисных аккаунтов OpsDeck не хранит.</li>
+<li><strong>MikroTik</strong>: WinBox и SSH в один клик, импорт сохранённых роутеров из WinBox.</li>
+<li><strong>Сеть и DNS</strong>: ping, mtr, traceroute, dig, nslookup; скан портов хоста (открыт/закрыт/фильтруется и что отвечает) и список портов, которые слушает эта машина, с процессами.</li>
+</ul>
+<h3>Остальное</h3>
+<ul>
+<li><strong>Модули</strong>: кнопка ⊞ в колонке слева включает и выключает разделы галочками — оставьте только нужные. В новой установке включены Терминал, Kubernetes, SSH, KeePass и Заметки; выключенные разделы не загружаются.</li>
+<li><strong>Отдельные окна</strong>: любой раздел открывается в своём окне (правый клик по иконке, ↗ или палитра); вкладка терминала переезжает между окнами вместе с живой сессией — та же оболочка, тот же <code>cd</code>, запущенный <code>ssh</code> или <code>top</code> остаются.</li>
+<li><strong>KeePass</strong> (.kdbx): только чтение, база лишь в памяти; остаётся открытой до закрытия OpsDeck (или автоблокировка) и сама подтягивает изменения файла. Пароли копируются с автоочисткой буфера и служат источником для всех разделов.</li>
+<li><strong>Passbolt</strong> (5.x): только чтение — вход по account kit, второй фактор TOTP или Yubikey, список записей с папками и поиском, копирование логина и пароля, палитра. Пароль запрашивается с сервера только при использовании (Passbolt пишет каждое обращение в журнал), расшифрованное — лишь в памяти до блокировки.</li>
+<li><strong>Заметки</strong>: несколько хранилищ (свои или Obsidian vault), дерево папок с перетаскиванием, теги, поиск, редактор Markdown.</li>
+<li><strong>Задачи и напоминания</strong>: задачи строками в заметках (формат Obsidian Tasks) с описанием и подзадачами, общий список по срокам, календарь, всплывающие напоминания с «отложить».</li>
+<li><strong>Перенос на другой компьютер</strong>: ⚙ → экспорт и импорт настроек, хостов, панелей, баз, сниппетов, kubeconfig и заметок архивом (пароли в него не попадают).</li>
+</ul>
+<p>В каждом разделе есть кнопка <strong>!</strong> — встроенная подсказка: как работает, что где нажимать, горячие клавиши.</p>
+<p><strong>Языки интерфейса:</strong> русский и английский (⚙ → Язык; по умолчанию — как в системе).</p>
+<hr>
+<h2>Установка</h2>
+<h3>Системные требования</h3>
+<table>
+<thead>
+<tr>
+<th>ОС</th>
+<th>Версии</th>
+<th>Примечания</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>Linux</strong> (x64, ARM64)</td>
+<td>Ubuntu 22.04+ (Mint 21+, Pop!_OS 22.04+), Debian 12+, Fedora 36+, openSUSE Tumbleweed, Arch/Manjaro</td>
+<td>Нужны glibc 2.35+ и WebKitGTK 4.1. <strong>Не подходят:</strong> Ubuntu 20.04, Debian 11, RHEL/Alma/Rocky 9 (glibc 2.34).</td>
+</tr>
+<tr>
+<td><strong>Windows</strong> (x64)</td>
+<td>Windows 10 и 11</td>
+<td>Нужен WebView2: в Windows 11 и обновлённой Windows 10 он уже есть, иначе установщик скачает его сам. Windows 7/8 не поддерживаются.</td>
+</tr>
+<tr>
+<td><strong>macOS</strong></td>
+<td>Intel: 10.13 High Sierra+; Apple Silicon (M1–M4): 11 Big Sur+</td>
+<td>Сборки пока не подписаны — см. ниже.</td>
+</tr>
+</tbody></table>
+<p>Локальный ИИ (необязательный, ставится из ⚙) использует сборки <a href="https://github.com/ggml-org/llama.cpp">llama.cpp</a> и может требовать систему новее; если он не запустится, остальное OpsDeck работает как обычно. Модели занимают от ≈1,1 ГБ на диске (модель по умолчанию, ≈1,5 ГБ свободной памяти во время работы) до ≈22 ГБ; подходит ли модель этому компьютеру, видно в настройках.</p>
+<h3>Готовые сборки</h3>
+<p>Установщики для Linux (<code>.deb</code>, <code>.rpm</code>, <code>.AppImage</code>), Windows (<code>.msi</code>, <code>.exe</code>) и macOS (<code>.dmg</code>) публикуются в <a href="https://github.com/LeoAlecksey/opsdeck/releases"><strong>Releases</strong></a> и собираются GitHub Actions на каждый тег <code>v*</code> (см. <a href="#%D1%81%D0%B1%D0%BE%D1%80%D0%BA%D0%B0-%D0%B2-ci">Сборка в CI</a>).</p>
+<blockquote>
+<p>macOS-сборки пока не подписаны сертификатом Apple. Если при запуске macOS пишет, что приложение «повреждено» и предлагает переместить его в корзину, — оно не повреждено, это карантин Gatekeeper для скачанных неподписанных программ. Перетащите OpsDeck в «Программы» и выполните в Терминале:</p>
+<pre><code class="language-bash">xattr -cr /Applications/OpsDeck.app
+</code></pre>
+<p>Если macOS пишет, что не может проверить разработчика: «Системные настройки» → «Конфиденциальность и безопасность» → внизу «Всё равно открыть» (на macOS 15+ правый клик → «Открыть» больше не помогает).</p>
+</blockquote>
+<h3>Сборка из исходников</h3>
+<p>Нужны <a href="https://rustup.rs">Rust</a> (stable) и Node.js 20+.</p>
+<pre><code class="language-bash">git clone https://github.com/LeoAlecksey/opsdeck.git &amp;&amp; cd opsdeck
+</code></pre>
+<p><strong>Linux (Debian/Ubuntu)</strong> — системные библиотеки:</p>
+<pre><code class="language-bash">sudo apt install libwebkit2gtk-4.1-dev libgtk-3-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev librsvg2-dev libayatana-appindicator3-dev build-essential
+</code></pre>
+<p><strong>Windows</strong> — WebView2 (есть в Windows 10/11) и Visual Studio Build Tools (C++). <strong>macOS</strong> — Xcode Command Line Tools.</p>
+<pre><code class="language-bash">npm install
+npm run tauri dev      # режим разработки
+npm run tauri build    # установщики → src-tauri/target/release/bundle/
+</code></pre>
+<p>Необязательные внешние программы: <code>kubectl</code>, <code>helm</code>, <code>ssh</code>/<code>sftp</code>/<code>scp</code>, <code>yc</code>, <code>mtr</code>/<code>traceroute</code>/<code>dig</code>, WinBox, KeePassXC, <code>claude</code>/<code>codex</code>/<code>gemini</code>/<code>aider</code>/<code>opencode</code> — OpsDeck использует их, если они установлены.</p>
+<hr>
+<h2>Быстрый старт</h2>
+<ol>
+<li><strong>Kubernetes</strong>: раздел ☸ → <strong>＋</strong> → отметьте нужные контексты из <code>~/.kube/config</code>. Для прода включите 🔒.</li>
+<li><strong>Grafana и алерты</strong>: раздел ◎ → <strong>＋ Добавить</strong> → тип Grafana, URL, авторизация «токен» (Service account с ролью Viewer) → <strong>Сохранить и проверить</strong>. Алерты появятся в 🔔.</li>
+<li><strong>Терминал + AI</strong>: <code>Ctrl+Shift+I</code> открывает AI-панель, <code>Ctrl+Shift+A</code> отправляет выделение, <code>Ctrl+Shift+P</code> — палитра, <code>Ctrl+Shift+K</code> — локальный ИИ.</li>
+<li><strong>Локальный ИИ и агент</strong>: ⚙ → Локальный ИИ → выберите модель → «Установить»; для расследований включите модуль «ИИ-агент» в ⊞ и задайте уровни доступа хостам.</li>
+<li><strong>KeePass, заметки, WinBox</strong>: пути подхватываются автоматически, проверить можно в ⚙.</li>
+</ol>
+<hr>
+<h2>Обновления и выпуск версий</h2>
+<p>OpsDeck обновляется сам: при запуске (или кнопкой в ⚙ → «Обновления») проверяет GitHub Releases, и если есть новая версия — на ⚙ появляется ↑, а кнопка <strong>«Обновить и перезапустить»</strong> скачивает, <strong>проверяет подпись</strong> и ставит обновление (Windows, macOS, Linux: AppImage, <code>.deb</code>, <code>.rpm</code> — для пакетов система спросит пароль). В ⚙ → Обновления → «Другие версии» можно вернуться на любую прошлую.</p>
+<p>Выпуск версии — в два шага (в <code>master</code> изменения попадают только через pull request):</p>
+<pre><code class="language-bash"># 1. на dev: поднять версию в package.json, tauri.conf.json, Cargo.toml и Cargo.lock, закоммитить и запушить dev
+npm run release -- 0.9.0
+# дальше PR dev → master, проверки, вливание
+
+# 2. на master: аннотированный тег v0.9.0 с заметками к релизу
+npm run release -- 0.9.0 @docs/releases/0.9.0.md
+</code></pre>
+<p>GitHub Actions собирает все платформы, подписывает обновления и <strong>публикует релиз</strong> с <code>latest.json</code> — установленные копии увидят его при следующей проверке. Заметки к релизу пишутся заранее в <code>docs/releases/</code>.</p>
+<p>Подпись: обновления подписываются приватным ключом (minisign) из секретов репозитория <code>TAURI_SIGNING_PRIVATE_KEY</code> и <code>TAURI_SIGNING_PRIVATE_KEY_PASSWORD</code>; публичный ключ зашит в <code>tauri.conf.json</code>, и приложение не установит файл с чужой подписью. Ключ создаётся командой <code>npx tauri signer generate -w ~/.tauri/opsdeck.key</code>. <strong>Храните ключ и пароль в надёжном месте</strong> (например, в KeePass): без них выпустить обновление для уже установленных копий нельзя.</p>
+<h2>Сборка в CI</h2>
+<p><code>.github/workflows/build.yml</code> собирает на <strong>нативных раннерах</strong> — каждая платформа на своей ОС и архитектуре:</p>
+<table>
+<thead>
+<tr>
+<th>Раннер</th>
+<th>Что получается</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>ubuntu-22.04</code> (x64), <code>ubuntu-22.04-arm</code> (arm64)</td>
+<td><code>.deb</code>, <code>.rpm</code>, <code>.AppImage</code></td>
+</tr>
+<tr>
+<td><code>windows-2025</code> (x64)</td>
+<td><code>.msi</code>, установщик NSIS <code>.exe</code></td>
+</tr>
+<tr>
+<td><code>macos-26</code> (Apple Silicon; сборка для Intel — там же, с <code>--target x86_64-apple-darwin</code>)</td>
+<td><code>.dmg</code>, <code>.app</code></td>
+</tr>
+</tbody></table>
+<ul>
+<li>Пуш в <code>main</code>/<code>master</code> (бывает только при релизе): проверки и сборка всех платформ без публикации — она же заполняет кэш Rust, из которого следующий релиз берёт уже собранные зависимости.</li>
+<li>Pull request в <code>master</code>: проверки (TypeScript, <code>npm audit</code>, <code>cargo audit</code>) и быстрая сборка только linux-x64; установщик — в артефактах запуска (Actions → запуск → Artifacts).</li>
+<li>Ветка <code>dev</code> сама не собирается; ручной запуск (Run workflow) собирает linux-x64 или, с галкой, все платформы.</li>
+<li>Тег <code>v*</code>: все платформы, релиз собирается черновиком и <strong>публикуется</strong> (со всеми установщиками, подписанными обновлениями и <code>latest.json</code>) только после того, как прошли проверки, все сборки и все тесты.</li>
+<li><strong>Тесты</strong> (на тегах, пушах в master, PR в master и ручном запуске): тесты Rust на Linux, Windows и macOS (<code>cargo test --lib</code>); тесты интерфейса — vitest (<code>npm test</code>) и Playwright на демо-данных (<code>npm run test:ui</code>); сквозные тесты настоящего приложения через tauri-driver на Linux и Windows (<code>tests/e2e</code>). Упали тесты — релиз остаётся черновиком.</li>
+<li>Windows на ARM не собирается: таких пользователей слишком мало.</li>
+<li>arm64-раннеры Linux бесплатны для публичных репозиториев; в приватном их может не быть на вашем тарифе — тогда уберите <code>linux-arm64</code> из списка платформ в job <code>plan</code>.</li>
+<li><strong>Аварийный откат</strong>: если версия вышла с критической ошибкой — Actions → «Отозвать версию» → номер версии. Релиз становится pre-release, «последним» снова становится предыдущий стабильный; установленные копии с отозванной версией предложат вернуться на него.</li>
+<li>Dependabot (<code>.github/dependabot.yml</code>) раз в месяц присылает в <code>dev</code> общие PR с обновлениями зависимостей (мажорные версии — вручную).</li>
+</ul>
+<hr>
+<h2>Архитектура</h2>
+<pre><code>src/                  интерфейс (TypeScript, без фреймворка)
+  main.ts             каркас: список разделов, колонка слева, монтирование по требованию, окна одного раздела
+  modules/            разделы: terminal, k8s, code, db, connectors (веб-панели), alerts, aichat, ai-agents, …
+src-tauri/src/        бэкенд на Rust, модуль на раздел
+  pty.rs              терминалы (portable-pty) + интеграция shell (OSC 133)
+  k8s.rs              Kubernetes (kube-rs): списки, watch, логи, Helm, CRD
+  ai.rs, aichat.rs    локальный ИИ (llama.cpp): модели, подсказка команд, чат
+  agent.rs            ИИ-агент: политика команд, проверяется ещё раз прямо перед ssh
+  embed.rs            встраивание веб-панелей во вкладки
+  alerts.rs           сбор алертов и находок AI
+  ide.rs              мост для Claude Code (MCP по WebSocket, 127.0.0.1)
+  store.rs            JSON в ~/.config/opsdeck + секреты в keyring ОС
+  keepass.rs, passbolt.rs, ssh.rs, sftp.rs, yc.rs, db.rs, notes.rs, tasks.rs, …
+</code></pre>
+<p>Данные пользователя: <code>~/.config/opsdeck/</code> (права 600/700, атомарная запись), секреты — в системном хранилище (Secret Service / Keychain / Credential Manager).</p>
+<hr>
+<h2>Безопасность</h2>
+<ul>
+<li>Секреты — только в системном хранилище или KeePass/Passbolt; база KeePass и записи Passbolt расшифрованы лишь в памяти; пароли в буфере стираются через 30 с.</li>
+<li>OpsDeck не слушает внешние интерфейсы: мост для Claude Code и приём находок AI — только <code>127.0.0.1</code>, по токену, с защитой от запросов из браузера и DNS rebinding.</li>
+<li>Встроенные веб-страницы не имеют доступа к API приложения; автологин работает только на адресе коннектора.</li>
+<li>Строгая CSP интерфейса, экранирование всех внешних данных, Markdown через DOMPurify.</li>
+<li>Внешние программы запускаются без shell, аргументы валидируются; при импорте kubeconfig с <code>exec</code> показываются запускаемые им команды.</li>
+<li>ИИ-агент выполняет только то, что разрешает политика; она проверяется ещё раз в бэкенде перед <code>ssh</code>, а вывод с хостов и от моделей — данные, а не указания.</li>
+<li>В CI — <code>npm audit</code> и <code>cargo audit</code> на каждую сборку, CodeQL, Dependabot для зависимостей.</li>
+</ul>
+<p>Нашли уязвимость? См. <a href="https://github.com/LeoAlecksey/opsdeck/blob/master/SECURITY.md">SECURITY.md</a>.</p>
+<hr>
+<h2>Известные ограничения</h2>
+<ul>
+<li>Веб-панели — нативные webview поверх интерфейса: пока фокус внутри панели, горячие клавиши OpsDeck не срабатывают. Если встраивание ведёт себя странно, запустите с <code>OPSDECK_NO_EMBED=1</code> — панели будут открываться отдельными окнами.</li>
+<li>SSO-вход (Keycloak, Google) и 2FA в веб-панелях проходятся вручную один раз.</li>
+<li>Блоки команд работают в bash и zsh; в PowerShell терминал работает без блоков. На Windows обычно нет <code>mtr</code> и <code>dig</code>.</li>
+<li>WinBox принимает пароль только аргументом командной строки — пока он запущен, пароль виден в списке процессов вашего пользователя.</li>
+<li>Файлам на хостах и мониторингу нужен вход по SSH-ключу.</li>
+</ul>
+<hr>
+<h2>Участие</h2>
+<p><a href="https://github.com/LeoAlecksey/opsdeck/issues">Issues</a> и pull requests приветствуются — как собрать, проверить и прислать изменения, написано в <a href="https://github.com/LeoAlecksey/opsdeck/blob/master/CONTRIBUTING.md">CONTRIBUTING.md</a>. PR принимаются в ветку <code>dev</code>.</p>
+<h2>Автор и поддержка</h2>
+<ul>
+<li>Telegram-канал автора: <a href="https://t.me/sys_admin_expert">@sys_admin_expert</a></li>
+<li>Если OpsDeck пригодился — можно <a href="https://yoomoney.ru/to/4100119645604976">поддержать проект</a> (ЮMoney). Спасибо!</li>
+</ul>
+<h2>Лицензия</h2>
+<p><a href="https://github.com/LeoAlecksey/opsdeck/blob/master/LICENSE">MIT</a> © 2026 <a href="https://github.com/LeoAlecksey">LeoAlecksey</a></p>
+</main></div></body></html>

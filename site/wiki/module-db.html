@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Базы данных — Wiki OpsDeck</title><meta name="description" content="Руководство OpsDeck: базы данных, подключения и работа с программой.">
+<link rel="canonical" href="https://leoalecksey.github.io/opsdeck/wiki/module-db.html">
+<link rel="icon" href="../assets/icon.png"><link rel="stylesheet" href="style.css"></head>
+<body><header><a class="brand" href="../"><img src="../assets/icon.png" alt="">OpsDeck</a><a href="index.html">Wiki</a><a class="site-link" href="../">Сайт проекта ↗</a></header>
+<div class="layout"><aside><div class="aside-title">Руководство</div><nav><a  href="module-terminal.html">Терминал и AI</a>
+<a  href="module-k8s.html">Kubernetes</a>
+<a  href="module-web.html">Веб-панели</a>
+<a  href="module-alerts.html">Алерты</a>
+<a  href="module-net.html">Сеть и DNS</a>
+<a  href="module-yc.html">Yandex Cloud</a>
+<a  href="module-sftp.html">Файлы на хостах</a>
+<a  href="module-monitor.html">Мониторинг хостов</a>
+<a  href="module-ssh.html">SSH</a>
+<a  href="module-code.html">IDE: код и git</a>
+<a aria-current="page" href="module-db.html">Базы данных</a>
+<a  href="module-notes.html">Заметки</a>
+<a  href="module-tasks.html">Задачи и напоминания</a>
+<a  href="module-vault.html">KeePass</a>
+<a  href="module-gopass.html">gopass</a>
+<a  href="module-passbolt.html">Passbolt</a>
+<a  href="module-agent.html">ИИ-агент</a>
+<a  href="module-winbox.html">MikroTik</a>
+<a  href="module-settings.html">Настройки</a>
+<a  href="reference.html">Установка, сборка и технический справочник</a>
+<a  href="index.html">Главная</a>
+<a  href="getting-started.html">Установка и первый запуск</a>
+<a  href="connections.html">Подключения</a>
+<a  href="usage.html">Использование</a>
+<a  href="ai.html">Локальный ИИ и OpenCode</a></nav><div class="aside-foot">Версия dev<br><a href="https://github.com/LeoAlecksey/opsdeck/issues">Сообщить о проблеме ↗</a></div></aside>
+<main><h1>Базы данных</h1>
+<p>Откройте раздел через значок в левой колонке. Если значка нет, включите модуль через <strong>⊞ → Модули</strong>. Кнопка <strong>!</strong> открывает краткую справку прямо в программе.</p>
+<pre><code>  &lt;h4&gt;Как работает&lt;/h4&gt;
+  &lt;p&gt;Подключения к PostgreSQL, MySQL/MariaDB, ClickHouse, Redis и MongoDB: адрес, порт, логин. Пароль хранится в системном keyring или берётся из записи KeePass или Passbolt. Слева структура: базы → схемы → таблицы → колонки и индексы (у Redis — db и ключи, у MongoDB — коллекции, поля и индексы). Справа редактор запросов и результат.&lt;/p&gt;
+  &lt;h4&gt;Что где&lt;/h4&gt;
+  &lt;ul&gt;
+    &lt;li&gt;&lt;b&gt;＋&lt;/b&gt; — новое подключение. &lt;b&gt;Сохранить и проверить&lt;/b&gt; сразу показывает версию сервера или ошибку.&lt;/li&gt;
+    &lt;li&gt;&lt;b&gt;Через SSH-хост (jump)&lt;/b&gt; — если база доступна только с бастиона: выберите хост из профилей SSH или &lt;code&gt;~/.ssh/config&lt;/code&gt; (там же работают &lt;code&gt;ProxyJump&lt;/code&gt; и ключ), и OpsDeck поднимет туннель &lt;code&gt;ssh -L&lt;/code&gt; сам. Нужен вход по ключу, как в мониторинге; шифрование «verify» через туннель не работает — выберите «require».&lt;/li&gt;
+    &lt;li&gt;Наведите мышь на подключение: &lt;b&gt;↻&lt;/b&gt; — перечитать структуру, &lt;b&gt;✎&lt;/b&gt; — изменить, &lt;b&gt;×&lt;/b&gt; — удалить.&lt;/li&gt;
+    &lt;li&gt;Клик по базе или таблице выбирает базу, в которой выполняется запрос (поле &lt;b&gt;«в»&lt;/b&gt; вверху). Двойной клик по таблице, коллекции или ключу — сразу показать первые строки.&lt;/li&gt;
+    &lt;li&gt;&lt;kbd&gt;Ctrl+Enter&lt;/kbd&gt; — выполнить. Если что-то выделено, выполняется только выделенное. Показываются первые 1000 строк.&lt;/li&gt;
+    &lt;li&gt;&lt;b&gt;История&lt;/b&gt; — последние 50 запросов этого подключения; черновик запроса сохраняется сам.&lt;/li&gt;
+    &lt;li&gt;Двойной клик по ячейке — скопировать значение; &lt;b&gt;CSV&lt;/b&gt; / &lt;b&gt;JSON&lt;/b&gt; — скопировать весь результат. У MongoDB есть вид &lt;b&gt;JSON&lt;/b&gt; с документами целиком.&lt;/li&gt;
+    &lt;li&gt;Высоту редактора меняет полоска между ним и результатом.&lt;/li&gt;
+  &lt;/ul&gt;
+  &lt;h4&gt;Синтаксис&lt;/h4&gt;
+  &lt;ul&gt;
+    &lt;li&gt;&lt;b&gt;SQL&lt;/b&gt; (PostgreSQL, MySQL, ClickHouse) — как обычно, можно несколько запросов через &lt;code&gt;;&lt;/code&gt; — показывается результат последнего.&lt;/li&gt;
+    &lt;li&gt;&lt;b&gt;Redis&lt;/b&gt; — команды по одной в строке, как в redis-cli: &lt;code&gt;HGETALL user:1&lt;/code&gt;, &lt;code&gt;SCAN 0 MATCH sess:* COUNT 100&lt;/code&gt;.&lt;/li&gt;
+    &lt;li&gt;&lt;b&gt;MongoDB&lt;/b&gt; — как в mongosh: &lt;code&gt;db.users.find({ age: { $gt: 30 } }).sort({ name: 1 }).limit(20)&lt;/code&gt;, &lt;code&gt;aggregate([...])&lt;/code&gt;, &lt;code&gt;countDocuments&lt;/code&gt;, &lt;code&gt;distinct&lt;/code&gt;, &lt;code&gt;insertOne&lt;/code&gt;, &lt;code&gt;updateMany&lt;/code&gt;…, команда &lt;code&gt;{ serverStatus: 1 }&lt;/code&gt;, &lt;code&gt;show dbs&lt;/code&gt;, &lt;code&gt;show collections&lt;/code&gt;.&lt;/li&gt;
+  &lt;/ul&gt;
+  &lt;h4&gt;Только чтение&lt;/h4&gt;
+  &lt;p&gt;Галочка в подключении для прод-баз. PostgreSQL и ClickHouse запрещают запись на стороне сервера; для MySQL, Redis и MongoDB выполняются только читающие запросы и команды. На подключении — 🔒, над редактором — «только чтение».&lt;/p&gt;
+</code></pre>
+<h2>Как проверить результат</h2>
+<p>После изменения настройки проверьте состояние или данные в этом же разделе. Если приложение показывает ошибку, прочитайте её до повторного действия. Журнал доступен в <strong>⚙ → Журнал</strong>. Не публикуйте пароли, токены, kubeconfig и приватные ключи в отчётах.</p>
+<p><a href="index.html">Все разделы руководства</a> · <a href="getting-started.html">Установка и окружения</a> · <a href="reference.html">Технический справочник</a></p>
+</main></div></body></html>

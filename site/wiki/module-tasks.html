@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Задачи и напоминания — Wiki OpsDeck</title><meta name="description" content="Руководство OpsDeck: задачи и напоминания, подключения и работа с программой.">
+<link rel="canonical" href="https://leoalecksey.github.io/opsdeck/wiki/module-tasks.html">
+<link rel="icon" href="../assets/icon.png"><link rel="stylesheet" href="style.css"></head>
+<body><header><a class="brand" href="../"><img src="../assets/icon.png" alt="">OpsDeck</a><a href="index.html">Wiki</a><a class="site-link" href="../">Сайт проекта ↗</a></header>
+<div class="layout"><aside><div class="aside-title">Руководство</div><nav><a  href="module-terminal.html">Терминал и AI</a>
+<a  href="module-k8s.html">Kubernetes</a>
+<a  href="module-web.html">Веб-панели</a>
+<a  href="module-alerts.html">Алерты</a>
+<a  href="module-net.html">Сеть и DNS</a>
+<a  href="module-yc.html">Yandex Cloud</a>
+<a  href="module-sftp.html">Файлы на хостах</a>
+<a  href="module-monitor.html">Мониторинг хостов</a>
+<a  href="module-ssh.html">SSH</a>
+<a  href="module-code.html">IDE: код и git</a>
+<a  href="module-db.html">Базы данных</a>
+<a  href="module-notes.html">Заметки</a>
+<a aria-current="page" href="module-tasks.html">Задачи и напоминания</a>
+<a  href="module-vault.html">KeePass</a>
+<a  href="module-gopass.html">gopass</a>
+<a  href="module-passbolt.html">Passbolt</a>
+<a  href="module-agent.html">ИИ-агент</a>
+<a  href="module-winbox.html">MikroTik</a>
+<a  href="module-settings.html">Настройки</a>
+<a  href="reference.html">Установка, сборка и технический справочник</a>
+<a  href="index.html">Главная</a>
+<a  href="getting-started.html">Установка и первый запуск</a>
+<a  href="connections.html">Подключения</a>
+<a  href="usage.html">Использование</a>
+<a  href="ai.html">Локальный ИИ и OpenCode</a></nav><div class="aside-foot">Версия dev<br><a href="https://github.com/LeoAlecksey/opsdeck/issues">Сообщить о проблеме ↗</a></div></aside>
+<main><h1>Задачи и напоминания</h1>
+<p>Откройте раздел через значок в левой колонке. Если значка нет, включите модуль через <strong>⊞ → Модули</strong>. Кнопка <strong>!</strong> открывает краткую справку прямо в программе.</p>
+<pre><code>  &lt;h4&gt;Как работает&lt;/h4&gt;
+  &lt;p&gt;Задачи — строки &lt;code&gt;- [ ] …&lt;/code&gt; в заметках текущего хранилища. Здесь они собраны вместе по срокам: &lt;b&gt;Просрочено, Сегодня, Завтра, На неделе, Позже, Без срока&lt;/b&gt; и выполненные за 14 дней. Любая правка здесь меняет строку в самой заметке, так что задачи видны и в Obsidian.&lt;/p&gt;
+  &lt;h4&gt;Что где&lt;/h4&gt;
+  &lt;ul&gt;
+    &lt;li&gt;&lt;b&gt;＋ Задача&lt;/b&gt; — новая задача: по умолчанию в заметку «Задачи.md», можно выбрать другую.&lt;/li&gt;
+    &lt;li&gt;Галочка — выполнено (дописывается ✅ дата), снятая галочка возвращает задачу в работу.&lt;/li&gt;
+    &lt;li&gt;&lt;b&gt;Описание и подзадачи&lt;/b&gt; — ▸ слева или клик по тексту раскрывает задачу. Описание (что и где сделать, ссылки, команды, блоки кода) правится кликом, сохраняется кнопкой или Ctrl+Enter; подзадачи добавляются полем «＋ подзадача» по Enter, у них свои галочки, сроки и тоже свои подзадачи. Рядом с задачей — ☑ сколько подзадач выполнено. В заметке это строки с отступом под задачей, как их показывает Obsidian:&lt;br&gt;&lt;code&gt;- [ ] Обновить сертификат 📅 2026-11-01&lt;/code&gt;&lt;br&gt;&lt;code&gt;&amp;nbsp;&amp;nbsp;&amp;nbsp;&amp;nbsp;Выпускали через certbot, потом nginx -t&lt;/code&gt;&lt;br&gt;&lt;code&gt;&amp;nbsp;&amp;nbsp;&amp;nbsp;&amp;nbsp;- [ ] выпустить сертификат&lt;/code&gt;&lt;br&gt;Пустая строка или строка без отступа заканчивает задачу. Удаление задачи убирает и её описание с подзадачами.&lt;/li&gt;
+    &lt;li&gt;Клик по сроку — сменить дату; при наведении &lt;b&gt;→ завтра&lt;/b&gt; и &lt;b&gt;✎&lt;/b&gt; (текст, срок, время, приоритет, теги; или двойной клик по тексту). Справа имя заметки — открыть её на этой строке.&lt;/li&gt;
+    &lt;li&gt;Теги сверху и в тексте задачи кликабельны — показывают только задачи с этим тегом; поиск — по тексту, тегу и заметке.&lt;/li&gt;
+    &lt;li&gt;&lt;b&gt;📅 Календарь&lt;/b&gt; — месяц, на каждом дне задачи этого дня; клик по дню — список задач ниже и &lt;b&gt;＋ задача на этот день&lt;/b&gt;.&lt;/li&gt;
+    &lt;li&gt;Число на иконке слева — просроченные и сегодняшние задачи.&lt;/li&gt;
+  &lt;/ul&gt;
+  &lt;h4&gt;Напоминания&lt;/h4&gt;
+  &lt;ul&gt;
+    &lt;li&gt;Если у задачи есть срок и время (⏰), в это время всплывает системное уведомление и карточка в углу OpsDeck: &lt;b&gt;✓ Готово&lt;/b&gt;, &lt;b&gt;Отложить&lt;/b&gt; на 10 мин / 30 мин / час / 3 часа, &lt;b&gt;Открыть&lt;/b&gt; заметку.&lt;/li&gt;
+    &lt;li&gt;Каждое утро после 9:00 — сводка: что на сегодня и сколько просрочено.&lt;/li&gt;
+    &lt;li&gt;Напоминания работают, пока OpsDeck запущен. Если он был закрыт, пропущенное напоминание (до 12 часов) покажется при запуске.&lt;/li&gt;
+  &lt;/ul&gt;
+</code></pre>
+<h2>Как проверить результат</h2>
+<p>После изменения настройки проверьте состояние или данные в этом же разделе. Если приложение показывает ошибку, прочитайте её до повторного действия. Журнал доступен в <strong>⚙ → Журнал</strong>. Не публикуйте пароли, токены, kubeconfig и приватные ключи в отчётах.</p>
+<p><a href="index.html">Все разделы руководства</a> · <a href="getting-started.html">Установка и окружения</a> · <a href="reference.html">Технический справочник</a></p>
+</main></div></body></html>

@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Алерты — Wiki OpsDeck</title><meta name="description" content="Руководство OpsDeck: алерты, подключения и работа с программой.">
+<link rel="canonical" href="https://leoalecksey.github.io/opsdeck/wiki/module-alerts.html">
+<link rel="icon" href="../assets/icon.png"><link rel="stylesheet" href="style.css"></head>
+<body><header><a class="brand" href="../"><img src="../assets/icon.png" alt="">OpsDeck</a><a href="index.html">Wiki</a><a class="site-link" href="../">Сайт проекта ↗</a></header>
+<div class="layout"><aside><div class="aside-title">Руководство</div><nav><a  href="module-terminal.html">Терминал и AI</a>
+<a  href="module-k8s.html">Kubernetes</a>
+<a  href="module-web.html">Веб-панели</a>
+<a aria-current="page" href="module-alerts.html">Алерты</a>
+<a  href="module-net.html">Сеть и DNS</a>
+<a  href="module-yc.html">Yandex Cloud</a>
+<a  href="module-sftp.html">Файлы на хостах</a>
+<a  href="module-monitor.html">Мониторинг хостов</a>
+<a  href="module-ssh.html">SSH</a>
+<a  href="module-code.html">IDE: код и git</a>
+<a  href="module-db.html">Базы данных</a>
+<a  href="module-notes.html">Заметки</a>
+<a  href="module-tasks.html">Задачи и напоминания</a>
+<a  href="module-vault.html">KeePass</a>
+<a  href="module-gopass.html">gopass</a>
+<a  href="module-passbolt.html">Passbolt</a>
+<a  href="module-agent.html">ИИ-агент</a>
+<a  href="module-winbox.html">MikroTik</a>
+<a  href="module-settings.html">Настройки</a>
+<a  href="reference.html">Установка, сборка и технический справочник</a>
+<a  href="index.html">Главная</a>
+<a  href="getting-started.html">Установка и первый запуск</a>
+<a  href="connections.html">Подключения</a>
+<a  href="usage.html">Использование</a>
+<a  href="ai.html">Локальный ИИ и OpenCode</a></nav><div class="aside-foot">Версия dev<br><a href="https://github.com/LeoAlecksey/opsdeck/issues">Сообщить о проблеме ↗</a></div></aside>
+<main><h1>Алерты</h1>
+<p>Откройте раздел через значок в левой колонке. Если значка нет, включите модуль через <strong>⊞ → Модули</strong>. Кнопка <strong>!</strong> открывает краткую справку прямо в программе.</p>
+<pre><code>  &lt;h4&gt;Как работает&lt;/h4&gt;
+  &lt;p&gt;OpsDeck сам опрашивает источники (раз в минуту, настраивается в ⚙) — на этот компьютер извне ничего не приходит, так что IP и NAT не важны. Источники заводятся в «Веб-панелях» (◎):&lt;/p&gt;
+  &lt;ul&gt;
+    &lt;li&gt;&lt;b&gt;Grafana&lt;/b&gt; — алерты Grafana Alerting (логин/пароль, токен service account с ролью Viewer или KeePass);&lt;/li&gt;
+    &lt;li&gt;&lt;b&gt;Alertmanager&lt;/b&gt; — Prometheus Alertmanager;&lt;/li&gt;
+    &lt;li&gt;&lt;b&gt;Zabbix&lt;/b&gt; — проблемы Zabbix 6.0+ по API, те же, что на его странице Problems (без выключенных хостов и триггеров, зависимых и «симптомов»): API-токен (Users → API tokens) или логин/пароль; если веб-сервер перед Zabbix спрашивает пароль (HTTP Basic) — заполните «Basic auth» в коннекторе (на 7.2+ за Basic — только логин/пароль, через сессию входа в веб-интерфейс: это обходной путь);&lt;/li&gt;
+    &lt;li&gt;&lt;b&gt;AI / анализатор&lt;/b&gt; — находки вашего анализатора логов/алертов: локальный присылает их на 127.0.0.1 со своим токеном, удалённый отдаёт JSON-ленту по URL.&lt;/li&gt;
+  &lt;/ul&gt;
+  &lt;h4&gt;Алерты на телефон: ntfy и Gotify&lt;/h4&gt;
+  &lt;p&gt;В ⚙ раздела: &lt;b&gt;На телефон&lt;/b&gt; → ntfy или Gotify. Уходят те же алерты, что и уведомления на рабочем столе (без скрытых и заглушенных; восстановление — если включено «…и о восстановлении»), первые пять по одному, остальные одной сводкой; critical — с наивысшим приоритетом, по нажатию открывается дашборд.&lt;/p&gt;
+  &lt;ul&gt;
+    &lt;li&gt;&lt;b&gt;ntfy&lt;/b&gt;: сервер (&lt;code&gt;https://ntfy.sh&lt;/code&gt; или свой) и топик — придумайте длинный, его знание и есть доступ; в приложении ntfy подпишитесь на тот же топик. Для закрытого топика — токен доступа &lt;code&gt;tk_…&lt;/code&gt;.&lt;/li&gt;
+    &lt;li&gt;&lt;b&gt;Gotify&lt;/b&gt;: адрес сервера и токен приложения (Apps → Create application).&lt;/li&gt;
+  &lt;/ul&gt;
+  &lt;p&gt;&lt;b&gt;Отправить проверку&lt;/b&gt; шлёт одно сообщение с сохранёнными настройками. Токен хранится в системном keyring.&lt;/p&gt;
+  &lt;h4&gt;Как подключить Grafana — по шагам&lt;/h4&gt;
+  &lt;ol&gt;
+    &lt;li&gt;В Grafana ничего настраивать не нужно: ни contact point, ни webhook. Нужен только доступ на чтение.&lt;/li&gt;
+    &lt;li&gt;В Grafana: &lt;b&gt;Administration → Users and access → Service accounts → Add service account&lt;/b&gt;, имя &lt;code&gt;opsdeck&lt;/code&gt;, роль &lt;b&gt;Viewer&lt;/b&gt; → Create.&lt;/li&gt;
+    &lt;li&gt;На странице аккаунта: &lt;b&gt;Add service account token → Generate&lt;/b&gt;, скопируйте токен &lt;code&gt;glsa_…&lt;/code&gt; (показывается один раз).&lt;/li&gt;
+    &lt;li&gt;Здесь: кнопка &lt;b&gt;＋ Grafana&lt;/b&gt; (или ◎ → ＋ Добавить → тип Grafana), URL как в браузере, Авторизация = &lt;b&gt;токен&lt;/b&gt;, вставить → &lt;b&gt;Сохранить и проверить&lt;/b&gt;. Увидите «✓ Работает: активных алертов N» или причину ошибки.&lt;/li&gt;
+  &lt;/ol&gt;
+  &lt;p&gt;Токен даёт только сбор алертов. Чтобы Grafana ещё и открывалась вкладкой с автовходом — выберите «логин/пароль» или запись KeePass.&lt;/p&gt;
+  &lt;h4&gt;Если ошибка&lt;/h4&gt;
+  &lt;ul&gt;
+    &lt;li&gt;&lt;b&gt;401&lt;/b&gt; — неверный токен/пароль; &lt;b&gt;403&lt;/b&gt; — мало прав (нужна роль Viewer);&lt;/li&gt;
+    &lt;li&gt;&lt;b&gt;404&lt;/b&gt; — в Grafana не включён Grafana Alerting, или алерты живут в Prometheus Alertmanager — тогда добавьте коннектор Alertmanager;&lt;/li&gt;
+    &lt;li&gt;&lt;b&gt;нет соединения&lt;/b&gt; — URL недоступен с этого компьютера (VPN?).&lt;/li&gt;
+  &lt;/ul&gt;
+  &lt;h4&gt;Что где&lt;/h4&gt;
+  &lt;ul&gt;
+    &lt;li&gt;Число на колокольчике слева — горящие алерты (без просмотренных, заглушённых и скрытых).&lt;/li&gt;
+    &lt;li&gt;Разделы по давности: &lt;b&gt;🆕 Новые&lt;/b&gt; (за 24 часа), &lt;b&gt;За неделю&lt;/b&gt;, &lt;b&gt;Давно горят&lt;/b&gt; (больше 7 дней — обычно фон), &lt;b&gt;Просмотренные и заглушённые&lt;/b&gt;. Разделы сворачиваются, состояние запоминается.&lt;/li&gt;
+    &lt;li&gt;Одинаковые алерты (одно правило из одного источника) собраны в одну карточку со счётчиком &lt;b&gt;×N&lt;/b&gt;; в «экземплярах» видно, чем они отличаются (instance, pod…).&lt;/li&gt;
+    &lt;li&gt;Фильтры сверху: severity (клик — только она, повторный клик — все), источник, поиск по имени/меткам/тексту.&lt;/li&gt;
+    &lt;li&gt;&lt;b&gt;🔕 Скрыть такие&lt;/b&gt; — убрать мусорный алерт (по имени и источнику) из списка, счётчика и уведомлений. Вернуть: ⚙ → «Скрытые алерты».&lt;/li&gt;
+    &lt;li&gt;Кнопки карточки: &lt;b&gt;Панель / Дашборд / Правило / Silence&lt;/b&gt; открываются во встроенной вкладке Grafana; &lt;b&gt;⇢ AI&lt;/b&gt; — разобрать алерт в Claude; &lt;b&gt;✓ Просмотрен&lt;/b&gt; — убрать из счётчика; у находок AI — &lt;b&gt;Закрыть&lt;/b&gt;.&lt;/li&gt;
+    &lt;li&gt;&lt;b&gt;↻ Опросить&lt;/b&gt; — сейчас; ошибки источников показываются красной строкой сверху.&lt;/li&gt;
+    &lt;li&gt;Пропавший из источника алерт становится resolved и уходит в историю.&lt;/li&gt;
+  &lt;/ul&gt;
+</code></pre>
+<h2>Как проверить результат</h2>
+<p>После изменения настройки проверьте состояние или данные в этом же разделе. Если приложение показывает ошибку, прочитайте её до повторного действия. Журнал доступен в <strong>⚙ → Журнал</strong>. Не публикуйте пароли, токены, kubeconfig и приватные ключи в отчётах.</p>
+<p><a href="index.html">Все разделы руководства</a> · <a href="getting-started.html">Установка и окружения</a> · <a href="reference.html">Технический справочник</a></p>
+</main></div></body></html>

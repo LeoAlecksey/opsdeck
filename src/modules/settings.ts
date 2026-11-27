@@ -176,6 +176,7 @@ export function mountSettings(root: HTMLElement) {
     <div class="page settings">
       <div class="settings-heading">
         <h2>Настройки ${helpBtn("settings")}</h2>
+        <a class="settings-wiki" href="https://leoalecksey.github.io/opsdeck/wiki/" data-ext>📖 Wiki</a>
         <a class="settings-thanks" href="${DONATE_URL}" data-ext title="Перевод автору через ЮMoney — по желанию"><span aria-hidden="true">♡</span> <span>Спасибо</span></a>
       </div>
       <fieldset class="lang-field" data-no-i18n><legend>Язык · Language</legend>

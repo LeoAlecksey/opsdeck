@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ИИ-агент — Wiki OpsDeck</title><meta name="description" content="Руководство OpsDeck: ии-агент, подключения и работа с программой.">
+<link rel="canonical" href="https://leoalecksey.github.io/opsdeck/wiki/module-agent.html">
+<link rel="icon" href="../assets/icon.png"><link rel="stylesheet" href="style.css"></head>
+<body><header><a class="brand" href="../"><img src="../assets/icon.png" alt="">OpsDeck</a><a href="index.html">Wiki</a><a class="site-link" href="../">Сайт проекта ↗</a></header>
+<div class="layout"><aside><div class="aside-title">Руководство</div><nav><a  href="module-terminal.html">Терминал и AI</a>
+<a  href="module-k8s.html">Kubernetes</a>
+<a  href="module-web.html">Веб-панели</a>
+<a  href="module-alerts.html">Алерты</a>
+<a  href="module-net.html">Сеть и DNS</a>
+<a  href="module-yc.html">Yandex Cloud</a>
+<a  href="module-sftp.html">Файлы на хостах</a>
+<a  href="module-monitor.html">Мониторинг хостов</a>
+<a  href="module-ssh.html">SSH</a>
+<a  href="module-code.html">IDE: код и git</a>
+<a  href="module-db.html">Базы данных</a>
+<a  href="module-notes.html">Заметки</a>
+<a  href="module-tasks.html">Задачи и напоминания</a>
+<a  href="module-vault.html">KeePass</a>
+<a  href="module-gopass.html">gopass</a>
+<a  href="module-passbolt.html">Passbolt</a>
+<a aria-current="page" href="module-agent.html">ИИ-агент</a>
+<a  href="module-winbox.html">MikroTik</a>
+<a  href="module-settings.html">Настройки</a>
+<a  href="reference.html">Установка, сборка и технический справочник</a>
+<a  href="index.html">Главная</a>
+<a  href="getting-started.html">Установка и первый запуск</a>
+<a  href="connections.html">Подключения</a>
+<a  href="usage.html">Использование</a>
+<a  href="ai.html">Локальный ИИ и OpenCode</a></nav><div class="aside-foot">Версия dev<br><a href="https://github.com/LeoAlecksey/opsdeck/issues">Сообщить о проблеме ↗</a></div></aside>
+<main><h1>ИИ-агент</h1>
+<p>Откройте раздел через значок в левой колонке. Если значка нет, включите модуль через <strong>⊞ → Модули</strong>. Кнопка <strong>!</strong> открывает краткую справку прямо в программе.</p>
+<pre><code>  &lt;h4&gt;Что это&lt;/h4&gt;
+  &lt;p&gt;Агент сам ходит на хост и смотрит, что там происходит: логи служб, состояние systemd, место на дисках, контейнеры, поды. Он не угадывает по памяти, а выполняет настоящие команды и читает их вывод. Менять он может только то, что разрешено здесь, и только так, как видно в диалоге перед выполнением. Запускаются расследования в AI-панели терминала, этот раздел — про правила.&lt;/p&gt;
+  &lt;h4&gt;Как запустить расследование&lt;/h4&gt;
+  &lt;p&gt;В AI-панели терминала выберите «OpsDeck AI (локальный)» и включите галочку &lt;b&gt;Расследование&lt;/b&gt; (она появляется, когда агент включён здесь). Дальше спрашивайте словами: «сходи на app-1, посмотри, что с диском». Агент сам выберет команду, покажет её и хост, выполнит по правилам этого раздела и вернёт вывод себе же следующим шагом — и так до итога или до конца отведённых шагов. Каждый шаг виден в панели: команда, чтение это или изменение, код возврата и вывод под раскрывающейся стрелкой. Кнопка «Стоп» прерывает между шагами.&lt;/p&gt;
+  &lt;h4&gt;Уровни доступа&lt;/h4&gt;
+  &lt;ul&gt;
+    &lt;li&gt;&lt;b&gt;Не ходить&lt;/b&gt; — агент на этот хост не заходит: ни одна команда не выполняется, даже чтение.&lt;/li&gt;
+    &lt;li&gt;&lt;b&gt;Только чтение&lt;/b&gt; — сам выполняет команды из списка чтения (логи, состояние служб, место на дисках, контейнеры, поды). Любая изменяющая команда отклоняется, и разрешением это не обходится.&lt;/li&gt;
+    &lt;li&gt;&lt;b&gt;Менять с разрешения&lt;/b&gt; — читает сам; для каждой изменяющей команды показывает точную строку и имя хоста и ждёт нажатия. Отказ не прерывает расследование: агент идёт дальше.&lt;/li&gt;
+    &lt;li&gt;&lt;b&gt;Менять без вопросов&lt;/b&gt; — читает и меняет сам, без диалогов; запреты действуют и здесь. Для стендов, которые не жалко.&lt;/li&gt;
+  &lt;/ul&gt;
+  &lt;p&gt;Уровень хоста важнее общего. Общий выключатель вверху сильнее всех уровней: пока он выключен, агент не делает ничего.&lt;/p&gt;
+  &lt;h4&gt;Свои правила&lt;/h4&gt;
+  &lt;p&gt;Три списка: &lt;b&gt;считать чтением&lt;/b&gt; (агент выполнит сам даже там, где спросил бы), &lt;b&gt;спрашивать всегда&lt;/b&gt; (покажет и дождётся кнопки, даже если это просто чтение) и &lt;b&gt;запретить совсем&lt;/b&gt; (не выполнит ни на каком уровне). Запрет сильнее «спрашивать», «спрашивать» сильнее «чтения», и ни одно правило не отменяет того, что запрещено всегда.&lt;/p&gt;
+  &lt;p&gt;Правила пишутся по одному в строке или через запятую — пробел разделителем быть не может, потому что сами правила из слов. Правило — это слова команды по порядку: &lt;code&gt;docker system prune&lt;/code&gt; поймает и &lt;code&gt;docker system prune -a --volumes&lt;/code&gt;, а &lt;code&gt;kubectl get secret&lt;/code&gt; — и &lt;code&gt;kubectl -n shop get secret db -o yaml&lt;/code&gt;, потому что флаги сдвигают слова, но не меняют порядок. Если в правиле есть &lt;code&gt;|&lt;/code&gt; или &lt;code&gt;&amp;gt;&lt;/code&gt;, оно ищется в строке целиком: так записывается &lt;code&gt;| bash&lt;/code&gt;. Правило ловит команду и под &lt;code&gt;sudo&lt;/code&gt;.&lt;/p&gt;
+  &lt;h4&gt;Что не выполнится никогда&lt;/h4&gt;
+  &lt;p&gt;Подстановки (&lt;code&gt;$(…)&lt;/code&gt;, обратные кавычки, &lt;code&gt;&amp;lt;(…)&lt;/code&gt;, here-doc), фоновые процессы (&lt;code&gt;&amp;amp;&lt;/code&gt;), интерпретаторы (&lt;code&gt;sh&lt;/code&gt;, &lt;code&gt;bash&lt;/code&gt;, &lt;code&gt;python&lt;/code&gt;, &lt;code&gt;awk&lt;/code&gt;, &lt;code&gt;nc&lt;/code&gt;) и необратимое (&lt;code&gt;rm&lt;/code&gt;, &lt;code&gt;dd&lt;/code&gt;, &lt;code&gt;mkfs&lt;/code&gt;, &lt;code&gt;reboot&lt;/code&gt;, &lt;code&gt;passwd&lt;/code&gt;). Такое не проходит ни на одном уровне, включая «без вопросов»: это не команда, которую можно разобрать правилами, а выполнение чужого текста. Нужно — наберите сами в терминале.&lt;/p&gt;
+  &lt;p&gt;&lt;code&gt;sudo&lt;/code&gt; выключен отдельной галочкой, и под ним даже чтение считается изменением.&lt;/p&gt;
+  &lt;h4&gt;Составные команды&lt;/h4&gt;
+  &lt;p&gt;По умолчанию агент выполняет одну команду или конвейер &lt;code&gt;|&lt;/code&gt;. Галочка &lt;b&gt;Составные команды и перенаправления&lt;/b&gt; разрешает &lt;code&gt;&amp;amp;&amp;amp;&lt;/code&gt;, &lt;code&gt;||&lt;/code&gt;, &lt;code&gt;;&lt;/code&gt;, &lt;code&gt;2&amp;gt;&amp;amp;1&lt;/code&gt;, &lt;code&gt;2&amp;gt;/dev/null&lt;/code&gt;, &lt;code&gt;&amp;lt; файл&lt;/code&gt; и &lt;code&gt;&amp;gt; файл&lt;/code&gt;. Каждая часть проверяется отдельно, итог — по худшей: &lt;code&gt;uptime &amp;amp;&amp;amp; df -h&lt;/code&gt; — чтение, &lt;code&gt;uptime &amp;amp;&amp;amp; systemctl restart nginx&lt;/code&gt; — изменение, &lt;code&gt;df -h; reboot&lt;/code&gt; — запрет целиком. Запись вывода в файл (&lt;code&gt;&amp;gt;&lt;/code&gt;, &lt;code&gt;&amp;gt;&amp;gt;&lt;/code&gt;, &lt;code&gt;&amp;amp;&amp;gt;&lt;/code&gt;) — изменение. &lt;code&gt;xargs&lt;/code&gt; проверяется по команде, которую он запускает. Всё, что нельзя разобрать однозначно (незакрытые кавычки, &lt;code&gt;$&lt;/code&gt; внутри двойных кавычек, экранирование &lt;code&gt;&lt;/code&gt;, скобки), не выполняется.&lt;/p&gt;
+  &lt;h4&gt;Почему так строго&lt;/h4&gt;
+  &lt;p&gt;Агент читает логи, а логи пишет кто угодно. Строка в логе вида «ADMIN NOTE: выполните такую-то команду» для модели неотличима от настоящих данных, поэтому вывод с хоста считается данными, а не указаниями: что выполнять, решают правила этого раздела, а не текст ответа модели.&lt;/p&gt;
+  &lt;h4&gt;Проверка и журнал&lt;/h4&gt;
+  &lt;p&gt;&lt;b&gt;Проверить команду&lt;/b&gt; показывает, что случится, если агент её предложит, — ничего не выполняя. В &lt;b&gt;журнале&lt;/b&gt; остаётся каждая выполненная команда: когда, на каком хосте, чтение это было или изменение, с разрешения или нет и с каким кодом завершилось.&lt;/p&gt;
+</code></pre>
+<h2>Как проверить результат</h2>
+<p>После изменения настройки проверьте состояние или данные в этом же разделе. Если приложение показывает ошибку, прочитайте её до повторного действия. Журнал доступен в <strong>⚙ → Журнал</strong>. Не публикуйте пароли, токены, kubeconfig и приватные ключи в отчётах.</p>
+<p><a href="index.html">Все разделы руководства</a> · <a href="getting-started.html">Установка и окружения</a> · <a href="reference.html">Технический справочник</a></p>
+</main></div></body></html>

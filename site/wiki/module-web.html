@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Веб-панели — Wiki OpsDeck</title><meta name="description" content="Руководство OpsDeck: веб-панели, подключения и работа с программой.">
+<link rel="canonical" href="https://leoalecksey.github.io/opsdeck/wiki/module-web.html">
+<link rel="icon" href="../assets/icon.png"><link rel="stylesheet" href="style.css"></head>
+<body><header><a class="brand" href="../"><img src="../assets/icon.png" alt="">OpsDeck</a><a href="index.html">Wiki</a><a class="site-link" href="../">Сайт проекта ↗</a></header>
+<div class="layout"><aside><div class="aside-title">Руководство</div><nav><a  href="module-terminal.html">Терминал и AI</a>
+<a  href="module-k8s.html">Kubernetes</a>
+<a aria-current="page" href="module-web.html">Веб-панели</a>
+<a  href="module-alerts.html">Алерты</a>
+<a  href="module-net.html">Сеть и DNS</a>
+<a  href="module-yc.html">Yandex Cloud</a>
+<a  href="module-sftp.html">Файлы на хостах</a>
+<a  href="module-monitor.html">Мониторинг хостов</a>
+<a  href="module-ssh.html">SSH</a>
+<a  href="module-code.html">IDE: код и git</a>
+<a  href="module-db.html">Базы данных</a>
+<a  href="module-notes.html">Заметки</a>
+<a  href="module-tasks.html">Задачи и напоминания</a>
+<a  href="module-vault.html">KeePass</a>
+<a  href="module-gopass.html">gopass</a>
+<a  href="module-passbolt.html">Passbolt</a>
+<a  href="module-agent.html">ИИ-агент</a>
+<a  href="module-winbox.html">MikroTik</a>
+<a  href="module-settings.html">Настройки</a>
+<a  href="reference.html">Установка, сборка и технический справочник</a>
+<a  href="index.html">Главная</a>
+<a  href="getting-started.html">Установка и первый запуск</a>
+<a  href="connections.html">Подключения</a>
+<a  href="usage.html">Использование</a>
+<a  href="ai.html">Локальный ИИ и OpenCode</a></nav><div class="aside-foot">Версия dev<br><a href="https://github.com/LeoAlecksey/opsdeck/issues">Сообщить о проблеме ↗</a></div></aside>
+<main><h1>Веб-панели</h1>
+<p>Откройте раздел через значок в левой колонке. Если значка нет, включите модуль через <strong>⊞ → Модули</strong>. Кнопка <strong>!</strong> открывает краткую справку прямо в программе.</p>
+<pre><code>  &lt;h4&gt;Как работает&lt;/h4&gt;
+  &lt;p&gt;Grafana, ArgoCD, GitLab и любые сайты открываются вкладками прямо здесь, с автоматическим входом. Пароли — в системном keyring, KeePass или Passbolt.&lt;/p&gt;
+  &lt;h4&gt;Что где&lt;/h4&gt;
+  &lt;ul&gt;
+    &lt;li&gt;&lt;b&gt;＋ Добавить&lt;/b&gt; — новый коннектор: тип, URL, способ входа (логин/пароль, токен, запись KeePass или Passbolt).&lt;/li&gt;
+    &lt;li&gt;&lt;b&gt;Доверять сертификату этого сервера&lt;/b&gt; — для своих серверов с самоподписанным сертификатом или сертификатом внутреннего CA: вместо «Unacceptable TLS certificate» панель откроется. Исключение действует только для адреса этой панели (тот же хост и порт) и только внутри OpsDeck. Пока работает на Linux.&lt;/li&gt;
+    &lt;li&gt;&lt;b&gt;Открыть&lt;/b&gt; — вкладка рядом с «☰ Панели»; &lt;b&gt;⧉&lt;/b&gt; — в отдельном окне.&lt;/li&gt;
+    &lt;li&gt;&lt;b&gt;Группы&lt;/b&gt;: в карточке панели поле «Группа» — панели с одной группой собираются в сворачиваемую строку, как Row в дашборде Grafana. &lt;b&gt;✎&lt;/b&gt; — изменить, &lt;b&gt;🗑&lt;/b&gt; — удалить.&lt;/li&gt;
+    &lt;li&gt;На вкладке справа: &lt;b&gt;← → ↻ ⌂&lt;/b&gt; — навигация, &lt;b&gt;⧉&lt;/b&gt; — вынести в окно.&lt;/li&gt;
+    &lt;li&gt;&lt;b&gt;− авто 90% +&lt;/b&gt; — масштаб страницы. «Авто» подгоняет сайт под ширину панели, поэтому на ноутбуке и на большом мониторе он выглядит одинаково удобно. Ручной масштаб запоминается для каждой панели и каждого экрана отдельно; клик по проценту — вернуть «авто». Внутри панели и в отдельном окне работают &lt;kbd&gt;Ctrl +&lt;/kbd&gt; / &lt;kbd&gt;Ctrl −&lt;/kbd&gt; / &lt;kbd&gt;Ctrl 0&lt;/kbd&gt;.&lt;/li&gt;
+    &lt;li&gt;Grafana с логином/паролем или токеном, &lt;b&gt;Alertmanager&lt;/b&gt;, &lt;b&gt;Zabbix&lt;/b&gt; и &lt;b&gt;AI / анализатор&lt;/b&gt; — ещё и источники для раздела «Алерты». В диалоге для них есть пошаговая инструкция и кнопка &lt;b&gt;Сохранить и проверить&lt;/b&gt;.&lt;/li&gt;
+  &lt;/ul&gt;
+  &lt;h4&gt;Нюансы&lt;/h4&gt;
+  &lt;ul&gt;&lt;li&gt;Страница панели лежит поверх интерфейса: пока фокус внутри неё, горячие клавиши OpsDeck не работают — кликните по интерфейсу.&lt;/li&gt;
+  &lt;li&gt;SSO-вход (Keycloak, Google) проходится вручную один раз, дальше сессия сохраняется. 2FA в GitLab — тоже вручную.&lt;/li&gt;&lt;/ul&gt;
+</code></pre>
+<h2>Как проверить результат</h2>
+<p>После изменения настройки проверьте состояние или данные в этом же разделе. Если приложение показывает ошибку, прочитайте её до повторного действия. Журнал доступен в <strong>⚙ → Журнал</strong>. Не публикуйте пароли, токены, kubeconfig и приватные ключи в отчётах.</p>
+<p><a href="index.html">Все разделы руководства</a> · <a href="getting-started.html">Установка и окружения</a> · <a href="reference.html">Технический справочник</a></p>
+</main></div></body></html>

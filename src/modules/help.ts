@@ -1,3 +1,5 @@
+import { invoke } from "@tauri-apps/api/core";
+import { toast } from "./ui";
 import { overlay } from "./ui";
 import { currentLang } from "../i18n";
 import { HELP_EN } from "./help-en";
@@ -431,11 +433,16 @@ export function show(id: string) {
   const dlg = document.createElement("dialog");
   dlg.className = "help-dialog";
   dlg.innerHTML = `<div class="help-head"><span class="help-mark">!</span><h3>${h.title}</h3><span class="spacer"></span>
-    <button class="icon" data-close title="Закрыть">×</button></div><div class="help-body">${h.html}</div>`;
+    <a href="https://leoalecksey.github.io/opsdeck/wiki/" data-wiki>📖 Wiki</a><button class="icon" data-close title="Закрыть">×</button></div><div class="help-body">${h.html}</div>`;
   document.body.appendChild(dlg);
   overlay(true);
   dlg.addEventListener("close", () => { overlay(false); dlg.remove(); });
   dlg.addEventListener("click", (e) => {
+    if ((e.target as HTMLElement).closest("[data-wiki]")) {
+      e.preventDefault();
+      invoke("open_external", { url: "https://leoalecksey.github.io/opsdeck/wiki/" }).catch(err => toast(String(err), "err"));
+      return;
+    }
     // click on the backdrop or × closes
     if (e.target === dlg || (e.target as HTMLElement).closest("[data-close]")) dlg.close();
   });

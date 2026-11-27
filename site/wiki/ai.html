@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Локальный ИИ и OpenCode — Wiki OpsDeck</title><meta name="description" content="Руководство OpsDeck: локальный ии и opencode, подключения и работа с программой.">
+<link rel="canonical" href="https://leoalecksey.github.io/opsdeck/wiki/ai.html">
+<link rel="icon" href="../assets/icon.png"><link rel="stylesheet" href="style.css"></head>
+<body><header><a class="brand" href="../"><img src="../assets/icon.png" alt="">OpsDeck</a><a href="index.html">Wiki</a><a class="site-link" href="../">Сайт проекта ↗</a></header>
+<div class="layout"><aside><div class="aside-title">Руководство</div><nav><a  href="module-terminal.html">Терминал и AI</a>
+<a  href="module-k8s.html">Kubernetes</a>
+<a  href="module-web.html">Веб-панели</a>
+<a  href="module-alerts.html">Алерты</a>
+<a  href="module-net.html">Сеть и DNS</a>
+<a  href="module-yc.html">Yandex Cloud</a>
+<a  href="module-sftp.html">Файлы на хостах</a>
+<a  href="module-monitor.html">Мониторинг хостов</a>
+<a  href="module-ssh.html">SSH</a>
+<a  href="module-code.html">IDE: код и git</a>
+<a  href="module-db.html">Базы данных</a>
+<a  href="module-notes.html">Заметки</a>
+<a  href="module-tasks.html">Задачи и напоминания</a>
+<a  href="module-vault.html">KeePass</a>
+<a  href="module-gopass.html">gopass</a>
+<a  href="module-passbolt.html">Passbolt</a>
+<a  href="module-agent.html">ИИ-агент</a>
+<a  href="module-winbox.html">MikroTik</a>
+<a  href="module-settings.html">Настройки</a>
+<a  href="reference.html">Установка, сборка и технический справочник</a>
+<a  href="index.html">Главная</a>
+<a  href="getting-started.html">Установка и первый запуск</a>
+<a  href="connections.html">Подключения</a>
+<a  href="usage.html">Использование</a>
+<a aria-current="page" href="ai.html">Локальный ИИ и OpenCode</a></nav><div class="aside-foot">Версия dev<br><a href="https://github.com/LeoAlecksey/opsdeck/issues">Сообщить о проблеме ↗</a></div></aside>
+<main><h1>Локальный ИИ и OpenCode</h1>
+<p><a href="index.html">← Wiki</a></p>
+<p>OpsDeck AI и OpenCode настраиваются отдельно. <strong>OpsDeck AI</strong> использует модель из <strong>⚙ → Локальный ИИ</strong>. <strong>OpenCode</strong> запускается как программа <code>opencode</code> в AI-панели и читает собственный <code>opencode.json</code>. Сервер, указанный в OpsDeck, автоматически в OpenCode не передаётся.</p>
+<h2>Встроенная модель OpsDeck</h2>
+<figure><a href="../img/ru/settings-ai.jpg" target="_blank" rel="noopener"><img src="../img/ru/settings-ai.jpg" alt="Выбор локальной модели OpsDeck" loading="lazy" width="2160" height="1350"></a><figcaption>Выбор локальной модели OpsDeck · нажмите для увеличения</figcaption></figure>
+<ol>
+<li>Откройте <strong>⚙ → Локальный ИИ</strong>, выберите модель и нажмите <strong>Установить</strong>. Движок llama.cpp и модель загрузятся с проверкой контрольной суммы. Можно выбрать собственный <code>.gguf</code>.</li>
+<li>Откройте AI-панель через <code>Ctrl+Shift+I</code>, выберите <strong>OpsDeck AI (локальный)</strong> и задайте вопрос. <code>Ctrl+Shift+K</code> в терминале генерирует команду по описанию; <strong>Вставить</strong> добавляет её без запуска.</li>
+<li>При необходимости измените контекст (по умолчанию 16 384 токена) и ускорение: Vulkan на Linux/Windows, Metal на macOS.</li>
+</ol>
+<p>Модель запускается при первом запросе и выгружается через 15 минут простоя. Встроенный сервер слушает случайный порт <code>127.0.0.1</code> и предназначен для OpsDeck, поэтому для OpenCode используйте отдельно запущенный Ollama, LM Studio, vLLM или другой сервер.</p>
+<h2>Внешний локальный сервер для OpsDeck AI</h2>
+<p>В <strong>⚙ → Локальный ИИ → Внешний ИИ-сервер</strong> укажите <strong>Адрес</strong>, <strong>Порт</strong>, <strong>Модель</strong> и при необходимости <strong>API-ключ</strong>. Для Ollama на том же компьютере: адрес <code>127.0.0.1</code>, порт <code>11434</code>, модель — точное имя из <code>ollama list</code>. Нажмите <strong>Проверить</strong> и сохраните. OpsDeck добавляет пути <code>/v1</code> API сам. После этого <strong>OpsDeck AI</strong> использует внешний сервер вместо встроенного движка.</p>
+<h2>OpenCode с Ollama через JSON</h2>
+<figure><a href="../img/ru/ai-chat.jpg" target="_blank" rel="noopener"><img src="../img/ru/ai-chat.jpg" alt="AI-панель OpsDeck" loading="lazy" width="2160" height="1350"></a><figcaption>AI-панель OpsDeck · нажмите для увеличения</figcaption></figure>
+<ol>
+<li><p>Установите OpenCode и Ollama отдельно. Проверьте <code>opencode --version</code>, загрузите модель командой <code>ollama pull gemma3:4b</code> и проверьте имя через <code>ollama list</code>.</p>
+</li>
+<li><p>Создайте <code>~/.config/opencode/opencode.json</code> для всех проектов или <code>opencode.json</code> в конкретном проекте. Для Ollama на стандартном порту:</p>
+<pre><code class="language-json">{
+  &quot;$schema&quot;: &quot;https://opencode.ai/config.json&quot;,
+  &quot;model&quot;: &quot;ollama/gemma3:4b&quot;
+}
+</code></pre>
+</li>
+<li><p>В OpsDeck откройте <strong>⚙ → AI-агент</strong> и выберите <strong>OpenCode</strong>, либо выберите его в AI-панели <code>Ctrl+Shift+I</code>. После изменения JSON перезапустите OpenCode. Команда <code>/models</code> покажет доступные модели.</p>
+</li>
+</ol>
+<p>Для другого адреса или порта Ollama используйте:</p>
+<pre><code class="language-json">{
+  &quot;$schema&quot;: &quot;https://opencode.ai/config.json&quot;,
+  &quot;model&quot;: &quot;ollama/gemma3:4b&quot;,
+  &quot;providers&quot;: {
+    &quot;ollama&quot;: {
+      &quot;settings&quot;: {
+        &quot;baseURL&quot;: &quot;http://127.0.0.1:5678/v1&quot;
+      }
+    }
+  }
+}
+</code></pre>
+<p>OpenCode обнаруживает модели Ollama через нативный API того же сервера. Если нужен bearer-токен, добавьте в <code>settings</code> поле <code>&quot;apiKey&quot;: &quot;{env:OLLAMA_API_KEY}&quot;</code> и задайте переменную окружения для процесса OpenCode.</p>
+<h2>OpenCode с другим OpenAI-совместимым сервером</h2>
+<p>Для LM Studio на стандартном локальном порту OpenCode умеет находить модели автоматически. Для произвольного сервера задайте провайдер и точный ID модели из <code>/v1/models</code>:</p>
+<pre><code class="language-json">{
+  &quot;$schema&quot;: &quot;https://opencode.ai/config.json&quot;,
+  &quot;model&quot;: &quot;local/coder&quot;,
+  &quot;providers&quot;: {
+    &quot;local&quot;: {
+      &quot;name&quot;: &quot;Local server&quot;,
+      &quot;package&quot;: &quot;@opencode/ai/providers/openai-compatible&quot;,
+      &quot;settings&quot;: {
+        &quot;baseURL&quot;: &quot;http://127.0.0.1:1234/v1&quot;
+      },
+      &quot;models&quot;: {
+        &quot;coder&quot;: {
+          &quot;modelID&quot;: &quot;model-name-on-server&quot;,
+          &quot;capabilities&quot;: {
+            &quot;tools&quot;: true,
+            &quot;input&quot;: [&quot;text&quot;],
+            &quot;output&quot;: [&quot;text&quot;]
+          },
+          &quot;limit&quot;: {
+            &quot;context&quot;: 32768,
+            &quot;output&quot;: 8192
+          }
+        }
+      }
+    }
+  }
+}
+</code></pre>
+<p>Замените адрес, <code>modelID</code> и лимиты на данные своего сервера. Для редактирования файлов модель и сервер должны поддерживать вызовы инструментов. Если нужен ключ, добавьте <code>&quot;apiKey&quot;: &quot;{env:LOCAL_API_KEY}&quot;</code> в <code>settings</code>; секрет не храните в проектном JSON.</p>
+<h2>Если не работает</h2>
+<ul>
+<li>OpenCode не запускается: проверьте <code>opencode --version</code> в терминале OpsDeck и <code>PATH</code>.</li>
+<li>Модели нет в <code>/models</code>: проверьте доступность сервера, URL <code>/v1</code> и ID модели.</li>
+<li>Модель отвечает, но не правит файлы: проверьте поддержку tool calling и <code>capabilities.tools</code>.</li>
+<li>OpsDeck AI работает, а OpenCode нет: проверьте <code>opencode.json</code>; это разные настройки.</li>
+</ul>
+<p>Подробности по текущему формату: <a href="https://opencode.ai/docs/config/">конфигурация OpenCode</a> и <a href="https://opencode.ai/docs/models/">локальные модели OpenCode</a>.</p>
+</main></div></body></html>

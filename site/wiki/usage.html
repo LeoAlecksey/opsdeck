@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Использование — Wiki OpsDeck</title><meta name="description" content="Руководство OpsDeck: использование, подключения и работа с программой.">
+<link rel="canonical" href="https://leoalecksey.github.io/opsdeck/wiki/usage.html">
+<link rel="icon" href="../assets/icon.png"><link rel="stylesheet" href="style.css"></head>
+<body><header><a class="brand" href="../"><img src="../assets/icon.png" alt="">OpsDeck</a><a href="index.html">Wiki</a><a class="site-link" href="../">Сайт проекта ↗</a></header>
+<div class="layout"><aside><div class="aside-title">Руководство</div><nav><a  href="module-terminal.html">Терминал и AI</a>
+<a  href="module-k8s.html">Kubernetes</a>
+<a  href="module-web.html">Веб-панели</a>
+<a  href="module-alerts.html">Алерты</a>
+<a  href="module-net.html">Сеть и DNS</a>
+<a  href="module-yc.html">Yandex Cloud</a>
+<a  href="module-sftp.html">Файлы на хостах</a>
+<a  href="module-monitor.html">Мониторинг хостов</a>
+<a  href="module-ssh.html">SSH</a>
+<a  href="module-code.html">IDE: код и git</a>
+<a  href="module-db.html">Базы данных</a>
+<a  href="module-notes.html">Заметки</a>
+<a  href="module-tasks.html">Задачи и напоминания</a>
+<a  href="module-vault.html">KeePass</a>
+<a  href="module-gopass.html">gopass</a>
+<a  href="module-passbolt.html">Passbolt</a>
+<a  href="module-agent.html">ИИ-агент</a>
+<a  href="module-winbox.html">MikroTik</a>
+<a  href="module-settings.html">Настройки</a>
+<a  href="reference.html">Установка, сборка и технический справочник</a>
+<a  href="index.html">Главная</a>
+<a  href="getting-started.html">Установка и первый запуск</a>
+<a  href="connections.html">Подключения</a>
+<a aria-current="page" href="usage.html">Использование</a>
+<a  href="ai.html">Локальный ИИ и OpenCode</a></nav><div class="aside-foot">Версия dev<br><a href="https://github.com/LeoAlecksey/opsdeck/issues">Сообщить о проблеме ↗</a></div></aside>
+<main><h1>Работа в OpsDeck</h1>
+<p><a href="index.html">← Wiki</a></p>
+<h2>Терминал</h2>
+<figure><a href="../img/ru/terminal.jpg" target="_blank" rel="noopener"><img src="../img/ru/terminal.jpg" alt="Терминал OpsDeck" loading="lazy" width="2160" height="1350"></a><figcaption>Терминал OpsDeck · нажмите для увеличения</figcaption></figure>
+<p>Терминал запускает обычный shell и поддерживает вкладки и разделённые панели. Команды оформляются блоками с кодом выхода и временем. Выделение или вывод блока можно скопировать, сохранить как сниппет или отправить AI. <code>Ctrl+Shift+P</code> открывает палитру команд, <code>Ctrl+Shift+I</code> — AI-панель, <code>Ctrl+Shift+A</code> отправляет выделение. Запись сессии включается кнопкой <strong>⏺</strong>.</p>
+<h2>AI</h2>
+<figure><a href="../img/ru/ai-chat.jpg" target="_blank" rel="noopener"><img src="../img/ru/ai-chat.jpg" alt="Чат AI рядом с терминалом" loading="lazy" width="2160" height="1350"></a><figcaption>Чат AI рядом с терминалом · нажмите для увеличения</figcaption></figure>
+<p>Пошаговая настройка встроенной модели, внешнего сервера и OpenCode через JSON — в <a href="ai.html">отдельном руководстве</a>.</p>
+<p>В <strong>⚙ → Локальный ИИ</strong> выберите модель и нажмите <strong>Установить</strong>. После установки <code>Ctrl+Shift+K</code> создаёт команду по текстовому запросу; <strong>Вставить</strong> добавляет её в строку без запуска. Вместо встроенной модели можно задать OpenAI-совместимый сервер (Ollama, vLLM, LM Studio): адрес, модель и при необходимости API-ключ.</p>
+<p>AI-панель может запускать установленные CLI-агенты Claude Code, Codex, Gemini, Aider или OpenCode. Для расследования включите модуль <strong>ИИ-агент</strong>, задайте уровни доступа хостам и включите <strong>Расследование</strong> в AI-панели. Каждый шаг с командой и выводом виден. Политика хоста определяет, можно ли выполнять изменения и требуется ли подтверждение.</p>
+<h2>Файлы, IDE и мониторинг</h2>
+<figure><a href="../img/ru/code.jpg" target="_blank" rel="noopener"><img src="../img/ru/code.jpg" alt="Редактор и панель git" loading="lazy" width="2160" height="1350"></a><figcaption>Редактор и панель git · нажмите для увеличения</figcaption></figure>
+<p>В <strong>IDE</strong> откройте папку проекта: дерево файлов, редактор, поиск <code>Ctrl+Shift+F</code>, git-панель и консоль работают в контексте выбранного проекта. Для <code>.gitlab-ci.yml</code> и GitHub Actions доступен граф пайплайна. Он разбирает локальные файлы, поэтому сведения сервера CI могут отсутствовать.</p>
+<p>В <strong>Файлах на хостах</strong> выберите для каждой панели локальную машину или SSH-хост и переносите файлы стрелками. Хост → хост выполняется через <code>scp -3</code>. В <strong>Мониторинге хостов</strong> кнопка <strong>＋ Хосты</strong> добавляет SSH-профили на доску с CPU, памятью, диском и аптаймом.</p>
+<h2>Заметки и задачи</h2>
+<figure><a href="../img/ru/notes.jpg" target="_blank" rel="noopener"><img src="../img/ru/notes.jpg" alt="Заметки и задачи" loading="lazy" width="2160" height="1350"></a><figcaption>Заметки и задачи · нажмите для увеличения</figcaption></figure>
+<p>Заметки хранятся обычными <code>.md</code> файлами в выбранной папке; можно подключить существующий Obsidian vault. Поддерживаются несколько хранилищ, дерево папок, теги и поиск. Задачи в заметках формата Obsidian Tasks собираются в общий список и календарь, сроки могут вызывать напоминания.</p>
+<h2>Настройки и перенос</h2>
+<figure><a href="../img/ru/settings-ai.jpg" target="_blank" rel="noopener"><img src="../img/ru/settings-ai.jpg" alt="Настройки OpsDeck" loading="lazy" width="2160" height="1350"></a><figcaption>Настройки OpsDeck · нажмите для увеличения</figcaption></figure>
+<p>В <strong>⚙ → Экспорт…</strong> выберите части конфигурации для архива; <strong>Импорт…</strong> показывает его содержимое и восстанавливает выбранное. Пароли в архив не входят и вводятся заново. Kubeconfig по умолчанию не выбран, поскольку может содержать ключи доступа. Перед заменой импортируемых файлов OpsDeck делает резервные копии.</p>
+<p>Окружения создаются через <strong>⚙ → Окружения…</strong>. Каждое открывается в отдельном окне и хранит собственные подключения. Общими остаются AI-модели и, пока не изменена настройка окружения, папка заметок.</p>
+</main></div></body></html>

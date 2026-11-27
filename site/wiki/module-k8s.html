@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Kubernetes — Wiki OpsDeck</title><meta name="description" content="Руководство OpsDeck: kubernetes, подключения и работа с программой.">
+<link rel="canonical" href="https://leoalecksey.github.io/opsdeck/wiki/module-k8s.html">
+<link rel="icon" href="../assets/icon.png"><link rel="stylesheet" href="style.css"></head>
+<body><header><a class="brand" href="../"><img src="../assets/icon.png" alt="">OpsDeck</a><a href="index.html">Wiki</a><a class="site-link" href="../">Сайт проекта ↗</a></header>
+<div class="layout"><aside><div class="aside-title">Руководство</div><nav><a  href="module-terminal.html">Терминал и AI</a>
+<a aria-current="page" href="module-k8s.html">Kubernetes</a>
+<a  href="module-web.html">Веб-панели</a>
+<a  href="module-alerts.html">Алерты</a>
+<a  href="module-net.html">Сеть и DNS</a>
+<a  href="module-yc.html">Yandex Cloud</a>
+<a  href="module-sftp.html">Файлы на хостах</a>
+<a  href="module-monitor.html">Мониторинг хостов</a>
+<a  href="module-ssh.html">SSH</a>
+<a  href="module-code.html">IDE: код и git</a>
+<a  href="module-db.html">Базы данных</a>
+<a  href="module-notes.html">Заметки</a>
+<a  href="module-tasks.html">Задачи и напоминания</a>
+<a  href="module-vault.html">KeePass</a>
+<a  href="module-gopass.html">gopass</a>
+<a  href="module-passbolt.html">Passbolt</a>
+<a  href="module-agent.html">ИИ-агент</a>
+<a  href="module-winbox.html">MikroTik</a>
+<a  href="module-settings.html">Настройки</a>
+<a  href="reference.html">Установка, сборка и технический справочник</a>
+<a  href="index.html">Главная</a>
+<a  href="getting-started.html">Установка и первый запуск</a>
+<a  href="connections.html">Подключения</a>
+<a  href="usage.html">Использование</a>
+<a  href="ai.html">Локальный ИИ и OpenCode</a></nav><div class="aside-foot">Версия dev<br><a href="https://github.com/LeoAlecksey/opsdeck/issues">Сообщить о проблеме ↗</a></div></aside>
+<main><h1>Kubernetes</h1>
+<p>Откройте раздел через значок в левой колонке. Если значка нет, включите модуль через <strong>⊞ → Модули</strong>. Кнопка <strong>!</strong> открывает краткую справку прямо в программе.</p>
+<pre><code>  &lt;h4&gt;Как работает&lt;/h4&gt;
+  &lt;p&gt;OpsDeck хранит свои копии kubeconfig (по файлу на контекст) и не трогает ваш ~/.kube/config. Таблицы обновляются вживую (watch).&lt;/p&gt;
+  &lt;h4&gt;Что где&lt;/h4&gt;
+  &lt;ul&gt;
+    &lt;li&gt;&lt;b&gt;Диагностика&lt;/b&gt; (вверху списка ресурсов), считается по тому, что видит ваш kubeconfig, — в кластер ничего не ставится:
+      &lt;b&gt;Проблемы&lt;/b&gt; — что сломано сейчас: CrashLoopBackOff, OOMKilled, образ не скачивается, под не назначается на узел (с причиной), rollout не докатился, Job упал, под завис в Terminating (какие finalizers держат), ссылки на несуществующие ConfigMap/Secret/PVC, сервис без подов или без готовых endpoints, Ingress на несуществующий сервис или порт. Поды одного приложения с одной бедой — одной строкой (×N).
+      &lt;b&gt;Проверки&lt;/b&gt; — best practices шаблонов: privileged, hostPID/hostNetwork, сокет docker/containerd, опасные capabilities, тег latest, нет probes, одна реплика, нет PodDisruptionBudget, нет requests/limits — у каждой «Как исправить». Строка открывает объяснение, «Открыть объект» и «⇢ AI». Служебные namespace (kube-system…) скрыты галочкой. Значения Secret в диагностику не попадают: бэкенд отдаёт только имена.&lt;/li&gt;
+    &lt;li&gt;&lt;b&gt;Мультивыбор и действия в строке.&lt;/b&gt; Галочки слева выбирают строки (в шапке — выбрать все показанные), «Удалить выбранные» удаляет их одной операцией с подтверждением по количеству. При наведении на строку справа появляются значки: скопировать имя, логи, shell (у подов и узлов), удалить.&lt;/li&gt;
+    &lt;li&gt;&lt;b&gt;Поды объекта.&lt;/b&gt; У Deployment, StatefulSet, DaemonSet, ReplicaSet, Job, CronJob и узла есть вкладка &lt;b&gt;Поды&lt;/b&gt;: кто относится к этому объекту или что крутится на узле, с состоянием, рестартами и CPU/RAM. Клик открывает под в таблице подов.&lt;/li&gt;
+    &lt;li&gt;&lt;b&gt;Shell на узле&lt;/b&gt; (у ноды — кнопка Shell): запускает &lt;code&gt;kubectl debug node/…&lt;/code&gt; — временный под на узле, файловая система узла в &lt;code&gt;/host&lt;/code&gt;. Нужен Kubernetes 1.25+ и право создавать поды; образ спрашивается и запоминается.&lt;/li&gt;
+    &lt;li&gt;&lt;b&gt;Логи в файл&lt;/b&gt; — кнопка «В файл» в панели логов сохраняет показанные строки (с учётом фильтра) в текстовый файл.&lt;/li&gt;
+    &lt;li&gt;&lt;b&gt;История событий&lt;/b&gt; (Кластер → История событий): Kubernetes хранит события около часа, и к утру «что упало ночью» уже не узнать. Кнопка «Записывать события этого кластера» — пока OpsDeck открыт, он слушает события всех namespace и хранит их неделю; повторы складываются в одну строку (×N). Сверху — что падало чаще всего за 24 ч (клик — фильтр), строка открывает сообщение и «⇢ AI».&lt;/li&gt;
+    &lt;li&gt;&lt;b&gt;Папки с kubeconfig&lt;/b&gt; (⚙ → Kubernetes, как во Freelens): все kubeconfig из папки (и подпапок до двух уровней) появляются в списке кластеров с пометкой «папка» и читаются на месте — новый файл виден после ⟳ или при следующем открытии раздела.&lt;/li&gt;
+    &lt;li&gt;&lt;b&gt;Фильтр по меткам&lt;/b&gt; рядом с обычным — как &lt;code&gt;kubectl -l&lt;/code&gt;: &lt;code&gt;app=api&lt;/code&gt;, &lt;code&gt;tier!=db&lt;/code&gt;, &lt;code&gt;env in (prod,stage)&lt;/code&gt;, &lt;code&gt;!canary&lt;/code&gt;; условия через запятую. &lt;b&gt;Ноды&lt;/b&gt;: CPU и RAM обновляются каждые 5 с — полоска загрузки и график последних замеров (нужен metrics-server).&lt;/li&gt;
+    &lt;li&gt;&lt;b&gt;＋&lt;/b&gt; слева вверху — добавить кластер: отметить контексты из ~/.kube/config, вставить YAML или просто перетащить файл в окно.&lt;/li&gt;
+    &lt;li&gt;Наведите на контекст: &lt;b&gt;🔒&lt;/b&gt; только чтение (запрет apply/delete/scale/restart/exec), &lt;b&gt;🙈&lt;/b&gt; скрыть, &lt;b&gt;🗑&lt;/b&gt; удалить копию.&lt;/li&gt;
+    &lt;li&gt;Слева — типы ресурсов, внизу «Custom resources» — все CRD кластера (с фильтром).&lt;/li&gt;
+    &lt;li&gt;Сверху: namespace, фильтр, &lt;b&gt;live&lt;/b&gt; — живое обновление, &lt;b&gt;⎈ Терминал&lt;/b&gt; — shell с kubectl/helm/k9s в этом контексте.&lt;/li&gt;
+    &lt;li&gt;Клик по строке — панель снизу: &lt;b&gt;Логи&lt;/b&gt; (у деплоймента — со всех подов сразу, цвет на под), &lt;b&gt;Детали&lt;/b&gt; (ссылки на владельца, ноду, тома кликабельны), &lt;b&gt;YAML&lt;/b&gt; (правка и «Применить»).&lt;/li&gt;
+    &lt;li&gt;Кнопки справа в панели: Shell, Port-forward, Scale, Restart, Удалить; у Helm — Rollback/Uninstall, у Argo CD — Refresh/Sync.&lt;/li&gt;
+    &lt;li&gt;У подов и нод колонки CPU/RAM (нужен metrics-server).&lt;/li&gt;
+  
+  &lt;li&gt;&lt;b&gt;Если связь с кластером прервалась&lt;/b&gt;, таблица гаснет, а сверху появляется строка с причиной и временем, на которое показаны данные: прежний снимок на экране легко принять за откат ваших изменений. В YAML после «Применить» объект перечитывается, и если перечитать не удалось — так и написано, вместо молчаливого показа прежнего текста.&lt;/li&gt;
+  &lt;li&gt;&lt;b&gt;Сортировка&lt;/b&gt; — клик по заголовку колонки. У нагрузки (CPU, RAM) и возраста первый клик ставит наверх самое большое, стрелка в шапке показывает направление. У узлов эти колонки сортируются по доле от вместимости, а не по гигабайтам: узел на 100% важнее узла, где занято больше байт, но есть запас.&lt;/li&gt;
+  &lt;li&gt;&lt;b&gt;Несколько namespace&lt;/b&gt; — выбранные становятся плашками рядом со списком: клик переключает, × убирает. Запоминаются для каждого контекста, помещается восемь.&lt;/li&gt;
+  &lt;li&gt;&lt;b&gt;С клавиатуры&lt;/b&gt;: &lt;kbd&gt;↑&lt;/kbd&gt; / &lt;kbd&gt;↓&lt;/kbd&gt; — строка, &lt;kbd&gt;Enter&lt;/kbd&gt; — подробности, &lt;kbd&gt;Пробел&lt;/kbd&gt; — отметить для массовых действий, &lt;kbd&gt;Alt+↑&lt;/kbd&gt; / &lt;kbd&gt;Alt+↓&lt;/kbd&gt; — предыдущий и следующий раздел слева. В ⚙ → «Сочетания клавиш» можно назначить переход по модулям и разделам, shell в выбранном поде, логи и port-forward. Там же настраиваются сочетания Cmd/Option для перемещения по строке и словам в терминале macOS.&lt;/li&gt;
+  &lt;li&gt;&lt;b&gt;График над логами&lt;/b&gt; — сколько строк было в каждом отрезке времени, красным ошибки, жёлтым предупреждения. Клик по столбику оставляет только его строки, повторный клик снимает. Галочка «график» убирает его совсем.&lt;/li&gt;&lt;/ul&gt;
+  &lt;h4&gt;Советы&lt;/h4&gt;
+  &lt;ul&gt;&lt;li&gt;Для прода ставьте 🔒 — изменения блокирует сам бэкенд, случайный клик ничего не сломает.&lt;/li&gt;
+  &lt;li&gt;Удаление всегда просит ввести имя объекта.&lt;/li&gt;&lt;/ul&gt;
+</code></pre>
+<h2>Как проверить результат</h2>
+<p>После изменения настройки проверьте состояние или данные в этом же разделе. Если приложение показывает ошибку, прочитайте её до повторного действия. Журнал доступен в <strong>⚙ → Журнал</strong>. Не публикуйте пароли, токены, kubeconfig и приватные ключи в отчётах.</p>
+<p><a href="index.html">Все разделы руководства</a> · <a href="getting-started.html">Установка и окружения</a> · <a href="reference.html">Технический справочник</a></p>
+</main></div></body></html>

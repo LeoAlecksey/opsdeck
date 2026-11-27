@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Подключения — Wiki OpsDeck</title><meta name="description" content="Руководство OpsDeck: подключения, подключения и работа с программой.">
+<link rel="canonical" href="https://leoalecksey.github.io/opsdeck/wiki/connections.html">
+<link rel="icon" href="../assets/icon.png"><link rel="stylesheet" href="style.css"></head>
+<body><header><a class="brand" href="../"><img src="../assets/icon.png" alt="">OpsDeck</a><a href="index.html">Wiki</a><a class="site-link" href="../">Сайт проекта ↗</a></header>
+<div class="layout"><aside><div class="aside-title">Руководство</div><nav><a  href="module-terminal.html">Терминал и AI</a>
+<a  href="module-k8s.html">Kubernetes</a>
+<a  href="module-web.html">Веб-панели</a>
+<a  href="module-alerts.html">Алерты</a>
+<a  href="module-net.html">Сеть и DNS</a>
+<a  href="module-yc.html">Yandex Cloud</a>
+<a  href="module-sftp.html">Файлы на хостах</a>
+<a  href="module-monitor.html">Мониторинг хостов</a>
+<a  href="module-ssh.html">SSH</a>
+<a  href="module-code.html">IDE: код и git</a>
+<a  href="module-db.html">Базы данных</a>
+<a  href="module-notes.html">Заметки</a>
+<a  href="module-tasks.html">Задачи и напоминания</a>
+<a  href="module-vault.html">KeePass</a>
+<a  href="module-gopass.html">gopass</a>
+<a  href="module-passbolt.html">Passbolt</a>
+<a  href="module-agent.html">ИИ-агент</a>
+<a  href="module-winbox.html">MikroTik</a>
+<a  href="module-settings.html">Настройки</a>
+<a  href="reference.html">Установка, сборка и технический справочник</a>
+<a  href="index.html">Главная</a>
+<a  href="getting-started.html">Установка и первый запуск</a>
+<a aria-current="page" href="connections.html">Подключения</a>
+<a  href="usage.html">Использование</a>
+<a  href="ai.html">Локальный ИИ и OpenCode</a></nav><div class="aside-foot">Версия dev<br><a href="https://github.com/LeoAlecksey/opsdeck/issues">Сообщить о проблеме ↗</a></div></aside>
+<main><h1>Подключения</h1>
+<p><a href="index.html">← Wiki</a></p>
+<h2>SSH-хосты</h2>
+<figure><a href="../img/ru/ssh.jpg" target="_blank" rel="noopener"><img src="../img/ru/ssh.jpg" alt="Список SSH-хостов" loading="lazy" width="2160" height="1350"></a><figcaption>Список SSH-хостов · нажмите для увеличения</figcaption></figure>
+<p>Откройте <strong>SSH → ＋ Хост</strong>. Укажите адрес, порт, пользователя и при необходимости путь к ключу и jump-хост. Хосты из <code>~/.ssh/config</code> также видны в списке; значок <strong>⧉</strong> сохраняет такой хост как профиль. Двойной клик открывает терминальную сессию. Пароль из KeePass, Passbolt или keyring копируется в буфер на 30 секунд и вставляется при запросе SSH через <code>Ctrl+Shift+V</code>.</p>
+<p>Для мониторинга и файлов по SFTP используйте ключевой вход. Сначала подключитесь к хосту в терминале, чтобы принять его ключ. В карточке хоста можно записать контекст для AI: назначение сервера и ограничения на действия.</p>
+<h2>Kubernetes</h2>
+<figure><a href="../img/ru/k8s.jpg" target="_blank" rel="noopener"><img src="../img/ru/k8s.jpg" alt="Ресурсы кластера Kubernetes" loading="lazy" width="2160" height="1350"></a><figcaption>Ресурсы кластера Kubernetes · нажмите для увеличения</figcaption></figure>
+<p>Откройте <strong>Kubernetes → ＋</strong> и выберите контексты из <code>~/.kube/config</code>, вставьте YAML или перетащите kubeconfig. OpsDeck хранит импортированные конфигурации отдельно и не меняет исходный файл. Для рабочего кластера включите <strong>🔒 Только чтение</strong>. В <strong>⚙ → Kubernetes</strong> можно также подключить папку с kubeconfig; её файлы читаются на месте.</p>
+<p>После подключения выберите кластер и namespace. Доступны ресурсы, проблемы, логи, YAML, shell, port-forward и действия над объектами — в пределах прав учётной записи Kubernetes. CPU/RAM потребуют <code>metrics-server</code> в кластере.</p>
+<h2>Веб-панели и алерты</h2>
+<figure><a href="../img/ru/alerts.jpg" target="_blank" rel="noopener"><img src="../img/ru/alerts.jpg" alt="Алерты в OpsDeck" loading="lazy" width="2160" height="1350"></a><figcaption>Алерты в OpsDeck · нажмите для увеличения</figcaption></figure>
+<p>Откройте <strong>Веб-панели → Добавить</strong>. Выберите Grafana, ArgoCD, GitLab, Alertmanager, Zabbix, AI-анализатор или произвольный URL. Укажите доступный с компьютера адрес и способ входа. Панели открываются вкладками; Alertmanager и Zabbix используются как источники алертов.</p>
+<ul>
+<li><strong>Grafana:</strong> для сбора алертов создайте service account с ролью Viewer и токеном; выберите авторизацию <strong>токен</strong>, затем <strong>Сохранить и проверить</strong>. Токен собирает алерты, а вход в саму панель выполняется вручную. Для автовхода используйте логин/пароль или запись хранилища паролей.</li>
+<li><strong>Alertmanager:</strong> укажите URL сервера, например <code>http://alertmanager:9093</code>, настройте авторизацию, если она есть, и нажмите <strong>Сохранить и проверить</strong>.</li>
+<li><strong>Zabbix 6.0+:</strong> укажите URL и API-токен или логин/пароль. Для защищённого Basic auth есть отдельные поля.</li>
+<li><strong>AI-анализатор:</strong> можно получать JSON-ленту по URL или отправлять находки на локальный приёмник. Точный формат и пример <code>curl</code> показаны в форме коннектора.</li>
+</ul>
+<p>Источники опрашиваются приложением; события появляются в <strong>🔔 Алерты</strong>. Компьютер должен иметь сетевой доступ к их URL, в том числе через VPN, если источник внутренний.</p>
+<h2>Базы данных</h2>
+<figure><a href="../img/ru/db.jpg" target="_blank" rel="noopener"><img src="../img/ru/db.jpg" alt="Структура базы и результаты запросов" loading="lazy" width="2160" height="1350"></a><figcaption>Структура базы и результаты запросов · нажмите для увеличения</figcaption></figure>
+<p>В разделе <strong>Базы данных</strong> добавьте подключение: тип (PostgreSQL, MySQL/MariaDB, ClickHouse, Redis или MongoDB), адрес, порт, пользователя и источник пароля. Можно настроить TLS и SSH-хост для туннеля, если база доступна через бастион. Туннель использует ключевой SSH-вход. Для рабочей базы включите <strong>Только чтение</strong>; серверное ограничение записи поддерживается для PostgreSQL и ClickHouse.</p>
+<p>После подключения дерево слева показывает структуру, справа доступны запросы, история и экспорт результата в CSV/JSON.</p>
+<h2>Хранилища паролей</h2>
+<figure><a href="../img/ru/vault.jpg" target="_blank" rel="noopener"><img src="../img/ru/vault.jpg" alt="Записи KeePass" loading="lazy" width="2160" height="1350"></a><figcaption>Записи KeePass · нажмите для увеличения</figcaption></figure>
+<ul>
+<li><strong>KeePass:</strong> откройте <code>.kdbx</code> в разделе KeePass и введите мастер-пароль. База читается без изменения; записи затем выбираются в формах подключения. Настройка автоблокировки — в <strong>⚙</strong>.</li>
+<li><strong>Passbolt 5.x:</strong> в профиле Passbolt скачайте <code>account-kit.passbolt</code> через <strong>Desktop app setup</strong>, затем выберите его в разделе Passbolt. При необходимости пройдите TOTP или YubiKey. Записи доступны для других подключений после разблокировки.</li>
+<li><strong>gopass:</strong> установите <code>gopass</code> в <code>PATH</code> и подготовьте хранилище (<code>gopass init</code> или <code>gopass clone</code>). Раздел читает записи через CLI; пароль GPG запрашивает <code>pinentry</code>.</li>
+<li><strong>Системный keyring:</strong> выбирайте обычный пароль/токен в форме подключения; секрет хранится локально в системном хранилище.</li>
+</ul>
+<h2>Yandex Cloud и MikroTik</h2>
+<figure><a href="../img/ru/yc.jpg" target="_blank" rel="noopener"><img src="../img/ru/yc.jpg" alt="Машины Yandex Cloud" loading="lazy" width="2160" height="1350"></a><figcaption>Машины Yandex Cloud · нажмите для увеличения</figcaption></figure>
+<p>Для <strong>Yandex Cloud</strong> сначала установите <code>yc</code> и выполните <code>yc init</code> в терминале. OpsDeck использует существующие профили CLI. В разделе доступны машины, сети, адреса, сервисные и платёжные аккаунты; SSH к машине открывается из её карточки.</p>
+<p>Для <strong>MikroTik</strong> нажмите <strong>＋ Устройство</strong>, задайте адрес и порты WinBox/SSH, выберите источник учётных данных. Кнопки устройства открывают WinBox, SSH или ping. Сохранённые роутеры можно импортировать из WinBox.</p>
+</main></div></body></html>

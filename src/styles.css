@@ -1516,3 +1516,7 @@ body.picking #app { align-items: center; justify-content: center; overflow: auto
 .settings-explanation > summary { color: var(--muted); cursor: pointer; width: fit-content; }
 .settings-explanation > summary:hover { color: var(--accent); }
 .settings-explanation > p { margin-top: 6px; }
+
+#sidebar { overflow-y: auto; overflow-x: hidden; min-height: 0; scrollbar-width: thin; }
+#sidebar > button { flex-shrink: 0; }
+.modules-pop { max-height: calc(100dvh - 24px); overflow-y: auto; overscroll-behavior: contain; }

@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>IDE: код и git — Wiki OpsDeck</title><meta name="description" content="Руководство OpsDeck: ide: код и git, подключения и работа с программой.">
+<link rel="canonical" href="https://leoalecksey.github.io/opsdeck/wiki/module-code.html">
+<link rel="icon" href="../assets/icon.png"><link rel="stylesheet" href="style.css"></head>
+<body><header><a class="brand" href="../"><img src="../assets/icon.png" alt="">OpsDeck</a><a href="index.html">Wiki</a><a class="site-link" href="../">Сайт проекта ↗</a></header>
+<div class="layout"><aside><div class="aside-title">Руководство</div><nav><a  href="module-terminal.html">Терминал и AI</a>
+<a  href="module-k8s.html">Kubernetes</a>
+<a  href="module-web.html">Веб-панели</a>
+<a  href="module-alerts.html">Алерты</a>
+<a  href="module-net.html">Сеть и DNS</a>
+<a  href="module-yc.html">Yandex Cloud</a>
+<a  href="module-sftp.html">Файлы на хостах</a>
+<a  href="module-monitor.html">Мониторинг хостов</a>
+<a  href="module-ssh.html">SSH</a>
+<a aria-current="page" href="module-code.html">IDE: код и git</a>
+<a  href="module-db.html">Базы данных</a>
+<a  href="module-notes.html">Заметки</a>
+<a  href="module-tasks.html">Задачи и напоминания</a>
+<a  href="module-vault.html">KeePass</a>
+<a  href="module-gopass.html">gopass</a>
+<a  href="module-passbolt.html">Passbolt</a>
+<a  href="module-agent.html">ИИ-агент</a>
+<a  href="module-winbox.html">MikroTik</a>
+<a  href="module-settings.html">Настройки</a>
+<a  href="reference.html">Установка, сборка и технический справочник</a>
+<a  href="index.html">Главная</a>
+<a  href="getting-started.html">Установка и первый запуск</a>
+<a  href="connections.html">Подключения</a>
+<a  href="usage.html">Использование</a>
+<a  href="ai.html">Локальный ИИ и OpenCode</a></nav><div class="aside-foot">Версия dev<br><a href="https://github.com/LeoAlecksey/opsdeck/issues">Сообщить о проблеме ↗</a></div></aside>
+<main><h1>IDE: код и git</h1>
+<p>Откройте раздел через значок в левой колонке. Если значка нет, включите модуль через <strong>⊞ → Модули</strong>. Кнопка <strong>!</strong> открывает краткую справку прямо в программе.</p>
+<pre><code>  &lt;p&gt;Файлы открываются в предварительной вкладке (курсив): следующий файл заменяет её. Изменение файла или двойной клик закрепляет вкладку. Кнопка ◫ открывает соседнюю группу редактора; Ctrl+1 / Ctrl+2 переключают группы.&lt;/p&gt;
+  &lt;p&gt;Ctrl+P — открыть файл по имени, Ctrl+G — перейти к строке, Ctrl+Tab / Ctrl+Shift+Tab — переключить вкладку, Ctrl+B — скрыть дерево. Alt+↑/↓ — переместить строку, Shift+Alt+↑/↓ — копировать строку, Ctrl+Shift+K — удалить строку. Shift+Alt+F — terraform fmt.&lt;/p&gt;
+  &lt;p&gt;В консоли кнопка + (Ctrl+Shift+&amp;#96;) создаёт второй терминал. Список «Терминал» переключает независимые сессии; скрытие панели их не завершает.&lt;/p&gt;
+  &lt;h4&gt;Как работает&lt;/h4&gt;
+  &lt;p&gt;Встроенный редактор кода с подсветкой синтаксиса (TypeScript/JavaScript, Python, Go, Rust, YAML, JSON, Terraform/HCL, SQL, Shell, Dockerfile, TOML, Markdown, HTML/CSS…), деревом проекта и панелью git.&lt;/p&gt;
+  &lt;h4&gt;Что где&lt;/h4&gt;
+  &lt;ul&gt;
+    &lt;li&gt;&lt;b&gt;📂&lt;/b&gt; — выбрать папку проекта в системном окне (весь проект откроется деревом слева), &lt;b&gt;⌁&lt;/b&gt; — взять папку, в которой сейчас терминал, &lt;b&gt;＋&lt;/b&gt; — новый файл (путь с / на конце — папка). Недавние проекты — в списке под заголовком.&lt;/li&gt;
+    &lt;li&gt;В дереве цветом отмечены изменения git: жёлтый — изменён, зелёный — новый, красный — удалён.&lt;/li&gt;
+    &lt;li&gt;&lt;b&gt;Правый клик в дереве&lt;/b&gt; — создать файл или папку здесь, переименовать, скопировать и вставить (занятое имя получает «копия»), удалить. Корзины нет — удалённое возвращается только из git, поэтому OpsDeck спрашивает. Открытые вкладки следуют за переименованием. Работает только внутри папки проекта.&lt;/li&gt;
+    &lt;li&gt;&lt;b&gt;⇢ AI&lt;/b&gt; внизу справа — спросить ИИ о файле (или выделенном фрагменте), о проекте (структура и &lt;code&gt;git status&lt;/code&gt;) или проверить изменения (&lt;code&gt;git diff&lt;/code&gt;). Текст уходит в AI-панель терминала — выбранному агенту или локальному ИИ; вы дописываете вопрос и отправляете.&lt;/li&gt;
+    &lt;li&gt;&lt;kbd&gt;Ctrl+S&lt;/kbd&gt; — сохранить. Если файл поменяли снаружи после открытия, OpsDeck спросит, перезаписать ли его.&lt;/li&gt;
+    &lt;li&gt;&lt;b&gt;Несколько проектов.&lt;/b&gt; Открытые проекты показаны плашками над деревом: клик переключает, × закрывает. У каждого свои открытые файлы, раскрытые папки и выбранный файл. Для перехода к предыдущему или следующему проекту назначьте удобные сочетания в ⚙ → «Сочетания клавиш»; по умолчанию они не назначены. Конкретный проект можно выбрать в палитре команд (Ctrl+Shift+P). При несохранённых изменениях переход требует подтверждения.&lt;/li&gt;
+    &lt;li&gt;&lt;b&gt;Поиск по всему проекту&lt;/b&gt; — кнопка ⌘ слева вверху или &lt;kbd&gt;Ctrl+Shift+F&lt;/kbd&gt; в том числе в редакторе: текст или регулярное выражение, с учётом регистра по галочке. Результаты сгруппированы по файлам, клик открывает нужную строку. Папки сборки и чужой код (.git, node_modules, target, dist, .terraform, vendor…), бинарные файлы и всё тяжелее 2 МБ пропускаются; показываются первые 500 совпадений.&lt;/li&gt;
+    &lt;li&gt;&lt;kbd&gt;Ctrl+W&lt;/kbd&gt; закрывает вкладку (в терминале — панель), а не окно приложения. &lt;kbd&gt;Ctrl+Z&lt;/kbd&gt;, &lt;kbd&gt;Ctrl+Shift+Z&lt;/kbd&gt;, &lt;kbd&gt;Ctrl+Y&lt;/kbd&gt;, &lt;kbd&gt;Ctrl+A&lt;/kbd&gt;, &lt;kbd&gt;Ctrl+D&lt;/kbd&gt; и &lt;kbd&gt;Ctrl+/&lt;/kbd&gt; работают на любой раскладке.&lt;/li&gt;
+    &lt;li&gt;&lt;kbd&gt;Ctrl+F&lt;/kbd&gt; — поиск и замена (как и &lt;kbd&gt;Ctrl+S&lt;/kbd&gt;, работает на любой раскладке; из дерева тоже), &lt;kbd&gt;Ctrl+/&lt;/kbd&gt; — закомментировать, &lt;kbd&gt;Tab&lt;/kbd&gt; / &lt;kbd&gt;Shift+Tab&lt;/kbd&gt; — отступ.&lt;/li&gt;
+    &lt;li&gt;&lt;kbd&gt;Ctrl+=&lt;/kbd&gt; / &lt;kbd&gt;Ctrl+−&lt;/kbd&gt; или &lt;kbd&gt;Ctrl&lt;/kbd&gt;+колесо — крупнее / мельче шрифт редактора, &lt;kbd&gt;Ctrl+0&lt;/kbd&gt; — как было. Запоминается.&lt;/li&gt;
+    &lt;li&gt;&lt;b&gt;▭ консоль&lt;/b&gt; внизу (&lt;kbd&gt;Ctrl+`&lt;/kbd&gt;) — терминал прямо в папке проекта: ↻ перезапустить, ⧉ открыть эту папку во вкладке терминала. При смене проекта консоль сама делает &lt;code&gt;cd&lt;/code&gt; — если в ней ничего не выполняется (иначе OpsDeck скажет об этом и не будет набирать команду в программу).&lt;/li&gt;
+    &lt;li&gt;&lt;b&gt;Размеры панелей&lt;/b&gt; — потяните за границы между деревом, редактором, консолью и панелью git; двойной клик по границе — вернуть размер по умолчанию. Размеры запоминаются.&lt;/li&gt;
+    &lt;li&gt;&lt;b&gt;⛓ pipeline&lt;/b&gt; внизу справа (кнопка появляется, если в проекте есть &lt;code&gt;.gitlab-ci.yml&lt;/code&gt; или &lt;code&gt;.github/workflows&lt;/code&gt;) — граф пайплайна: колонки это стадии (у GitHub — порядок по &lt;code&gt;needs&lt;/code&gt;), карточки это задачи. Сверху выбираются &lt;b&gt;событие&lt;/b&gt; (push, merge request, тег, расписание, запуск вручную), &lt;b&gt;ветка&lt;/b&gt;, список &lt;b&gt;изменённых файлов&lt;/b&gt; (для &lt;code&gt;rules:changes&lt;/code&gt; и &lt;code&gt;on: paths&lt;/code&gt;) и переменные. Цвет карточки: зелёная — запустится, жёлтая — только вручную, серая — не запустится, фиолетовая — неизвестно (условие зависит от того, чего нет в файле). Клик по задаче показывает, какое правило сработало, «В файле» открывает её строку, «⇢ AI» отправляет задачу с условием в AI-панель. Галочка &lt;b&gt;сравнить с&lt;/b&gt; показывает, чем отличается другая ветка. Раскрываются &lt;code&gt;include: local&lt;/code&gt;, &lt;code&gt;extends&lt;/code&gt;, якоря YAML и &lt;code&gt;!reference&lt;/code&gt;; это разбор файлов, а не сам сервер — переменные проекта, защищённые ветки и дочерние пайплайны отсюда не видны.&lt;/li&gt;
+    &lt;li&gt;&lt;b&gt;⎇ git&lt;/b&gt; внизу справа — панель git: изменённые файлы (клик — дифф, двойной клик — открыть файл), поле коммита (&lt;b&gt;Закоммитить всё&lt;/b&gt; = &lt;code&gt;git add -A&lt;/code&gt; + commit, &lt;kbd&gt;Ctrl+Enter&lt;/kbd&gt;) и граф коммитов всех веток (клик — коммит целиком).&lt;/li&gt;
+    &lt;li&gt;&lt;b&gt;Жёлтая полоса слева от строки&lt;/b&gt; — эта строка ещё не отправлена в удалённую ветку (сравнение с &lt;code&gt;@{upstream}&lt;/code&gt;, а если ветка только локальная — с &lt;code&gt;origin/HEAD&lt;/code&gt;). Обновляется при сохранении, переключении вкладок и после git-операций.&lt;/li&gt;
+    &lt;li&gt;&lt;b&gt;Ветки&lt;/b&gt; — кнопка с именем ветки вверху панели git: клик по ветке — переключиться (удалённая станет локальной с отслеживанием), &lt;b&gt;＋ Новая ветка&lt;/b&gt; — от текущей, при наведении &lt;b&gt;⤵&lt;/b&gt; — слить в текущую, &lt;b&gt;×&lt;/b&gt; — удалить (для не слитой OpsDeck переспросит). &lt;b&gt;⟳&lt;/b&gt; fetch, &lt;b&gt;↓&lt;/b&gt; pull (только fast-forward), &lt;b&gt;↑&lt;/b&gt; push (новая ветка уходит с &lt;code&gt;-u origin&lt;/code&gt;). Открытые файлы после переключения перечитываются сами; если в них есть несохранённые правки, OpsDeck предупредит.&lt;/li&gt;
+    &lt;li&gt;В панели «Файлы» терминала и по &lt;kbd&gt;Ctrl&lt;/kbd&gt;+клику на путь в выводе файлы открываются здесь, если там выбрана «OpsDeck IDE».&lt;/li&gt;
+  &lt;/ul&gt;
+  &lt;h4&gt;Проверка и форматирование&lt;/h4&gt;
+  &lt;ul&gt;
+    &lt;li&gt;&lt;b&gt;YAML&lt;/b&gt; и &lt;b&gt;JSON&lt;/b&gt; — ошибки синтаксиса подчёркиваются сразу, на полях слева значок; наведите мышь — текст ошибки.&lt;/li&gt;
+    &lt;li&gt;&lt;b&gt;Terraform&lt;/b&gt; (.tf, .tfvars, .hcl) — проверка через &lt;code&gt;terraform fmt&lt;/code&gt; (или &lt;code&gt;tofu&lt;/code&gt;), ошибки показываются на своих строках. При сохранении файл форматируется как &lt;code&gt;terraform fmt&lt;/code&gt;; &lt;kbd&gt;Shift+Alt+F&lt;/kbd&gt; или кнопка &lt;b&gt;fmt&lt;/b&gt; — отформатировать сейчас. Без terraform в PATH проверяются только скобки и кавычки.&lt;/li&gt;
+  &lt;/ul&gt;
+</code></pre>
+<h2>Как проверить результат</h2>
+<p>После изменения настройки проверьте состояние или данные в этом же разделе. Если приложение показывает ошибку, прочитайте её до повторного действия. Журнал доступен в <strong>⚙ → Журнал</strong>. Не публикуйте пароли, токены, kubeconfig и приватные ключи в отчётах.</p>
+<p><a href="index.html">Все разделы руководства</a> · <a href="getting-started.html">Установка и окружения</a> · <a href="reference.html">Технический справочник</a></p>
+<h2>Пошагово: два проекта и свои сочетания (dev)</h2>
+<ol>
+<li>Откройте папку первого проекта, затем второго. Над деревом появятся плашки проектов.</li>
+<li>В <strong>⚙ → Сочетания клавиш</strong> найдите <strong>IDE: предыдущий проект</strong> и <strong>IDE: следующий проект</strong>.</li>
+<li>Нажмите кнопку напротив действия и введите удобное сочетание. По умолчанию клавиши не назначены; Escape снимает назначение. Конфликт с другим назначаемым действием будет показан рядом.</li>
+<li>Вернитесь в IDE и нажмите назначенные клавиши. При несохранённых изменениях подтвердите переход либо отмените его и сохраните файл.</li>
+<li>Для выбора конкретного проекта откройте <strong>Ctrl+Shift+P</strong> и найдите <strong>Перейти в проект</strong> с его именем.</li>
+</ol>
+<h2>Пошагово: файлы рядом (0.9.2)</h2>
+<ol>
+<li>Выберите файл в дереве: он откроется во вкладке предпросмотра.</li>
+<li>Дважды нажмите файл или вкладку, чтобы закрепить её. Изменение или сохранение также закрепляет вкладку.</li>
+<li>Нажмите <strong>◫</strong> в нижней полосе, чтобы открыть соседнюю группу, затем выберите другой файл.</li>
+<li>Кликните в нужный редактор перед вводом, поиском или сохранением. У групп независимая история отмены.</li>
+<li><strong>Ctrl+P</strong> ищет файл по имени; <strong>Ctrl+G</strong> открывает ввод номера строки; <strong>Ctrl+Shift+F</strong> ищет содержимое по проекту.</li>
+</ol>
+<p>В нижней полосе кнопка <strong>консоль</strong> показывает shell в каталоге проекта. <strong>+</strong> в заголовке консоли добавляет вторую сессию, список терминалов выбирает активную. Скрытие панели сохраняет запущенные сессии. Перед сменой проекта завершите интерактивную команду: приложение не вводит <code>cd</code> в работающую программу.</p>
+</main></div></body></html>

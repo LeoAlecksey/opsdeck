@@ -259,7 +259,7 @@ function toggleModulesMenu(anchor: HTMLElement) {
     `<p class="muted hint">Выключенный модуль пропадает из меню и не загружается при следующем запуске.</p>`;
   const r = anchor.getBoundingClientRect();
   pop.style.left = `${r.right + 8}px`;
-  pop.style.bottom = `${Math.max(8, window.innerHeight - r.bottom)}px`;
+  pop.style.bottom = `${Math.min(window.innerHeight - 24, Math.max(8, window.innerHeight - r.bottom))}px`;
   // an open web panel is a native view over the window: it hides while the menu is open
   overlay(true);
   document.body.appendChild(pop);

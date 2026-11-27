@@ -2354,5 +2354,7 @@
  "Подробнее": "Details",
  "IDE: предыдущий проект": "IDE: previous project",
  "IDE: следующий проект": "IDE: next project",
- "Перейти в проект": "Switch to project"
+ "Перейти в проект": "Switch to project",
+ "Больше не показывать при запуске": "Do not show at startup",
+ "Будет открываться выбранное окружение. Изменить выбор можно в ⚙ → Окружения → «При запуске открывать».": "The selected environment will open automatically. Change this under Settings → Environments → Open at startup."
 }

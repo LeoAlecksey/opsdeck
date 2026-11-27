@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Установка и первый запуск — Wiki OpsDeck</title><meta name="description" content="Руководство OpsDeck: установка и первый запуск, подключения и работа с программой.">
+<link rel="canonical" href="https://leoalecksey.github.io/opsdeck/wiki/getting-started.html">
+<link rel="icon" href="../assets/icon.png"><link rel="stylesheet" href="style.css"></head>
+<body><header><a class="brand" href="../"><img src="../assets/icon.png" alt="">OpsDeck</a><a href="index.html">Wiki</a><a class="site-link" href="../">Сайт проекта ↗</a></header>
+<div class="layout"><aside><div class="aside-title">Руководство</div><nav><a  href="module-terminal.html">Терминал и AI</a>
+<a  href="module-k8s.html">Kubernetes</a>
+<a  href="module-web.html">Веб-панели</a>
+<a  href="module-alerts.html">Алерты</a>
+<a  href="module-net.html">Сеть и DNS</a>
+<a  href="module-yc.html">Yandex Cloud</a>
+<a  href="module-sftp.html">Файлы на хостах</a>
+<a  href="module-monitor.html">Мониторинг хостов</a>
+<a  href="module-ssh.html">SSH</a>
+<a  href="module-code.html">IDE: код и git</a>
+<a  href="module-db.html">Базы данных</a>
+<a  href="module-notes.html">Заметки</a>
+<a  href="module-tasks.html">Задачи и напоминания</a>
+<a  href="module-vault.html">KeePass</a>
+<a  href="module-gopass.html">gopass</a>
+<a  href="module-passbolt.html">Passbolt</a>
+<a  href="module-agent.html">ИИ-агент</a>
+<a  href="module-winbox.html">MikroTik</a>
+<a  href="module-settings.html">Настройки</a>
+<a  href="reference.html">Установка, сборка и технический справочник</a>
+<a  href="index.html">Главная</a>
+<a aria-current="page" href="getting-started.html">Установка и первый запуск</a>
+<a  href="connections.html">Подключения</a>
+<a  href="usage.html">Использование</a>
+<a  href="ai.html">Локальный ИИ и OpenCode</a></nav><div class="aside-foot">Версия dev<br><a href="https://github.com/LeoAlecksey/opsdeck/issues">Сообщить о проблеме ↗</a></div></aside>
+<main><h1>Установка и первый запуск</h1>
+<p><a href="index.html">← Wiki</a></p>
+<h2>Установка</h2>
+<p>Скачайте пакет для своей системы из <a href="https://github.com/LeoAlecksey/opsdeck/releases">GitHub Releases</a>: <code>.deb</code>, <code>.rpm</code> или <code>.AppImage</code> для Linux, <code>.msi</code> или <code>.exe</code> для Windows, <code>.dmg</code> для macOS. Требования по версиям ОС и инструкции для неподписанной сборки macOS приведены в <a href="https://github.com/LeoAlecksey/opsdeck/blob/master/README.md#%D1%83%D1%81%D1%82%D0%B0%D0%BD%D0%BE%D0%B2%D0%BA%D0%B0">README</a>.</p>
+<p>Для сборки из исходников нужны Node.js 20+, Rust и системные зависимости Tauri. Команды и пакеты для Linux перечислены в <a href="https://github.com/LeoAlecksey/opsdeck/blob/master/README.md#%D1%81%D0%B1%D0%BE%D1%80%D0%BA%D0%B0-%D0%B8%D0%B7-%D0%B8%D1%81%D1%85%D0%BE%D0%B4%D0%BD%D0%B8%D0%BA%D0%BE%D0%B2">README</a>.</p>
+<h2>Первые действия</h2>
+<ol>
+<li>Откройте <strong>⚙ Настройки</strong> и проверьте язык, найденные пути KeePass, заметок и WinBox.</li>
+<li>Нажмите <strong>⊞</strong> в левой колонке и включите нужные модули. Выключенный модуль не загружается.</li>
+<li>Добавьте первое подключение в его разделе: SSH-хост, контекст Kubernetes или веб-панель. Порядок описан в <a href="connections.html">Подключениях</a>.</li>
+<li>Для рабочих и тестовых систем при необходимости создайте разные <strong>Окружения</strong> в настройках. У них раздельные хосты, кластеры, базы, панели, пароли keyring и раскладка.</li>
+</ol>
+<h2>Внешние программы</h2>
+<p>Некоторые функции используют программы, установленные на компьютере: <code>ssh</code>, <code>sftp</code>, <code>scp</code> для хостов и файлов, <code>yc</code> для Yandex Cloud, WinBox для роутеров, CLI AI-агентов для соответствующей AI-панели. Файловые панели требуют вход по SSH-ключу. Локальную AI-модель и её движок можно поставить отдельно из <strong>⚙ → Локальный ИИ</strong>.</p>
+<p>Если функция недоступна, проверьте, что нужная программа запускается в терминале из <code>PATH</code>, затем откройте подсказку <strong>!</strong> в разделе.</p>
+<h2>Запуск без окна выбора окружения</h2>
+<ol>
+<li>При старте отметьте <strong>Больше не показывать при запуске</strong>.</li>
+<li>Нажмите <strong>Открыть</strong> у нужного окружения. Запоминается именно окружение, которое вы открываете.</li>
+<li>При следующем обычном запуске оно откроется автоматически.</li>
+<li>Чтобы вернуть вопрос или выбрать другое окружение по умолчанию, откройте <strong>⚙ → Окружения → При запуске открывать</strong>. Значение <strong>— спрашивать —</strong> возвращает выбор.</li>
+</ol>
+<p>Это уже существующая настройка запуска. Галочка не удаляет другие окружения: открыть их можно из текущего рабочего места через <strong>Окружения…</strong>.</p>
+<h2>Модули на небольшом экране</h2>
+<p>Нажмите <strong>⊞</strong> в левой колонке и прокрутите список колёсиком или тачпадом. Отметка включает раздел; снятие скрывает его, при следующем запуске его интерфейс не загружается. Левая колонка с включёнными разделами тоже прокручивается: если нижние значки не видны, наведите на неё мышь и прокрутите вниз.</p>
+<h2>Внешний вид и пояснения (dev)</h2>
+<p><strong>⚙ → Внешний вид → Тема интерфейса</strong> предлагает тёмную, светлую и системную тему. Выбор применяется сразу и сохраняется. Системный вариант следует светлой или тёмной теме ОС. Цвета терминала задаются независимо в <strong>⚙ → Терминал → Цветовая схема терминала</strong>.</p>
+<p>Пояснения в настройках свёрнуты под <strong>Подробнее</strong>. Нажмите надпись, чтобы прочитать текст; повторный клик сворачивает его. Разворачивание не меняет настройку и не требует сохранения.</p>
+</main></div></body></html>
